@@ -27,7 +27,7 @@ dependencies = [
     # the unsigned native _c_leiden; that is handled by graceful degradation, not by dropping the dep.
     # bootstrap verifies it via a SOFT probe (not the mandatory import set) and projector._leiden
     # degrades to label propagation when the import fails, so a SAC-blocked DLL never breaks the engine.
-    "leidenalg>=0.10,<1",     # Leiden community detection (optional at runtime — see note above)
+    "leidenalg>=0.12.0,<1",     # Leiden community detection (optional at runtime — see note above)
     # Divergence engine (FUSION_PLAN Stage 2, ported from Cambrian @ a2adfa1). All three install
     # from wheels with no build toolchain, matching the policy above. They are HARD deps so
     # /kg-diverge works out of the box, but every import of them inside kg_engine.divergence is
