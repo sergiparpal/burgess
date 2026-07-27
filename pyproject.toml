@@ -45,7 +45,7 @@ dependencies = [
 # Floor is 0.77.0 (2026-01-29): the first SDK release that ships `output_config` on
 # `messages.create()` for structured outputs. (0.73.0 only had the beta `output_format`
 # parameter, which `backend.py` does not use — it calls `output_config={"format": ...}`.)
-backend = ["anthropic>=0.77"]
+backend = ["anthropic>=0.77,<1"]
 # Test + dev tooling.
 dev = ["pytest>=8"]
 # Optional `lightrag` ideation-experiment arm (§Stage 8): a real, published GraphRAG baseline
