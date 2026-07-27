@@ -34,7 +34,7 @@ dependencies = [
     # lazy/guarded (I9): if they are missing or the model download fails, divergence raises a
     # clear actionable error and every convergence (kg_*) capability is untouched. Pins mirror
     # the donor's requirements.txt exactly.
-    "numpy>=1.26,<3",         # geometry: embeddings, kernels, archives
+    "numpy>=2.2.6,<3",         # geometry: embeddings, kernels, archives
     "scikit-learn>=1.4,<2",   # HashingVectorizer (hash embedder) + KMeans (CVT open-nicher)
     "model2vec>=0.3,<0.9",    # static embedder (potion-multilingual-128M), torch-free (I7)
 ]
