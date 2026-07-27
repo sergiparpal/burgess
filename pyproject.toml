@@ -15,7 +15,7 @@ dependencies = [
     "mcp>=1.2,<2",         # FastMCP server + tool surface (the graph engine interface)
     "pydantic>=2,<3",      # the boundary contract (P_write validation)
     "networkx>=3,<4",      # node-link graph.json interchange
-    "pyyaml>=6,<7",        # pack.yaml / glossary loader
+    "pyyaml>=6.0.3,<7",        # pack.yaml / glossary loader
     # Upper bounds pin BELOW the next (unverified) major so a fresh user venv can't silently pull a
     # breaking API change that the guarded _leiden import would degrade through rather than surface
     # (review-low). Verified working at igraph 1.0.0 / leidenalg 0.12.0; lift the cap after testing a
