@@ -14,7 +14,7 @@ dependencies = [
     # fresh user venv from pulling an untested major. The primary uv path is pinned by uv.lock regardless.
     "mcp>=1.2,<2",         # FastMCP server + tool surface (the graph engine interface)
     "pydantic>=2,<3",      # the boundary contract (P_write validation)
-    "networkx>=3,<4",      # node-link graph.json interchange
+    "networkx>=3.4.2,<4",      # node-link graph.json interchange
     "pyyaml>=6,<7",        # pack.yaml / glossary loader
     # Upper bounds pin BELOW the next (unverified) major so a fresh user venv can't silently pull a
     # breaking API change that the guarded _leiden import would degrade through rather than surface
