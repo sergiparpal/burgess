@@ -53,6 +53,20 @@ Donors are consulted and copied from — **never altered**:
 - Runs that could drop artifacts (test caches, `__pycache__`, build files) never execute inside donor trees. Donor test baselines are run on a **temporary copy** (e.g., `cp -r ../Sproutgraph /tmp/sg-baseline`) or, at minimum, with `PYTHONDONTWRITEBYTECODE=1` and `pytest -p no:cacheprovider`.
 - **Automated cleanliness gate, run before every stage commit:** for each donor, `git -C <donor> status --porcelain` is empty **and** `git -C <donor> rev-parse HEAD` equals the SHA recorded at Stage 0. Any deviation fails the gate; the agent restores cleanliness (delete strays it caused) and records the incident in `BLOCKERS.md`.
 
+> **Editorial note (2026-07-29), added after the fact.** The gate as written above is a *proxy*: it
+> enforced "the donor never changed at all" in order to guarantee "the fusion never wrote to the
+> donor". The proxy held only while the donors stayed retired. Cambrian has since been republished
+> and resumed active development, moving many commits past its pin, so the proxy began failing on
+> every Burgess commit while the invariant it stands for remained perfectly intact — the fusion is
+> finished and cannot retroactively write anywhere. `scripts/check_donors_clean.py` now enforces the
+> weaker, still-true statement: each pinned Stage-0 commit **still exists and is reachable from the
+> donor's `HEAD`**, so the exact tree that was copied from remains recoverable and every
+> `ATTRIBUTION.md` claim stays checkable. Donor working-tree cleanliness and an unmoved `HEAD` are no
+> longer asserted; a live repository has neither, and neither says anything about what the fusion did.
+> An *unreachable* pin is still a hard failure — that is the case where provenance really is lost.
+> The sibling checkouts were also renamed to lowercase (`../sproutgraph`, `../cambrian`) and the pins
+> updated to match.
+
 ### 2.3 Provenance pinning
 
 At Stage 0 the agent records each donor's `HEAD` SHA in `BASELINE.md`. All ported code is attributed to `repo URL @ SHA` in `ATTRIBUTION.md`. If upstream donors evolve during development, **this build does not chase them** — it is pinned to the Stage-0 SHAs (Decision Rule D5).
@@ -134,7 +148,7 @@ Each invariant is enforced by a test (or automated gate) that must exist **befor
 - **I8 — Negative memory is sticky and consulted.** Human discards and grounding failures live in one store; nothing in that store is re-proposed as a candidate or reused as a MAP-Elites parent.
 - **I9 — Graceful degradation.** If the embedding model is unavailable (offline, download failure), divergence features fail with a clear message; every convergence capability works untouched.
 - **I10 — Archive ephemerality.** No MAP-Elites archive file persists across sessions. Only pins, discards, and session metadata persist (project-local).
-- **I11 — Donor repos untouched.** The cleanliness gate of Section 2.2 (empty `git status --porcelain`, unchanged `HEAD` in both donors) passes at every stage commit.
+- **I11 — Donor repos untouched.** The cleanliness gate of Section 2.2 (empty `git status --porcelain`, unchanged `HEAD` in both donors) passes at every stage commit. *(2026-07-29: now enforced as Stage-0-commit reachability — see the editorial note at §2.2.)*
 
 ---
 
