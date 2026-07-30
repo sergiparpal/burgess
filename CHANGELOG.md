@@ -1,5 +1,125 @@
 # Changelog
 
+## 0.3.2 — 2026-07-30
+
+Concurrency and supply-chain release. The headline is the **canon lease's FIFO handoff**: a CI flake that
+looked like slow IO turned out to be starvation, and the measurement that found it — an ~11 ms critical
+section against a 3.29 s wave, i.e. 96% of the wall time asleep with the lease *free* — is why the first fix
+was thrown away rather than kept. The rest is the security posture now shared across all six plugin
+repositories, and the I11 donor gate corrected to enforce the invariant instead of a proxy for it. No change
+to the 27-tool MCP surface and no change to graph semantics — grounding output is untouched.
+
+### Fixed
+
+- **The single-writer lease starved its own waiters.** Every contender polled the lease on its own capped
+  exponential backoff, which cost two things at once: a handoff took up to `LOCK_RETRY_MAX` (0.5 s) no
+  matter how brief the write, and *nothing ordered the contenders*, so a writer could lose race after race
+  until its `LOCK_ACQUIRE_TIMEOUT` expired and it surfaced the by-design locked-vault error. That is how the
+  ten-writer wave test flaked on CI — three writers burning the whole budget while seven drained past them.
+  The blocking acquire now waits in a **FIFO ticket queue** under `.kg-session-lock.q/` where only the
+  *front* waiter polls the lease, which is what lets that poll be short (prompt handoff) without a
+  thundering herd; the same wave drains in ~0.2 s at the production budget. Tickets are pure ordering: one
+  never grants the lease and never bypasses `acquire()`'s O_EXCL/reclaim CAS, so a lost or forged ticket
+  costs a waiter its place in line and nothing else (**F16** single-writer safety is untouched). An
+  uncontended write — nearly every write, since a build wave funnels through the one server process — keeps
+  a fast path that never touches the queue, and `try_acquire_lock` stays strictly non-blocking and unqueued.
+- **…and the queue then starved them worse on Windows.** POSIX `unlink` succeeds with the file still open;
+  Windows raises `ERROR_SHARING_VIOLATION` — the same hazard `_replace_lockfile` already exists for — and
+  the front waiter's ticket is the *most-read file in the queue*, because every waiter behind it opens it to
+  check liveness. So the one dequeue most likely to fail was precisely the one that parks everybody, and
+  since tickets carried the lease's 120 s TTL that ghost blocked the queue far past the 30 s budget. Four
+  changes, each measured against a simulation that fails ticket unlinks at a set rate: tickets carry their
+  own short `LOCK_QUEUE_TICKET_TTL`, so a leaked one expires in seconds; liveness probes are throttled to
+  ~1/s with position otherwise taken from the directory listing (probing every poll is what aimed the read
+  pressure at the front ticket); ticket reads are **fail-closed**, since reaping a live waiter would push it
+  to the *back* of the queue, a starvation amplifier strictly worse than the unfairness the queue removes;
+  and a ticket proved dead yields its place whether or not the unlink lands, plus a `LOCK_QUEUE_STALL_SECS`
+  valve that abandons the queue for the unfair loop if position stops improving. Gating that skip on the
+  unlink landing — the first attempt — made queue *liveness* depend on deletion succeeding, and lost 8 of 10
+  writes where deletes fail outright. The structural rule this leaves behind: **keep liveness on the rename
+  side of the line.** Both locks already make progress depend on an atomic rename, with every following
+  delete only cleaning a sideline; the ticket queue briefly inverted that, making a file's continued
+  *existence* the blocking signal.
+- **`_atomic_write` temporaries were counted as queue waiters.** `mkstemp` inherits the target's suffix and
+  lands in the same directory, so a naive `*.json` listing saw `.tmp-XXXX.json` as a waiter ahead of the
+  whole queue (`.` sorts before every digit) and then reaped it — deleting another waiter's in-flight write
+  and silently degrading it. `_ticket_names` now excludes the `.tmp-*` prefix the canon already reserves for
+  exactly this.
+- **The I11 donor gate enforced a proxy that had stopped being true.** It asserted "each donor is frozen
+  exactly where Stage 0 left it", which held only while both donors stayed retired — Cambrian has since been
+  republished and resumed development, so the gate began failing on every commit while the invariant it
+  protects (the fusion never wrote to a donor) stayed perfectly intact. The sibling checkouts were also
+  renamed to lowercase, so the pinned relative paths stopped resolving at all. `check_donors_clean.py` now
+  asserts that each pinned Stage-0 commit **still exists and is reachable from the donor's `HEAD`**, which
+  keeps exactly what the invariant is for: the copied-from tree stays recoverable with `git show <sha>`, so
+  every `ATTRIBUTION.md` claim remains checkable. An *unreachable* pin is still a hard failure — that is
+  where provenance is genuinely lost. Donor working-tree cleanliness and an unmoved `HEAD` are deliberately
+  no longer asserted; a live repository has neither, and neither says anything about what the fusion did.
+- **A test regex could backtrack exponentially** (CodeQL `py/redos`, high). In `_registered_mcp_tools`'s
+  `@mcp.tool()` scrape, `\s` also matches `\n`, so `\s*\n\s*` could split a run of newlines many equivalent
+  ways, and nesting that in `(?:...)*` multiplied them — measured at 83 ms for 20 repetitions of the
+  pathological input, quadrupling every two (~85 s extrapolated at 30). Rewritten with `[ \t]` for
+  horizontal whitespace and every line break written explicitly: flat at ~0.02 ms. Both patterns scrape the
+  identical set of 27 tools, verified by set comparison before the change. The exposure was never real — the
+  input is this repo's own `server.py`, not attacker-controlled — but the pattern was genuinely vulnerable,
+  so bounding it beats dismissing the alert.
+
+### Changed
+
+- **CI declares its own security posture.** `permissions: contents: read`, so the read-only guarantee lives
+  in the file and survives a change to the repository-level setting; `concurrency` with `cancel-in-progress`,
+  so a superseded push stops burning minutes; and `timeout-minutes` on every job, because without one a hung
+  job holds a runner for the six-hour default. A `ci-complete` aggregating job gives the branch ruleset one
+  stable name to require — naming the matrix legs would mean that dropping a Python version leaves an
+  unsatisfiable required check blocking every merge. **Any new job that must gate merges has to join its
+  `needs:` list.**
+- **GitHub Actions are pinned to full commit SHAs**, never tags: a major tag such as `@v5` is mutable by
+  whoever controls the action's repository, and the workflow would pick up the repoint on its next run with
+  no diff here to show for it. Dependabot is enabled (weekly, five open PRs per ecosystem) and has since
+  proposed `checkout` v7.0.1, `setup-python` v7.0.0 and `setup-node` v7.0.0, all merged.
+- **`anthropic` is capped below its next major** (`>=0.77,<1`) — it was the only dependency left uncapped, so
+  a fresh venv resolving from these constraints could pull a 1.0 that nothing here has been tested against.
+  `leidenalg` moves to `>=0.12.0,<1`.
+- `SECURITY.md` added, pointing at private advisory reporting and scoped to the MCP server, source-document
+  ingestion, the provisioner and local state.
+- README refocused on the current plugin workflow; the large fossils image dropped from the repo.
+
+### Documented
+
+- **Two new decision records** in `docs/fusion/DECISIONS.md`. The lease queue records the measured bug, the
+  line the design must not cross (a ticket orders waiters but never authorizes one — the same shape of rule
+  as I5's advisory ceiling), and the fact that the **first diagnosis was wrong**: the flake was read as
+  slow-IO fsyncs and treated by raising the test's budget, a reading that does not survive instrumentation
+  and is exactly the plausible wrong answer a future reader reaches for again.
+- **The provision lock stays unordered, and that is now a checked claim.** The queue's sibling question was
+  whether `dirlock` needed the same treatment, and the claim that it "has the same unfair-backoff shape" was
+  wrong — it has no acquire loop at all, and the waiting lives in bootstrap's `_wait_for_lock` on a *fixed*
+  2 s poll. The deeper reason the queue does not belong there: a canon waiter needs a **turn** (every writer
+  must eventually write, so losing races exhausts its budget and fails the write, which is exactly how the
+  flake presented), while a provisioning waiter needs an **outcome** — the venv being ready — and leaves on
+  the `venv_current` check without ever taking the lock. Measured at 20 concurrent sessions: all 20 exit at
+  2.02 s for a ~0 s build and 4.01 s for a 2 s build, one build, zero timeouts, with overhead independent of
+  session count. The Windows failure above then settled it with evidence rather than structure: the queue's
+  real cost was not its line count but acquiring a platform-specific failure class that needed a simulation
+  harness and five CI samples to believe — a bad trade for the least recoverable part of the install.
+- `CLAUDE.md` documents the branch-ruleset git workflow and the SHA-pinning rule, and its Donors section is
+  corrected to the reachability gate. It previously described a rule that no longer exists, which would have
+  told the next agent to expect a frozen donor `HEAD`.
+
+### Tests
+
+- `tests/test_fix_canon.py` pins the queue: arrival-order service, stale-ticket reaping, degradation when the
+  queue is unavailable, leaked-ticket expiry on the ticket TTL, unreadable tickets respected rather than
+  reaped, a dead-but-undeletable ticket yielding its place, the wedged-queue valve, `probe=False` opening no
+  ticket, `.tmp-*` temporaries not counted as waiters, and an uncontended write never creating the queue at
+  all. Each was checked to **fail** with only its own mechanism defeated; one was vacuous on the first
+  attempt (a free lease let the writer take the fast path and skip the queue entirely) and was rewritten.
+- `tests/test_bootstrap.py::test_concurrent_provisioners_run_one_build_and_none_starve` — N concurrent
+  provisioners must produce exactly one build and leave no waiter sitting out its deadline. It drives real
+  subprocesses rather than threads because `dirlock._OWNED_TOKENS` is module state, a sharing hazard that
+  cannot exist across the separate processes this lock actually serializes. Confirmed non-vacuous: a lock
+  that always grants runs 4 concurrent builds, and a build that never finishes leaves 3 waiters timed out.
+
 ## 0.3.1 — 2026-07-09
 
 Correctness, robustness and performance sweep from an eleventh exhaustive review (**review-r11**). Two
