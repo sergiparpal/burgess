@@ -55,8 +55,9 @@ TRANSIENT_REAP_TTL = 3600.0
 # probed, so such a dead holder is only seen stale once its lease TTL lapses — a writer may wait up to this budget meanwhile,
 # then surface the error, and a later attempt reclaims it. Since the blocking acquire became FIFO-fair
 # (LOCK_QUEUE_* below) a waiter spends its budget on the writes genuinely AHEAD of it rather than on lost
-# races, so the default covers a full max-size (10) wave with room to spare; tests override it per Canon
-# (e.g. 0 to assert the old immediate-fail).
+# races, which is what makes this default comfortable for a full max-size (10) wave on ordinary hardware
+# — but it is a budget, not a guarantee, and a pathological runner can still outlast it; tests override
+# it per Canon (e.g. 0 to assert the old immediate-fail, or generous where the point is serialization).
 LOCK_ACQUIRE_TIMEOUT = 30.0
 # Backoff for the UNFAIR fallback loop (only reached when the ticket queue below is unavailable) and for
 # the lease-file rename-aside retry (LOCK_REPLACE_RETRY_TIMEOUT).
@@ -73,6 +74,28 @@ LOCK_RETRY_MAX = 0.5
 LOCK_QUEUE_DIRNAME = f"{LOCK_NAME}.q"
 LOCK_QUEUE_POLL_MIN = 0.01  # front of the queue: this IS the per-writer handoff latency a wave pays
 LOCK_QUEUE_POLL_MAX = 0.25  # far back: the writers ahead must drain first, so poll cheaply
+# A ticket must be refreshed this often to keep its place, and this is the WINDOWS backstop. POSIX
+# unlink succeeds with the file still open, so a waiter's dequeue always lands there; on Windows it
+# raises ERROR_SHARING_VIOLATION while any other process holds the file open (the same reason
+# _replace_lockfile exists) — and the FRONT waiter's ticket is the most-read file in the queue, since
+# every waiter behind it reads it to check liveness. So the one dequeue most likely to fail is exactly
+# the one that parks everybody. Tickets therefore carry their OWN short TTL instead of the lease's
+# 120s: a leaked ticket stops being refreshed the moment its owner takes the lease, so it goes stale
+# in seconds and the next waiter reaps it, rather than blocking the queue for the whole lease TTL.
+LOCK_QUEUE_TICKET_TTL = 5.0
+LOCK_QUEUE_PROBE_SECS = 1.0   # how often a waiter re-validates the tickets AHEAD of it (see below)
+LOCK_QUEUE_DEQUEUE_RETRY = 0.05  # brief retry so the common Windows unlink collision still lands
+# Liveness valve: if our position has not improved in this long, stop trusting the queue and finish on
+# the unfair loop. Ordering is an optimization and must never be able to make a writer do WORSE than
+# the pre-queue behavior — so any way the queue can stall (a filesystem where the reaping unlink never
+# lands, a pathology not yet imagined) costs fairness, never the write. Deliberately BELOW one ticket
+# TTL: waiting out a ghost is itself a stall, and degrading beats waiting. It cannot cost the fairness
+# that matters, because the regime fairness exists for — many contenders with ~10ms critical sections —
+# improves position every few milliseconds and can never approach this. It trips only where one writer
+# ahead runs long (fairness is moot: the wait is real work) or the queue is genuinely wedged. Chosen on
+# measurement: under a synthetic filesystem where EVERY ticket unlink fails, 15s and 8s still spent the
+# budget and failed writes, while this drains the same 10-writer wave in ~6s with none lost.
+LOCK_QUEUE_STALL_SECS = 4.0
 # Bounded retry budget for the lease-file rename-aside CAS (release + stale-reclaim). On Windows,
 # os.replace() on the lock file fails with a sharing violation (PermissionError/ERROR_SHARING_VIOLATION)
 # while ANOTHER session momentarily holds it open for read — which the spinning waiters in
@@ -365,19 +388,37 @@ class LeaseLock:
         tag = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in f"{self.host}-{self.pid}")
         ticket = self.queue_dir / f"{int(now * 1_000_000):020d}-{tag}-{os.urandom(4).hex()}.json"
         try:
-            _atomic_write(ticket, json.dumps(self._record(now)))
+            _atomic_write(ticket, json.dumps(self._ticket_record(now)))
             return ticket
         except OSError:
             return None
 
+    def _ticket_record(self, now: float) -> dict:
+        """A lease record carrying the ticket's OWN short TTL — see LOCK_QUEUE_TICKET_TTL for why a
+        ticket must expire far sooner than the lease it is queueing for."""
+        rec = self._record(now)
+        rec["ttl"] = LOCK_QUEUE_TICKET_TTL
+        return rec
+
     def dequeue(self, ticket: Path) -> None:
-        """Give up our place. Best-effort: a ticket we fail to remove is reaped by the next waiter that
-        queues behind it once it goes stale (the lease's own TTL/pid-probe rule), and by
-        reap_transient_files in a vault where nobody ever contends again."""
-        try:
-            ticket.unlink()
-        except OSError:
-            pass
+        """Give up our place. Retried briefly because THIS unlink is the one most likely to fail on
+        Windows: we are normally the front of the queue (we just took the lease), and every waiter
+        behind us reads our ticket to check whether we are still live, so the file is often open
+        elsewhere at exactly this moment (ERROR_SHARING_VIOLATION). The retry budget is deliberately
+        tiny — this runs on the hot path, right before the write the lease was taken for — because
+        the real guarantee is LOCK_QUEUE_TICKET_TTL: a ticket we never manage to remove stops being
+        refreshed here and goes stale in seconds, so it parks the queue briefly instead of forever."""
+        deadline = time.monotonic() + LOCK_QUEUE_DEQUEUE_RETRY
+        while True:
+            try:
+                ticket.unlink()
+                return
+            except FileNotFoundError:
+                return  # already gone (reaped as stale while we held it) — nothing to do
+            except OSError:
+                if time.monotonic() >= deadline:
+                    return  # the TTL backstop takes it from here
+                time.sleep(0.005)
 
     def _ticket_names(self) -> list[str]:
         """The queue's ticket names in arrival (lexical) order.
@@ -392,19 +433,29 @@ class LeaseLock:
         return sorted(p.name for p in self.queue_dir.iterdir()
                       if p.name.endswith(".json") and not p.name.startswith(".tmp-"))
 
-    def queue_position(self, ticket: Path, now: float | None = None) -> int:
-        """How many LIVE waiters sit ahead of `ticket` — 0 means it is our turn to attempt the lease —
-        or -1 when our own ticket is gone (reaped while we stalled) and the caller must rejoin.
+    def queue_position(self, ticket: Path, now: float | None = None, *, probe: bool = True) -> int:
+        """How many waiters sit ahead of `ticket` — 0 means it is our turn to attempt the lease — or
+        -1 when our own ticket is gone (reaped while we stalled) and the caller must rejoin.
 
-        Reaps stale tickets ahead of us on the way, so a waiter that crashed mid-wait cannot park the
-        whole queue behind it. Staleness is the lease's own rule (`_rec_stale`: TTL lapsed, or a
-        same-host pid that no longer probes alive), so a foreign-HOST waiter is never reaped early —
-        only once its TTL lapses — exactly as an unprobeable lease holder is.
+        With `probe` (the default) the tickets ahead are re-validated and the stale ones reaped, so a
+        waiter that crashed mid-wait cannot park the queue behind it. Staleness is the lease's own
+        rule (`_rec_stale`), now against the ticket's short LOCK_QUEUE_TICKET_TTL.
 
-        Cost is O(waiters ahead of us) reads, and a waiter that far back polls proportionally slower
-        (LOCK_QUEUE_POLL_MIN scaling), so the queue as a whole does constant work per unit time no
-        matter how deep it gets; the FRONT waiter — the only one on the hot handoff path — reads
-        nothing at all and pays one listdir."""
+        With `probe=False` the position comes from the directory listing ALONE — no ticket is opened.
+        Callers probe about once a second (LOCK_QUEUE_PROBE_SECS) and take the cheap path otherwise,
+        which matters on Windows: reading a ticket holds it open, and Python's open() does not grant
+        FILE_SHARE_DELETE, so a waiter reading the ticket ahead of it makes that ticket's owner's own
+        dequeue fail with a sharing violation. Probing on every poll aimed that read pressure squarely
+        at the FRONT ticket — the one every other waiter re-reads and the one whose leak parks the
+        whole queue. Throttling the probe cuts that collision window by ~100x while costing at most
+        LOCK_QUEUE_PROBE_SECS of extra wait behind a ticket that is already dead.
+
+        Reads are fail-CLOSED, matching the live-lock reader (_read): only a ticket that is genuinely
+        ABSENT counts as gone. One that is present but unreadable — the transient sharing violation
+        above, or a corrupt record — is respected as live rather than reaped, because reaping it would
+        push a healthy waiter to the BACK of the queue (it re-enqueues on -1), which is a starvation
+        amplifier strictly worse than the unfairness this queue exists to remove. Such a ticket is
+        still reclaimed once it ages past the TTL, judged by mtime since we cannot read its record."""
         now = time.time() if now is None else now
         try:
             names = self._ticket_names()
@@ -412,28 +463,63 @@ class LeaseLock:
             return -1  # queue dir vanished/unreadable — rejoin (or degrade) rather than assume front
         if ticket.name not in names:
             return -1
+        ahead_names = names[:names.index(ticket.name)]
+        if not probe:
+            return len(ahead_names)
         ahead = 0
-        for name in names[:names.index(ticket.name)]:
+        for name in ahead_names:
             p = self.queue_dir / name
-            # tolerant: a ticket that vanished (its owner just dequeued) or is unreadable reads as no
-            # record, which _rec_stale treats as stale — i.e. "not ahead of us" — and we try to reap it.
-            if self._rec_stale(self._read_path(p, tolerant=True), now):
-                try:
-                    p.unlink()
-                except OSError:
-                    ahead += 1  # couldn't reap it (e.g. Windows sharing violation) — respect it this
-                                # round and retry next poll rather than jumping a still-present ticket
-            else:
+            try:
+                rec = json.loads(p.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                continue  # its owner dequeued between the listing and here — genuinely not ahead
+            except (ValueError, OSError):
+                # Present but unreadable. Never jump or reap what we cannot PROVE is dead; only an
+                # ORPHAN (older than the ticket TTL by mtime) is reclaimable without reading it.
+                if self._ticket_orphaned(p, now):
+                    self._reap_ticket(p)
+                    continue
                 ahead += 1
+                continue
+            if self._rec_stale(rec, now):
+                # PROVED dead, so it never holds a place — whether or not we manage to delete it.
+                # Making the skip conditional on the unlink made queue LIVENESS depend on deletion
+                # succeeding: where unlink persistently fails, a dead ticket could never be cleared
+                # and parked every writer until its budget ran out. Ordering is advisory; the lease
+                # CAS is what actually serializes, so at worst two waiters both think they are front
+                # and one loses the O_EXCL race.
+                self._reap_ticket(p)
+                continue
+            ahead += 1
         return ahead
 
+    def _ticket_orphaned(self, p: Path, now: float) -> bool:
+        """Whether an UNREADABLE ticket has aged past the ticket TTL by mtime — the only evidence of
+        death available when its record cannot be parsed. Unstattable reads as NOT orphaned (fail
+        closed: never reclaim on the strength of a second failed syscall)."""
+        try:
+            return (now - p.stat().st_mtime) > LOCK_QUEUE_TICKET_TTL
+        except OSError:
+            return False
+
+    @staticmethod
+    def _reap_ticket(p: Path) -> None:
+        """Best-effort removal of a ticket already proved dead. Deliberately returns nothing: no
+        caller may condition queue progress on the unlink landing (see queue_position)."""
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
     def heartbeat_ticket(self, ticket: Path, now: float | None = None) -> None:
-        """Refresh a WAITING ticket so a long wait (a budget at or above the lease TTL) is never
-        mistaken for a crashed waiter and reaped out of the queue. Best-effort like the lease
-        heartbeat: a missed refresh costs at most our place in line."""
+        """Refresh a WAITING ticket so it keeps its place: tickets expire on the short
+        LOCK_QUEUE_TICKET_TTL, so an unrefreshed one is reaped within seconds. That is deliberate —
+        it is what reclaims a ticket whose owner could not delete it (Windows) — and it means a live
+        waiter MUST keep refreshing. Best-effort like the lease heartbeat: a missed refresh costs at
+        most our place in line, never correctness."""
         now = time.time() if now is None else now
         try:
-            _atomic_write(ticket, json.dumps(self._record(now)))
+            _atomic_write(ticket, json.dumps(self._ticket_record(now)))
         except OSError:
             pass
 
@@ -665,11 +751,23 @@ class Canon:
                         # No queue available (read-only vault, permissions): fall back to the unfair
                         # backoff loop rather than fail a write over a fairness optimization.
                         return self._acquire_lease_unfair(deadline)
-                    last_hb = time.monotonic()
-                pos = self.lock.queue_position(ticket)
+                    last_hb = last_probe = last_progress = time.monotonic()
+                    best_pos = -1
+                # Re-validate the tickets ahead only about once a second; the rest of the time the
+                # position comes from the listing alone. See queue_position: opening a ticket blocks
+                # its owner's own dequeue on Windows, and the front ticket is the one every waiter
+                # would otherwise re-read on every poll.
+                probe = (time.monotonic() - last_probe) >= LOCK_QUEUE_PROBE_SECS
+                pos = self.lock.queue_position(ticket, probe=probe)
+                if probe:
+                    last_probe = time.monotonic()
                 if pos < 0:
                     ticket = None  # reaped under us (a stall past our TTL) — rejoin at the back
                     continue
+                if best_pos < 0 or pos < best_pos:
+                    best_pos, last_progress = pos, time.monotonic()
+                elif (time.monotonic() - last_progress) > LOCK_QUEUE_STALL_SECS:
+                    return self._acquire_lease_unfair(deadline)  # queue wedged — see LOCK_QUEUE_STALL_SECS
                 if pos == 0:
                     try:
                         if self.lock.acquire():
@@ -679,7 +777,9 @@ class Canon:
                 now = time.monotonic()
                 if now >= deadline:
                     return False
-                if (now - last_hb) > (self.lock.ttl / HEARTBEAT_REFRESHES_PER_TTL):
+                # Keep our place: a ticket that stops being refreshed goes stale within
+                # LOCK_QUEUE_TICKET_TTL, which is exactly what reclaims a LEAKED one.
+                if (now - last_hb) > (LOCK_QUEUE_TICKET_TTL / HEARTBEAT_REFRESHES_PER_TTL):
                     self.lock.heartbeat_ticket(ticket)
                     last_hb = now
                 # Front of the queue polls tightly (that interval IS the wave's per-writer handoff cost);
