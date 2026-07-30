@@ -1,6 +1,6 @@
 {
   "name": "burgess",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "The full creative cycle in one plugin: turn a conceptual document into a rigorously-grounded, queryable knowledge graph (human-editable canon, three-axis provenance, span-present write boundary, grounding loop with memory of failures), and diverge from any brief with a geometry-driven ideation engine (MAP-Elites, k-NN novelty, DPP slates, anti-collapse monitor) that proposes into the hypothesized lane — embeddings measure dispersion, never truth.",
   "author": {
     "name": "Sergi Parpal",
