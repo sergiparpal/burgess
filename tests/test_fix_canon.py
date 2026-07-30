@@ -440,6 +440,13 @@ def test_full_wave_of_concurrent_writers_all_commit_none_corrupted(tmp_path: Pat
     commit: every node lands, none is corrupted, none is silently dropped, and no writer raises."""
     WAVE = 10
     canons = [_foreign_canon(tmp_path, f"writer-host-{i}") for i in range(WAVE)]
+    # Generous per-writer lease budget (via the per-instance seam LOCK_ACQUIRE_TIMEOUT documents):
+    # the invariant under test is that contended writers SERIALIZE — not that they do so inside the
+    # production 30s budget. Each serialized write pays several fsyncs (lock heartbeat, note file,
+    # canon-dir), and on a slow-IO CI runner 7 writes were observed to eat the whole default budget,
+    # making the tail of the wave surface the (by-design) locked-vault error as a spurious failure.
+    for c in canons:
+        c.lock_acquire_timeout = 120.0
     errors: list[str] = []
     start = threading.Barrier(WAVE)
 
@@ -456,8 +463,11 @@ def test_full_wave_of_concurrent_writers_all_commit_none_corrupted(tmp_path: Pat
     threads = [threading.Thread(target=writer, args=(i, c)) for i, c in enumerate(canons)]
     for t in threads:
         t.start()
+    # One shared deadline above the lease budget (not a per-thread join timeout, which would stack
+    # to WAVE× on a genuine deadlock): the whole wave must drain within it.
+    deadline = time.monotonic() + 150
     for t in threads:
-        t.join(timeout=60)
+        t.join(timeout=max(0.0, deadline - time.monotonic()))
 
     assert not any(t.is_alive() for t in threads), "a writer deadlocked on the lease"
     assert not errors, errors

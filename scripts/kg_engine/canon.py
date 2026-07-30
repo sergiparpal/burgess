@@ -53,8 +53,10 @@ TRANSIENT_REAP_TTL = 3600.0
 # reclaimed immediately via staleness inside acquire() (its pid no longer probes alive on POSIX or, since
 # FALLO 2, via OpenProcess on Windows), so it is never waited on; only a CROSS-HOST holder's pid can't be
 # probed, so such a dead holder is only seen stale once its lease TTL lapses — a writer may wait up to this budget meanwhile,
-# then surface the error, and a later attempt reclaims it. The default comfortably covers a full max-size
-# (10) wave of brief writes serializing; tests override it per Canon (e.g. 0 to assert the old immediate-fail).
+# then surface the error, and a later attempt reclaims it. The default covers a full max-size (10) wave of
+# brief writes serializing on ordinary disks, but NOT guaranteed under pathological fsync latency (a
+# slow-IO CI runner was observed to spend >30s on 7 serialized writes); tests override it per Canon
+# (e.g. 0 to assert the old immediate-fail, or generous for the contended-wave test).
 LOCK_ACQUIRE_TIMEOUT = 30.0
 LOCK_RETRY_INITIAL = 0.05
 LOCK_RETRY_MAX = 0.5
