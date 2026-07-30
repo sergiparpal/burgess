@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -706,6 +707,97 @@ def test_fresh_orphan_is_spared(tmp_path):
     assert bootstrap.try_acquire(venv_dir) is True
     assert fresh.exists()
     bootstrap.release(venv_dir)
+
+
+# --------------------------------------------------------------------------- contended provisioning
+# Why this is NOT the canon lease's problem (2026-07-30, DECISIONS.md "The provision lock stays
+# unordered"): canon.LeaseLock had to be made FIFO-fair because each of its waiters needs a TURN — a
+# writer that keeps losing races eventually exhausts its budget and fails its write. A provisioning
+# waiter needs an OUTCOME (the venv being ready), not a turn: when the builder finishes, every waiter
+# leaves on the readiness check without ever taking the lock. That is what makes the unordered 2s poll
+# correct here, so it is worth pinning rather than leaving as an implicit property.
+#
+# Real SUBPROCESSES, not threads: dirlock._OWNED_TOKENS is module state, so threads sharing one process
+# would share the token map and could pop each other's ownership between release()'s os.replace and its
+# pop — a hazard that cannot exist across the separate processes this lock actually serializes.
+
+
+_CONTENDED_CHILD = '''
+import importlib.util, os, sys, time
+from pathlib import Path
+
+boot_path, venv_dir, ready, markers = sys.argv[1:5]
+venv_dir, ready, markers = Path(venv_dir), Path(ready), Path(markers)
+
+spec = importlib.util.spec_from_file_location("kg_bootstrap", boot_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+mod.POLL_SECS = 0.05                       # keep the test quick; the loop shape is unchanged
+mod.venv_current = lambda vd: ready.exists()   # "the venv is provisioned" signal, shared by all children
+
+out = mod._wait_for_lock(venv_dir, time.time() + 60)
+if out is None:                            # we hold the lock -> we are a candidate builder
+    try:
+        if ready.exists():
+            # bootstrap's post-acquire re-check (provision(): "re-check now that we hold the lock")
+            print("RESULT acquired-after-ready")
+        else:
+            (markers / ("build-%d" % os.getpid())).write_text("built", encoding="utf-8")
+            time.sleep(0.3)                # the venv build
+            ready.write_text("ready", encoding="utf-8")
+            print("RESULT built")
+    finally:
+        mod.release(venv_dir)
+elif out == mod.EXIT_OK:
+    print("RESULT another-finished")
+else:
+    print("RESULT exit-%s" % out)
+'''
+
+
+def test_concurrent_provisioners_run_one_build_and_none_starve(tmp_path):
+    """N sessions racing to provision must produce exactly ONE build, and every waiter must reach a
+    terminal answer — none may sit out its whole deadline. The lock is deliberately unordered, so this
+    is the property that makes ordering unnecessary: a loser of the mkdir race does not queue for a
+    turn, it observes the finished venv and leaves."""
+    child = tmp_path / "child.py"
+    child.write_text(_CONTENDED_CHILD, encoding="utf-8")
+    venv_dir = tmp_path / "venv"
+    ready = tmp_path / "ready"
+    markers = tmp_path / "markers"
+    markers.mkdir()
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(_BOOT_PATH.parent)  # kg_engine (dirlock) lives beside bootstrap.py
+    for var in ("KG_ENGINE_VENV", "CLAUDE_PLUGIN_DATA"):
+        env.pop(var, None)
+
+    procs = [
+        subprocess.Popen(
+            [sys.executable, str(child), str(_BOOT_PATH), str(venv_dir), str(ready), str(markers)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        for _ in range(4)
+    ]
+    results = []
+    for p in procs:
+        out, err = p.communicate(timeout=180)
+        assert p.returncode == 0, f"provisioner crashed: {err}"
+        line = [ln for ln in out.splitlines() if ln.startswith("RESULT ")]
+        assert line, f"no result from provisioner: {out!r} {err!r}"
+        results.append(line[0].removeprefix("RESULT "))
+
+    # Exactly one real build: the lock did its job (two would mean two jobs clobbering one venv).
+    assert len(list(markers.iterdir())) == 1, f"expected one build, got {sorted(markers.iterdir())}"
+    assert results.count("built") == 1, results
+    # Nobody starved: every other session reached a terminal answer instead of waiting out its deadline.
+    assert not [r for r in results if r.startswith("exit-")], f"a provisioner starved: {results}"
+    # The lock is released and nothing leaked behind it.
+    lock = bootstrap._lock_dir(venv_dir)
+    assert not lock.exists(), "the provision lock outlived the wave"
+    assert not list(lock.parent.glob(f"{bootstrap.LOCK_NAME}.stale-*"))
+    assert not list(lock.parent.glob(f"{bootstrap.LOCK_NAME}.release-*"))
 
 
 def _write_info(venv_dir, *, pid, host, token="tok", t=None):
