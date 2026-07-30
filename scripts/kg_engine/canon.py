@@ -53,13 +53,26 @@ TRANSIENT_REAP_TTL = 3600.0
 # reclaimed immediately via staleness inside acquire() (its pid no longer probes alive on POSIX or, since
 # FALLO 2, via OpenProcess on Windows), so it is never waited on; only a CROSS-HOST holder's pid can't be
 # probed, so such a dead holder is only seen stale once its lease TTL lapses — a writer may wait up to this budget meanwhile,
-# then surface the error, and a later attempt reclaims it. The default covers a full max-size (10) wave of
-# brief writes serializing on ordinary disks, but NOT guaranteed under pathological fsync latency (a
-# slow-IO CI runner was observed to spend >30s on 7 serialized writes); tests override it per Canon
-# (e.g. 0 to assert the old immediate-fail, or generous for the contended-wave test).
+# then surface the error, and a later attempt reclaims it. Since the blocking acquire became FIFO-fair
+# (LOCK_QUEUE_* below) a waiter spends its budget on the writes genuinely AHEAD of it rather than on lost
+# races, so the default covers a full max-size (10) wave with room to spare; tests override it per Canon
+# (e.g. 0 to assert the old immediate-fail).
 LOCK_ACQUIRE_TIMEOUT = 30.0
+# Backoff for the UNFAIR fallback loop (only reached when the ticket queue below is unavailable) and for
+# the lease-file rename-aside retry (LOCK_REPLACE_RETRY_TIMEOUT).
 LOCK_RETRY_INITIAL = 0.05
 LOCK_RETRY_MAX = 0.5
+# FIFO ticket queue for the BLOCKING writer acquire. Before it every contender polled the lease on its
+# own capped backoff, which cost two things. (a) Handoff took up to LOCK_RETRY_MAX even though the
+# critical section is ~10ms: a measured 10-writer wave spent 96% of its wall time ASLEEP with the lease
+# free (3.29s wall for 0.11s of work). (b) Nothing ordered the contenders, so a waiter could lose race
+# after race — on a loaded CI runner three writers of a ten-writer wave burned the entire 30s budget and
+# surfaced the by-design locked-vault error while seven others drained past them. A ticket makes order of
+# ARRIVAL the order of service, which bounds the tail wait at "the writes actually ahead of me"; polling
+# the lease only from the FRONT is what lets that poll be short (prompt handoff) with no thundering herd.
+LOCK_QUEUE_DIRNAME = f"{LOCK_NAME}.q"
+LOCK_QUEUE_POLL_MIN = 0.01  # front of the queue: this IS the per-writer handoff latency a wave pays
+LOCK_QUEUE_POLL_MAX = 0.25  # far back: the writers ahead must drain first, so poll cheaply
 # Bounded retry budget for the lease-file rename-aside CAS (release + stale-reclaim). On Windows,
 # os.replace() on the lock file fails with a sharing violation (PermissionError/ERROR_SHARING_VIOLATION)
 # while ANOTHER session momentarily holds it open for read — which the spinning waiters in
@@ -326,6 +339,104 @@ class LeaseLock:
             except OSError:
                 pass
 
+    # ---- FIFO ticket queue (fairness for the BLOCKING acquire — see LOCK_QUEUE_DIRNAME)
+    #
+    # These are pure ORDERING: a ticket never grants the lease and never bypasses acquire()'s
+    # O_EXCL/reclaim CAS, so a lost, duplicated or forged ticket costs a waiter its place in line and
+    # nothing else. Single-writer safety (F16) stays entirely with acquire(); that separation is what
+    # makes it safe for every method here to degrade silently on an OSError.
+
+    @property
+    def queue_dir(self) -> Path:
+        return self.path.with_name(LOCK_QUEUE_DIRNAME)
+
+    def enqueue(self, now: float | None = None) -> Path | None:
+        """Take a ticket for the blocking acquire; None when the queue is unavailable (read-only vault,
+        permissions) so the caller degrades to the unfair backoff loop rather than failing a WRITE over
+        what is only a fairness optimization.
+
+        The name embeds the arrival stamp zero-padded, so a plain lexical sort of the directory IS
+        arrival order, with a host/pid/random tail to keep two same-microsecond arrivals distinct and
+        totally ordered. Ordering is by WALL CLOCK: cross-host clock skew therefore degrades fairness
+        (a skewed waiter queues early or late) but never correctness, per the note above. Written via
+        _atomic_write so a concurrent reader never sees a half-written ticket and reaps it as corrupt
+        (mkparents creates the queue dir, fsync makes the entry visible to the other waiters)."""
+        now = time.time() if now is None else now
+        tag = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in f"{self.host}-{self.pid}")
+        ticket = self.queue_dir / f"{int(now * 1_000_000):020d}-{tag}-{os.urandom(4).hex()}.json"
+        try:
+            _atomic_write(ticket, json.dumps(self._record(now)))
+            return ticket
+        except OSError:
+            return None
+
+    def dequeue(self, ticket: Path) -> None:
+        """Give up our place. Best-effort: a ticket we fail to remove is reaped by the next waiter that
+        queues behind it once it goes stale (the lease's own TTL/pid-probe rule), and by
+        reap_transient_files in a vault where nobody ever contends again."""
+        try:
+            ticket.unlink()
+        except OSError:
+            pass
+
+    def _ticket_names(self) -> list[str]:
+        """The queue's ticket names in arrival (lexical) order.
+
+        Excludes the `.tmp-*` atomic-write temporaries, which land IN this directory: mkstemp inherits
+        the target's suffix, so writing `<stamp>-…json` first creates `.tmp-XXXX.json` beside it. A
+        naive `*.json` listing would (a) count that half-written file as a live waiter AHEAD of the
+        whole queue — `.` sorts before every digit — and then (b) find it unparseable, judge it stale
+        and UNLINK it, destroying another waiter's in-flight write out from under its os.replace and
+        silently degrading that writer to the unfair path. `.tmp-*` is already reserved for exactly this
+        across the canon (notes() and reap_transient_files both special-case it)."""
+        return sorted(p.name for p in self.queue_dir.iterdir()
+                      if p.name.endswith(".json") and not p.name.startswith(".tmp-"))
+
+    def queue_position(self, ticket: Path, now: float | None = None) -> int:
+        """How many LIVE waiters sit ahead of `ticket` — 0 means it is our turn to attempt the lease —
+        or -1 when our own ticket is gone (reaped while we stalled) and the caller must rejoin.
+
+        Reaps stale tickets ahead of us on the way, so a waiter that crashed mid-wait cannot park the
+        whole queue behind it. Staleness is the lease's own rule (`_rec_stale`: TTL lapsed, or a
+        same-host pid that no longer probes alive), so a foreign-HOST waiter is never reaped early —
+        only once its TTL lapses — exactly as an unprobeable lease holder is.
+
+        Cost is O(waiters ahead of us) reads, and a waiter that far back polls proportionally slower
+        (LOCK_QUEUE_POLL_MIN scaling), so the queue as a whole does constant work per unit time no
+        matter how deep it gets; the FRONT waiter — the only one on the hot handoff path — reads
+        nothing at all and pays one listdir."""
+        now = time.time() if now is None else now
+        try:
+            names = self._ticket_names()
+        except OSError:
+            return -1  # queue dir vanished/unreadable — rejoin (or degrade) rather than assume front
+        if ticket.name not in names:
+            return -1
+        ahead = 0
+        for name in names[:names.index(ticket.name)]:
+            p = self.queue_dir / name
+            # tolerant: a ticket that vanished (its owner just dequeued) or is unreadable reads as no
+            # record, which _rec_stale treats as stale — i.e. "not ahead of us" — and we try to reap it.
+            if self._rec_stale(self._read_path(p, tolerant=True), now):
+                try:
+                    p.unlink()
+                except OSError:
+                    ahead += 1  # couldn't reap it (e.g. Windows sharing violation) — respect it this
+                                # round and retry next poll rather than jumping a still-present ticket
+            else:
+                ahead += 1
+        return ahead
+
+    def heartbeat_ticket(self, ticket: Path, now: float | None = None) -> None:
+        """Refresh a WAITING ticket so a long wait (a budget at or above the lease TTL) is never
+        mistaken for a crashed waiter and reaped out of the queue. Best-effort like the lease
+        heartbeat: a missed refresh costs at most our place in line."""
+        now = time.time() if now is None else now
+        try:
+            _atomic_write(ticket, json.dumps(self._record(now)))
+        except OSError:
+            pass
+
 
 def _replace_lockfile(src: Path, dst: Path) -> None:
     """os.replace(src, dst) for the lease file, resilient to transient Windows sharing violations.
@@ -487,7 +598,10 @@ class Canon:
         # `git add -A` commits per-machine runtime state into canon history and `git stash -u` discards
         # it. The repo's own .gitignore already globs; the engine-written exclude (which is what a USER's
         # vault gets) did not (review-r11).
-        patterns = [LOCK_NAME, ".tmp-*", RECONCILE_STATE_NAME, f"{GROUND_AUDIT}*"]
+        # The lease's ticket queue is per-session runtime state exactly like the lease itself, and it is
+        # a DIRECTORY, so it needs its own trailing-slash pattern (LOCK_NAME matches the lock file only).
+        patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
+                    f"{GROUND_AUDIT}*"]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
@@ -511,22 +625,75 @@ class Canon:
         self._lock_depth += 1
 
     def _acquire_lease_blocking(self) -> bool:
-        """Acquire the single-writer lease, retrying with bounded exponential backoff while it is held by
-        ANOTHER live session, so near-simultaneous writers SERIALIZE cleanly instead of one failing
-        outright (a full parallel /kg-build wave's brief writes, or the detached reconcile worker racing a
+        """Acquire the single-writer lease, waiting in a FIFO ticket queue while it is held by ANOTHER
+        live session, so near-simultaneous writers SERIALIZE cleanly instead of one failing outright
+        (a full parallel /kg-build wave's brief writes, or the detached reconcile worker racing a
         server write — see LOCK_ACQUIRE_TIMEOUT for why contention is only ever cross-process).
 
         LeaseLock.acquire() is idempotent for the OWNING process (same pid → re-acquire returns True on
-        the first attempt), so the server's own serialized writes never enter the backoff loop; the loop
-        only spins for a foreign LIVE holder, which keeps the lease only for its own brief write. A foreign
-        DEAD holder on the SAME host is reclaimed by acquire() itself (staleness via pid-probe), not by
-        waiting; a cross-host (or Windows) dead holder can't be pid-probed, so it is seen stale only once
-        its lease TTL lapses — the writer may wait up to the budget first, then a later attempt reclaims it.
-        Returns False only after the whole `lock_acquire_timeout` budget elapses (a wedged live, or
-        not-yet-TTL-stale cross-host dead, foreign holder), which the caller surfaces as the locked-vault
-        error. Only writers reach this; try_acquire_lock() stays strictly non-blocking so the lazy
-        projector never stalls a read behind a write."""
+        the first attempt), so the server's own serialized writes take the fast path below and never
+        queue; only a foreign LIVE holder makes us wait, and it keeps the lease just for its own brief
+        write. A foreign DEAD holder on the SAME host is reclaimed by acquire() itself (staleness via
+        pid-probe), not by waiting; a cross-host (or Windows) dead holder can't be pid-probed, so it is
+        seen stale only once its lease TTL lapses — the writer may wait up to the budget first, then a
+        later attempt reclaims it. Returns False only after the whole `lock_acquire_timeout` budget
+        elapses (a wedged live, or not-yet-TTL-stale cross-host dead, foreign holder), which the caller
+        surfaces as the locked-vault error. Only writers reach this; try_acquire_lock() stays strictly
+        non-blocking so the lazy projector never stalls a read behind a write."""
         deadline = time.monotonic() + self.lock_acquire_timeout
+        # Fast path: free, or already ours. Nearly every write is uncontended (a wave funnels through the
+        # ONE server process), so that case must not pay a single extra syscall for fairness — the queue
+        # is touched only after a real miss. The cost is that a fresh arrival gets this one un-queued
+        # attempt and can therefore barge past the queue, but only by landing inside the sub-poll window
+        # where the lease is free AND the front waiter is between polls; once a wave has missed once,
+        # every writer in it is queued and strictly ordered.
+        try:
+            if self.lock.acquire():
+                return True
+        except OSError:
+            pass  # see the fail-closed note in _acquire_lease_unfair
+        if time.monotonic() >= deadline:
+            return False  # a zeroed budget keeps the pre-retry immediate-fail behavior exactly
+        ticket = None
+        try:
+            while True:
+                if time.monotonic() >= deadline:
+                    return False
+                if ticket is None:
+                    ticket = self.lock.enqueue()
+                    if ticket is None:
+                        # No queue available (read-only vault, permissions): fall back to the unfair
+                        # backoff loop rather than fail a write over a fairness optimization.
+                        return self._acquire_lease_unfair(deadline)
+                    last_hb = time.monotonic()
+                pos = self.lock.queue_position(ticket)
+                if pos < 0:
+                    ticket = None  # reaped under us (a stall past our TTL) — rejoin at the back
+                    continue
+                if pos == 0:
+                    try:
+                        if self.lock.acquire():
+                            return True
+                    except OSError:
+                        pass
+                now = time.monotonic()
+                if now >= deadline:
+                    return False
+                if (now - last_hb) > (self.lock.ttl / HEARTBEAT_REFRESHES_PER_TTL):
+                    self.lock.heartbeat_ticket(ticket)
+                    last_hb = now
+                # Front of the queue polls tightly (that interval IS the wave's per-writer handoff cost);
+                # everyone else scales back, since by definition they cannot be served until the writers
+                # ahead of them drain.
+                time.sleep(min(max(pos, 1) * LOCK_QUEUE_POLL_MIN, LOCK_QUEUE_POLL_MAX, deadline - now))
+        finally:
+            if ticket is not None:
+                self.lock.dequeue(ticket)
+
+    def _acquire_lease_unfair(self, deadline: float) -> bool:
+        """The pre-queue acquire: poll the lease on bounded exponential backoff until `deadline`. Kept
+        as the degradation path for a vault where the ticket queue can't be created — it still
+        serializes contended writers, it just gives up the FIFO ordering and the prompt handoff."""
         backoff = LOCK_RETRY_INITIAL
         while True:
             try:
@@ -559,7 +726,12 @@ class Canon:
     def try_acquire_lock(self) -> bool:
         """Non-raising acquire for best-effort callers (the lazy projector): take the single-writer
         lease if free/ours, else return False so the caller can serve what it has instead of blocking
-        or crashing. Re-entrant within this process like acquire_lock."""
+        or crashing. Re-entrant within this process like acquire_lock.
+
+        Deliberately does NOT queue (see LOCK_QUEUE_DIRNAME): it is a single opportunistic attempt, so
+        it can only ever take a lease that is free at that instant — it never waits, and therefore can
+        never be the thing that starves a queued writer for long. Making it respect the queue would
+        instead make it fail whenever any writer is waiting, stalling the read path it exists to serve."""
         if self._lock_depth == 0:
             try:
                 if not self.lock.acquire():
@@ -652,9 +824,10 @@ class Canon:
 
         - `.{name}.unreadable-*.bak` (F28 self-heal backups): keep the newest BACKUP_RETENTION_PER_NOTE
           per note (so a foreign/corrupt note stays recoverable — the F28 intent) and prune the rest.
-        - crash-leftover `.tmp-*` (atomic-write temporaries) and sidelined locks
-          (`.kg-session-lock.stale-*`/`.release-*`): prune only once older than TRANSIENT_REAP_TTL —
-          well past any live atomic-write or lock-reclaim window — so the reaper never races a write.
+        - crash-leftover `.tmp-*` (atomic-write temporaries), sidelined locks
+          (`.kg-session-lock.stale-*`/`.release-*`) and abandoned lease tickets
+          (`.kg-session-lock.q/*.json`): prune only once older than TRANSIENT_REAP_TTL — well past any
+          live atomic-write, lock-reclaim or lease-wait window — so the reaper never races a write.
 
         Designed to be wired into the reconciler's periodic full sweep (which already walks the canon
         dir); it lives here because Canon owns the transient-file naming. The lock sidelines sit under
@@ -696,6 +869,12 @@ class Canon:
             for p in self.root.glob(pat):
                 if _aged(p):
                     _unlink(p)
+        # Crash-leftover lease tickets. Their owner drops them in a finally, and a crashed owner's is
+        # reaped by the next waiter that queues behind it, so this only catches the vault where nobody
+        # ever contends again — TTL-gated like the sidelines so it can never race a LIVE waiter.
+        for p in self.root.glob(f"{LOCK_QUEUE_DIRNAME}/*.json"):
+            if _aged(p):
+                _unlink(p)
         return removed
 
     def parse_note(self, p: Path) -> "Node | None":

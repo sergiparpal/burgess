@@ -440,13 +440,10 @@ def test_full_wave_of_concurrent_writers_all_commit_none_corrupted(tmp_path: Pat
     commit: every node lands, none is corrupted, none is silently dropped, and no writer raises."""
     WAVE = 10
     canons = [_foreign_canon(tmp_path, f"writer-host-{i}") for i in range(WAVE)]
-    # Generous per-writer lease budget (via the per-instance seam LOCK_ACQUIRE_TIMEOUT documents):
-    # the invariant under test is that contended writers SERIALIZE — not that they do so inside the
-    # production 30s budget. Each serialized write pays several fsyncs (lock heartbeat, note file,
-    # canon-dir), and on a slow-IO CI runner 7 writes were observed to eat the whole default budget,
-    # making the tail of the wave surface the (by-design) locked-vault error as a spurious failure.
-    for c in canons:
-        c.lock_acquire_timeout = 120.0
+    # Deliberately runs at the PRODUCTION budget (no lock_acquire_timeout override): the whole point of
+    # the FIFO handoff is that LOCK_ACQUIRE_TIMEOUT now covers a full wave with room to spare, and a test
+    # that raised the budget for itself would never check that claim. This used to be an unfair race that
+    # cost up to LOCK_RETRY_MAX per handoff, which is what made the wave slow enough to flake on CI.
     errors: list[str] = []
     start = threading.Barrier(WAVE)
 
@@ -464,8 +461,10 @@ def test_full_wave_of_concurrent_writers_all_commit_none_corrupted(tmp_path: Pat
     for t in threads:
         t.start()
     # One shared deadline above the lease budget (not a per-thread join timeout, which would stack
-    # to WAVE× on a genuine deadlock): the whole wave must drain within it.
-    deadline = time.monotonic() + 150
+    # to WAVE× on a genuine deadlock): the whole wave must drain within it. Above LOCK_ACQUIRE_TIMEOUT
+    # on purpose, so a writer that exhausts its budget surfaces the specific locked-vault error below
+    # rather than the blunt "a writer deadlocked" assertion.
+    deadline = time.monotonic() + 120
     for t in threads:
         t.join(timeout=max(0.0, deadline - time.monotonic()))
 
@@ -518,6 +517,149 @@ def test_contended_writer_waits_for_lease_then_commits(tmp_path: Path):
     assert not t.is_alive()
     assert done["info"] and not done["info"].rolled_back
     assert Canon(tmp_path).read_node("late").body == "landed"
+
+
+# --------------------------------------------------------------------------- fair (FIFO) lease handoff
+# The blocking acquire waits in a ticket queue rather than each contender polling the lease on its own
+# capped backoff. That fixed two measured defects in the wave case: handoff cost up to LOCK_RETRY_MAX
+# even though the critical section is ~10ms (a 10-writer wave spent 96% of its wall time asleep with the
+# lease FREE), and nothing ordered the contenders, so a waiter could lose race after race until it
+# exhausted the whole budget and surfaced the by-design locked-vault error (observed on CI: 3 of 10
+# writers failed that way while the other 7 drained past them). These pin the ordering, the crash
+# tolerance, the degradation path, and the "uncontended writes pay nothing" fast path.
+
+
+def _queued_tickets(c: Canon) -> list[Path]:
+    # `.tmp-*` are _atomic_write temporaries mid-flight, not waiters (see LeaseLock._ticket_names);
+    # pathlib's `*` matches leading dots, so they must be filtered explicitly.
+    return sorted(p for p in c.lock.queue_dir.glob("*.json") if not p.name.startswith(".tmp-"))
+
+
+def _wait_until(pred, timeout: float = 15.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if pred():
+            return True
+        time.sleep(0.005)
+    return pred()
+
+
+def test_contended_writers_are_served_in_arrival_order(tmp_path: Path):
+    """FIFO: writers that queue in a known order are served in that order. Without the ticket queue the
+    winner of each handoff was whichever backoff sleep happened to expire first, so a waiter could be
+    passed over indefinitely — the starvation that burned the 30s budget on CI."""
+    holder = _foreign_canon(tmp_path, "holder-host")
+    assert holder.lock.acquire()  # everyone must queue behind this live foreign session
+    N = 5
+    writers = [_foreign_canon(tmp_path, f"writer-host-{i}") for i in range(N)]
+    served: list[int] = []
+    served_lock = threading.Lock()
+
+    def run(i: int, c: Canon) -> None:
+        c.write_nodes([Node(id=f"n{i}", label=f"N{i}")], message=f"wave write {i}")
+        with served_lock:
+            served.append(i)
+
+    threads = []
+    for i, w in enumerate(writers):
+        t = threading.Thread(target=run, args=(i, w))
+        t.start()
+        threads.append(t)
+        # Start the next writer only once THIS one holds a ticket, so arrival order is unambiguous
+        # (otherwise the assertion below would be testing thread-start luck, not the queue).
+        assert _wait_until(lambda i=i: len(_queued_tickets(holder)) == i + 1), \
+            f"writer {i} never queued for the lease"
+
+    holder.lock.release()  # the queue now drains, front first
+    for t in threads:
+        t.join(timeout=30)
+    assert not any(t.is_alive() for t in threads)
+    assert served == list(range(N)), f"served out of arrival order: {served}"
+    assert not _queued_tickets(holder), "tickets leaked after the queue drained"
+
+
+def test_a_stale_ticket_from_a_crashed_waiter_never_parks_the_queue(tmp_path: Path):
+    """A waiter that dies mid-wait leaves its ticket behind. If that ticket kept its place forever, one
+    crashed process would wedge every future writer — so a stale ticket (the lease's own TTL/pid-probe
+    rule) is reaped by the next waiter that queues behind it."""
+    holder = _foreign_canon(tmp_path, "holder-host")
+    assert holder.lock.acquire()
+    writer = _foreign_canon(tmp_path, "writer-host")
+    writer.lock_acquire_timeout = 30.0
+    # A ghost ticket that sorts FIRST (timestamp 0) and is long past its TTL — a foreign host, so it is
+    # judged stale by the TTL alone, exactly as an unprobeable dead lease holder is.
+    ghost = writer.lock.queue_dir / f"{0:020d}-ghost-host-1-deadbeef.json"
+    ghost.parent.mkdir(parents=True, exist_ok=True)
+    ghost.write_text(json.dumps({"pid": 999999, "host": "ghost-host", "ttl": 1.0,
+                                 "acquired_at": 0.0, "heartbeat_at": time.time() - 3600.0}),
+                     encoding="utf-8")
+
+    done: dict = {}
+
+    def do_write() -> None:
+        done["info"] = writer.write_nodes([Node(id="late", label="Late", body="landed")],
+                                          message="late write")
+
+    t = threading.Thread(target=do_write)
+    t.start()
+    assert _wait_until(lambda: not ghost.exists()), "the dead waiter's ticket was never reaped"
+    holder.lock.release()
+    t.join(timeout=30)
+    assert not t.is_alive(), "the writer stayed parked behind a dead waiter's ticket"
+    assert done["info"] and not done["info"].rolled_back
+    assert Canon(tmp_path).read_node("late").body == "landed"
+
+
+def test_writer_still_serializes_when_the_ticket_queue_is_unavailable(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch):
+    """Fairness is an optimization, never a precondition for writing: on a vault where the queue cannot
+    be created (read-only dir, permissions) the writer degrades to the old unfair backoff loop and still
+    serializes behind the live holder rather than failing the write."""
+    monkeypatch.setattr(canon_mod.LeaseLock, "enqueue", lambda self, now=None: None)
+    holder = _foreign_canon(tmp_path, "holder-host")
+    assert holder.lock.acquire()
+    writer = _foreign_canon(tmp_path, "writer-host")
+    writer.lock_acquire_timeout = 30.0
+    done: dict = {}
+
+    def do_write() -> None:
+        done["info"] = writer.write_nodes([Node(id="late", label="Late", body="landed")],
+                                          message="late write")
+
+    t = threading.Thread(target=do_write)
+    t.start()
+    time.sleep(0.2)
+    assert "info" not in done, "writer should still be WAITING for the held lease"
+    holder.lock.release()
+    t.join(timeout=30)
+    assert not t.is_alive()
+    assert done["info"] and not done["info"].rolled_back
+    assert not writer.lock.queue_dir.exists(), "the degraded path must not create a queue"
+
+
+def test_atomic_write_temporaries_are_not_mistaken_for_tickets(tmp_path: Path):
+    """A ticket is written with _atomic_write, whose mkstemp temp lands in the SAME directory carrying
+    the ticket's own `.json` suffix — and `.` sorts ahead of every arrival stamp. Counting one as a
+    waiter parks the whole queue behind a file that is about to be renamed away, and reaping it (it
+    parses as corrupt, hence 'stale') deletes another waiter's in-flight write out from under its
+    os.replace, silently degrading that writer to the unfair path."""
+    c = _foreign_canon(tmp_path, "writer-host")
+    ticket = c.lock.enqueue()
+    assert ticket is not None
+    temp = c.lock.queue_dir / ".tmp-abcd1234.json"  # a half-written ticket, mid-_atomic_write
+    temp.write_text("", encoding="utf-8")
+    assert c.lock.queue_position(ticket) == 0, "an in-flight atomic-write temp took a place in the queue"
+    assert temp.exists(), "queue_position reaped another waiter's in-flight atomic-write temp"
+    c.lock.dequeue(ticket)
+
+
+def test_uncontended_write_never_touches_the_ticket_queue(tmp_path: Path):
+    """The fast path: nearly every write is uncontended (a wave funnels through the ONE server process),
+    so it must take the lease directly and pay nothing at all for fairness."""
+    c = Canon(tmp_path)
+    info = c.write_nodes([Node(id="solo", label="Solo", body="alone")], message="solo write")
+    assert not info.rolled_back
+    assert not c.lock.queue_dir.exists(), "an uncontended write created the ticket queue"
 
 
 def test_writer_fails_fast_when_lease_held_and_retry_budget_zero(tmp_path: Path):
