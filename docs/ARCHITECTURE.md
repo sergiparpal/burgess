@@ -391,6 +391,7 @@ and bare `/.venv` sentinels.
 ```text
 <project>/                      the user's project
   canon/<id>.md                 source of truth (git-tracked, kgcanon merge driver)
+  .kg-session-lock(.q/)         single-writer lease + its FIFO waiter queue (gitignored)
   .kg-ground-audit.jsonl(.ckpt) verdict audit ledger (gitignored engine state)
   .kg-reconcile-state.json      reconciler cache (gitignored)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
