@@ -15,6 +15,7 @@ M6c — _reclaim_stale: a transient failure restoring a sidelined-but-LIVE recor
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -440,10 +441,14 @@ def test_full_wave_of_concurrent_writers_all_commit_none_corrupted(tmp_path: Pat
     commit: every node lands, none is corrupted, none is silently dropped, and no writer raises."""
     WAVE = 10
     canons = [_foreign_canon(tmp_path, f"writer-host-{i}") for i in range(WAVE)]
-    # Deliberately runs at the PRODUCTION budget (no lock_acquire_timeout override): the whole point of
-    # the FIFO handoff is that LOCK_ACQUIRE_TIMEOUT now covers a full wave with room to spare, and a test
-    # that raised the budget for itself would never check that claim. This used to be an unfair race that
-    # cost up to LOCK_RETRY_MAX per handoff, which is what made the wave slow enough to flake on CI.
+    # Generous budget on purpose. What this test pins is that contended writers SERIALIZE and every node
+    # lands — not that a wave fits inside the production budget on whatever hardware CI hands us. Running
+    # it at the production 30s to "prove" that claim is exactly what made it flake again on a Windows
+    # runner (the queue leaked a ticket there, see LOCK_QUEUE_TICKET_TTL); the budget was load-bearing
+    # margin, and spending it to assert a timing claim bought a red main for a claim a timing-dependent
+    # test cannot honestly make anyway.
+    for c in canons:
+        c.lock_acquire_timeout = 120.0
     errors: list[str] = []
     start = threading.Barrier(WAVE)
 
@@ -635,6 +640,139 @@ def test_writer_still_serializes_when_the_ticket_queue_is_unavailable(tmp_path: 
     assert not t.is_alive()
     assert done["info"] and not done["info"].rolled_back
     assert not writer.lock.queue_dir.exists(), "the degraded path must not create a queue"
+
+
+def test_a_leaked_ticket_expires_on_the_ticket_ttl_not_the_lease_ttl(tmp_path: Path):
+    """A ticket whose owner could not delete it (Windows: unlink fails with a sharing violation while
+    any waiter has it open for the liveness read) must stop blocking the queue in SECONDS. Carrying the
+    lease's 120s TTL meant the front waiter's leaked ticket — the one every other waiter re-reads, hence
+    the one most likely to leak — parked the whole queue far past LOCK_ACQUIRE_TIMEOUT, which is how the
+    fair queue reintroduced the very flake it was written to remove."""
+    c = _foreign_canon(tmp_path, "writer-host")
+    leaked = c.lock.enqueue()
+    assert leaked is not None
+    mine = _foreign_canon(tmp_path, "other-host").lock.enqueue()
+    assert mine is not None
+    rec = json.loads(leaked.read_text(encoding="utf-8"))
+    assert rec["ttl"] == canon_mod.LOCK_QUEUE_TICKET_TTL, "a ticket must carry its OWN short TTL"
+
+    # Its owner has taken the lease and stopped refreshing it. Just past the ticket TTL it is reaped...
+    still_live = canon_mod.LOCK_QUEUE_TICKET_TTL / 2
+    assert c.lock.queue_position(mine, time.time() + still_live) == 1, "reaped while still fresh"
+    assert leaked.exists()
+    expired = canon_mod.LOCK_QUEUE_TICKET_TTL + 1
+    assert c.lock.queue_position(mine, time.time() + expired) == 0, "leaked ticket still parks the queue"
+    assert not leaked.exists()
+    # ...and well before the lease TTL, which is what it used to wait for.
+    assert canon_mod.LOCK_QUEUE_TICKET_TTL < c.lock.ttl / 4
+
+
+def test_an_unreadable_ticket_is_respected_not_reaped(tmp_path: Path):
+    """Reads of the tickets ahead are fail-CLOSED, like the live-lock reader. A transient Windows
+    sharing violation makes a perfectly live ticket unreadable for an instant; treating that as 'stale'
+    would reap a healthy waiter, which sends it to the BACK of the queue on its next poll — starvation
+    strictly worse than the unfairness the queue removes."""
+    c = _foreign_canon(tmp_path, "writer-host")
+    ahead = c.lock.enqueue()
+    assert ahead is not None
+    mine = _foreign_canon(tmp_path, "other-host").lock.enqueue()
+    assert mine is not None
+
+    real_read_text = Path.read_text
+
+    def unreadable(self, *a, **k):
+        if self.name == ahead.name:
+            raise PermissionError(32, "sharing violation")  # ERROR_SHARING_VIOLATION
+        return real_read_text(self, *a, **k)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "read_text", unreadable)
+        assert c.lock.queue_position(mine) == 1, "an unreadable ticket was treated as gone"
+        assert ahead.exists(), "a live-but-unreadable ticket was reaped"
+        # Only once it ages past the ticket TTL is it reclaimable without ever being read.
+        old = time.time() - canon_mod.LOCK_QUEUE_TICKET_TTL - 60
+        os.utime(ahead, (old, old))
+        assert c.lock.queue_position(mine) == 0
+    assert not ahead.exists(), "an aged unreadable orphan was never reclaimed"
+
+
+def test_a_dead_ticket_that_cannot_be_deleted_still_yields_its_place(tmp_path: Path):
+    """Queue LIVENESS must not depend on the reaping unlink landing. Skipping a proved-dead ticket only
+    when its unlink succeeded meant that on a filesystem where deletes persistently fail, a dead ticket
+    could never be cleared and parked every writer until its budget ran out — 8 of 10 writes failing in
+    a simulated wave. Ordering is advisory (the lease CAS is what serializes), so a ticket proved dead
+    yields its place regardless."""
+    c = _foreign_canon(tmp_path, "writer-host")
+    ghost = c.lock.enqueue()
+    mine = _foreign_canon(tmp_path, "other-host").lock.enqueue()
+    assert ghost is not None and mine is not None
+
+    def no_delete(self, *a, **k):
+        raise PermissionError(32, "sharing violation")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "unlink", no_delete)
+        past_ttl = time.time() + canon_mod.LOCK_QUEUE_TICKET_TTL + 1
+        assert c.lock.queue_position(mine, past_ttl) == 0, "an undeletable dead ticket kept its place"
+        assert ghost.exists()  # still there — we just refuse to let it block anyone
+
+
+def test_a_wedged_queue_degrades_to_the_unfair_loop_rather_than_failing_the_write(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The liveness valve: if our position never improves, the queue is not to be trusted and the write
+    finishes on the unfair loop. Fairness is an optimization and must never make a writer do WORSE than
+    the pre-queue behavior, so no queue pathology may turn a free lease into a locked-vault error."""
+    monkeypatch.setattr(canon_mod, "LOCK_QUEUE_STALL_SECS", 0.2)
+    # The lease must be HELD at the first attempt, or the writer takes the uncontended fast path and
+    # never enters the queue at all — which is what made an earlier version of this test vacuous.
+    holder = _foreign_canon(tmp_path, "holder-host")
+    assert holder.lock.acquire()
+    writer = _foreign_canon(tmp_path, "writer-host")
+    writer.lock_acquire_timeout = 10.0
+    # A ticket that sorts FIRST and can never go stale (heartbeat in the future, foreign host so the
+    # pid can't be probed): the queue will never hand our writer the front.
+    stuck = writer.lock.queue_dir / f"{0:020d}-stuck-host-1-deadbeef.json"
+    stuck.parent.mkdir(parents=True, exist_ok=True)
+    stuck.write_text(json.dumps({"pid": 999999, "host": "stuck-host",
+                                 "ttl": canon_mod.LOCK_QUEUE_TICKET_TTL,
+                                 "acquired_at": 0.0, "heartbeat_at": time.time() + 3600.0}),
+                     encoding="utf-8")
+    done: dict = {}
+
+    def do_write() -> None:
+        try:
+            done["info"] = writer.write_nodes([Node(id="through", label="Through", body="landed")],
+                                              message="wedged-queue write")
+        except Exception as e:  # noqa: BLE001 — the pre-valve behavior: budget spent, write fails
+            done["error"] = e
+
+    t = threading.Thread(target=do_write)
+    t.start()
+    assert _wait_until(lambda: len(_queued_tickets(writer)) == 2), "writer never queued behind the ghost"
+    holder.lock.release()  # the LEASE is free from here — only the QUEUE is wedged
+    t.join(timeout=30)
+    assert not t.is_alive()
+    assert "error" not in done, f"a free lease was reported locked: {done.get('error')}"
+    assert done["info"] and not done["info"].rolled_back
+    assert Canon(tmp_path).read_node("through").body == "landed"
+
+
+def test_position_without_probe_opens_no_ticket(tmp_path: Path):
+    """The throttled path must not open the tickets ahead at all: holding one open is what makes its
+    owner's dequeue fail on Windows, and doing it on every poll aimed that pressure at the front
+    ticket. Position then comes from the directory listing alone."""
+    c = _foreign_canon(tmp_path, "writer-host")
+    ahead = c.lock.enqueue()
+    mine = _foreign_canon(tmp_path, "other-host").lock.enqueue()
+    assert ahead is not None and mine is not None
+
+    def must_not_read(self, *a, **k):
+        raise AssertionError(f"queue_position(probe=False) opened {self.name}")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(Path, "read_text", must_not_read)
+        assert c.lock.queue_position(mine, probe=False) == 1
+        assert c.lock.queue_position(ahead, probe=False) == 0
 
 
 def test_atomic_write_temporaries_are_not_mistaken_for_tickets(tmp_path: Path):
