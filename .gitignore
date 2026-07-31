@@ -26,6 +26,10 @@ uv.lock
 *.log
 provision.log
 
+# Working notes for an in-flight plan run (answers to its Phase-0 question block).
+# Local scratch, never part of the decision record in docs/fusion/.
+.plan-choices.md
+
 # OS / editor strays
 *Zone.Identifier
 .DS_Store

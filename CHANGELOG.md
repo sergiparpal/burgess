@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.4.0 — 2026-07-31
+
+Divergence-lane correctness release. Two through-lines: **a candidate id is a primary key and nothing was
+treating it as one**, and **three writers were guarding one invariant with two locks**. Both are the kind of
+bug that never raises — it degrades the archive quietly and the slate keeps looking fine. One agent-facing
+contract change comes with them (`parents` → `slate_ids` on the ingest response), which is what makes this a
+minor rather than a patch. No change to the 27-tool MCP surface's shape, no change to graph semantics, and
+nothing here can touch a verdict — the import firewall (I3) still holds in both directions.
+
+Six of these fixes were first made in [Cambrian](https://github.com/sergiparpal/cambrian) after the Stage-0
+pin (`ddca026`) and are reimplemented here against Burgess's own state layout. The donor pin is unchanged:
+it is a permanent Stage-0 identity, not a sync point (see README → *Lineage*).
+
+### Fixed
+
+- **A duplicate candidate id inside one generation was absorbed, not rejected.** An id keys every downstream
+  store at once — the archive's `elite_id`, the candidate record store, both embedding stores, pins/discards,
+  and the slate's `embedding_ref`. Two candidates sharing one id therefore *both* won a niche while only the
+  last record survived in the store, so one niche silently ended up pointing at a different idea's text,
+  coords and embedding, and the slate could render the same item twice. Dedup could never catch it: dedup
+  compares text, not ids. `_parse_candidates` now names the offending ids and rejects the batch.
+- **…and the cross-generation twin was worse.** A later cycle — or a later session, where a fresh agent
+  restarts its `c-0001` counter — could resubmit an old id under new text and overwrite that id's record
+  while the niche it was already elite of kept pointing at it. An *existing* archive entry then quietly
+  acquired a different idea's content. `_guard_id_reuse` runs before any embedding (a rejected batch costs
+  no model work) and inside the project lock (so the store it reads is the store the write will use).
+  Resubmitting a candidate **verbatim** stays legal: identical text embeds to cosine 1.0 and dedup drops it
+  as the no-op it is, so only a text change is a collision.
+- **Pins and discards are one invariant and were guarded by two locks.** `add_pin` locked `pins.json` while
+  `add_discard` and `remove_discard` locked `discards.json` — yet every one of them mutates *both* files
+  (pinning drops the discard, discarding drops the pin, un-sealing edits a list a pin may be racing on). A
+  concurrent pin and discard of the same id took different locks, interleaved their read-modify-writes, and
+  could leave that id in both lists or in neither. "Latest action wins" stopped holding silently, and with it
+  the mutual exclusivity the propose lane relies on. All three writers now share one `_preference_lock`.
+- **`recall` / `metrics` / `parents` could observe a cycle mid-write.** `ingest` rewrites archive +
+  candidates + both embedding stores + meta together under `project_lock`; those three commands read several
+  of the same files and read them unlocked, so a new `archive.json` could be paired with an old
+  `candidates.json` — an elite whose record is not there yet. `State.project_read_lock` snapshots them under
+  the same lock, with the same best-effort semantics (on timeout it proceeds, so a reader is never blocked
+  for long by a writer) and a deliberate no-op on a project dir that does not exist: a read-only command must
+  not materialize state as a side effect.
+- **The empty-generation response KeyErrored on the path its own docstring called safe.** `_empty_cycle`
+  promises a consumer "never KeyErrors on an empty generation", but it set the `variety_eroding` boolean
+  without the `variety_erosion` detail dict every normal cycle carries. The code was wrong, not the
+  docstring: the dict is now emitted with the same key set, slopes `None` (an empty generation has no
+  survivor novelty to measure) and the persisted streak reported unchanged.
+- **A pin could outlive the idea it names and be bred from anyway.** `init-project` resets the geometry on an
+  axes change but deliberately preserves preference memory, and `select_parents` always keeps pins — so a
+  pinned id with no candidate record reached the parent list and was emitted with an empty `text`: a
+  contentless stepping stone. Those ids now go to an optional `stale_pins` / `stale_pins_note` pair instead.
+  The keys are *absent*, not empty, on the happy path — an optional key is a weaker promise to callers than a
+  key that is sometimes an empty list.
+- **The judge rubric quoted a threshold the engine does not hold.** It named a "~40% over-filtering budget",
+  a number that appears nowhere in the code; the actual knob is `under_generation_ratio = 0.6`. Prose quoting
+  a number the code does not hold is a slow-motion drift bug, so the rubric now names the guard.
+
+### Changed
+
+- **The ingest response field `parents` is now `slate_ids`** (breaking, agent-facing JSON). Those ids are the
+  slate items: they honour neither pins nor discards, so a caller that read the name literally and bred from
+  them skipped both of the user's levers. The `parents` **command** is the only source of parents; its
+  `{"parents": [...]}` return, `genealogy.parents` in candidate payloads, and argparse's `parents=` kwarg all
+  mean different things and are untouched. The local variable holding the ids was already called `slate_ids`.
+- **The version is declared in six places and now something asserts they agree.**
+  `tests/test_version_consistency.py` cross-checks all five declaration sites (both `.claude-plugin`
+  manifests, `kg_engine`, `kg_engine.divergence`, `pyproject.toml`) — `kg_engine.divergence.__version__` was
+  outside every existing gate — and `tests/test_e2e_generative.py` no longer compares against a hardcoded
+  literal, which had made the test itself a seventh site to remember on every bump.
+  `scripts/bump_version.py` rewrites all five at once, refuses to bump from an inconsistent state, and is a
+  dry run unless `--write`. It is not a release driver: Burgess cuts no GitHub release and publishes to no
+  index, so only the version-site sweep was worth taking.
+
 ## 0.3.2 — 2026-07-30
 
 Concurrency and supply-chain release. The headline is the **canon lease's FIFO handoff**: a CI flake that

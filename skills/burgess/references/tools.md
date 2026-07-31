@@ -631,10 +631,19 @@ with the monitor reading the round. Candidate shape (see `/kg-diverge` step 6):
  "ask_pairs": [["c3", "c7"]], "ask_policy": "refine",
  "monitor": {"collapsing": false, "under_generation": false, "variety_eroding": false,
              "mean_cosine": 0.34, "entropy": 0.82},
- "parents": [], "slate_mechanism_novelty": 0.44, "open_axis": {"frozen": false, "n": 9}}
+ "slate_ids": ["c3", "c7"], "slate_mechanism_novelty": 0.44,
+ "open_axis": {"frozen": false, "n": 9}}
 ```
 
-Field honesty: `novelty` is mean k-NN cosine distance (k=5) to THIS SESSION's own ideas — a variety proxy,
+**Candidate ids are PRIMARY KEYS** — they key the archive, both embedding stores, and preference memory.
+Unique **within a batch**, and unique **for the life of the project** unless you resubmit a candidate
+byte-for-byte (a verbatim retry is a harmless no-op that dedup drops). Reusing an id under different text
+is a hard error: it would silently rewrite the archived idea that id already names. Prefix ids with the
+generation (`g2-c3`) rather than restarting a counter each round.
+
+Field honesty: `slate_ids` is the id list of the slate items, NOT breeding parents — it honors neither
+pins nor discards, so never breed from it; use `kg_diverge_parents` for that. `novelty` is mean k-NN
+cosine distance (k=5) to THIS SESSION's own ideas — a variety proxy,
 never originality against the world; `mechanism_novelty` is the same for the open-axis value. `monitor`
 flags are advisory notices (react per `/kg-diverge` step 9). When the axes set `engine: {gap_probe: true}`
 the result also carries a `surface_mechanism_gap` block (measurement only).
@@ -649,7 +658,11 @@ re-pinning un-discards). Returns `{ok, type, …}`.
 ### 1B.4 `kg_diverge_parents(project, k=4, seed=0)`
 
 Diverse stepping stones for the next generation, DPP-selected from the archive — pins ALWAYS included,
-discards NEVER. Returns `{"parents": [{id, text, coords, niche_id, novelty, pinned}]}`.
+discards NEVER. Returns `{"parents": [{id, text, coords, niche_id, novelty, pinned}]}`. This `parents` is
+the real one (the ingest response's `slate_ids` is not). An optional `stale_pins` + `stale_pins_note` pair
+appears when a pinned id has no candidate record — an axes change resets the geometry but keeps preference
+memory, so the pin survives its idea. Drop those ids; there is nothing to breed from. The keys are absent
+(not empty) when every pin resolves.
 
 ### 1B.5 `kg_diverge_metrics(project)`
 

@@ -30,8 +30,11 @@ def _build(engine):
 
 
 def test_end_to_end_generative_loop(engine):
-    # version stamp (release gate)
-    assert engine.kg_ping()["version"] == __version__ == "0.3.2"
+    # Version stamp (release gate): the ENGINE must report what the package declares.
+    # Comparing both against a literal made this test a seventh place to remember to edit
+    # on every bump, and a stale literal fails here rather than where the drift is — the
+    # five declaration sites are cross-checked by tests/test_version_consistency.py.
+    assert engine.kg_ping()["version"] == __version__
 
     # 1. BUILD
     _build(engine)

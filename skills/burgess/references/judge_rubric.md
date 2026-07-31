@@ -47,8 +47,9 @@ nonsense. Two different properties, judged on opposite postures:
 A bold idea and an absurd idea can look alike from a distance; the one-line
 mechanism test is what separates them. Do not let fear of over-filtering wave an
 incoherent idea through by calling it "the variety the engine needs" — killing a
-broken idea does **not** count against your ~40% over-filtering budget, which is
-about cutting *valid* ideas for being unusual.
+broken idea does **not** count against your over-filtering budget (the engine's
+`under_generation` guard, which fires when you submit under 60% of the target).
+That budget is about cutting *valid* ideas for being unusual.
 
 ## Anti-cliché check
 

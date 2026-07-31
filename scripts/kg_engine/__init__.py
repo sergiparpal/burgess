@@ -28,4 +28,4 @@ Submodules (the full map; review-r5 completed a 9-of-22 partial list):
   divergence  the MAP-Elites/DPP ideation engine (own package; import-firewalled, I3)
 """
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
