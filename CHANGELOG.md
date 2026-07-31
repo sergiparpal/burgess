@@ -1,12 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-07-31
 
-On `main` past 0.4.0. The first three fixes are one through-line, the same shape three times over: **a rule
-that was single-homed and then extended, with a consumer left behind on the older form.** All three passed
-the full suite straight through, because each consumer was internally consistent — they only disagreed with
-each other. Two smaller cleanups ride along. No change to the 27-tool MCP surface and no change to what
-grounding decides.
+First tag since **v0.3.1**, and it therefore also carries everything in 0.3.2 below — that version was
+declared in the manifests and written up here, but never tagged or released.
+
+One theme runs through the whole release: **code that was internally consistent and disagreed with something
+else.** Every defect below passed the full suite straight through, because no single consumer was wrong on
+its own terms — a candidate id was a primary key nothing treated as one, three writers guarded one invariant
+with two locks, and a live-topology vocabulary got extended while two readers stayed on the older form. That
+is why the fixes come with pins rather than just patches: the failure mode is silence, not a stack trace.
+
+One agent-facing contract change comes with them (`parents` → `slate_ids` on the ingest response), which is
+what makes this a minor rather than a patch. No change to the 27-tool MCP surface's shape, no change to what
+grounding decides, and nothing here can touch a verdict — the import firewall (I3) still holds in both
+directions.
+
+Six of the **divergence-lane** fixes were first made in [Cambrian](https://github.com/sergiparpal/cambrian)
+after the Stage-0 pin (`ddca026`) and are reimplemented here against Burgess's own state layout. The
+convergence-spine fixes are Burgess's own. The donor pin is unchanged:
+it is a permanent Stage-0 identity, not a sync point (see README → *Lineage*).
 
 ### Fixed
 
@@ -41,75 +54,6 @@ grounding decides.
   unrelated file's permissions to the one just written. Latent rather than observed — it is identical to
   `stat()` for the regular files every engine caller passes — but `bootstrap.py` shares this module, so
   `follow_symlinks=False` now makes the code say what the replace actually does.
-
-### Changed
-
-- **The `mcp<2` cap is documented as load-bearing, and pinned like it.** Verified rather than assumed: mcp
-  2.0.0 **removed** `mcp.server.fastmcp` and the `FastMCP` class entirely (the server API moved to
-  `mcp.server.mcpserver`), so a bump past `mcp>=1.2,<2` raises `ModuleNotFoundError` at startup and drops
-  every `kg_*` tool for the session. Adopting 2.x needs a real port of the tool surface and
-  `readiness_lifespan`, not a version edit. The existing coverage guarded that import behind
-  `pytest.importorskip`, so it would have **skipped** on exactly the bump that breaks production — the
-  "coverage vanishes with the suite still green" hazard the CI config already calls out for the Node
-  launcher tests. `tests/test_review_r12.py` now asserts the import path hard.
-- **Dependabot no longer proposes mcp majors it can never land.** It runs weekly on pip, so it would keep
-  opening a 2.x PR that CI correctly fails and a human correctly closes — recurring noise that trains
-  everyone to skim the one file where skimming is most expensive. `.github/dependabot.yml` ignores
-  `version-update:semver-major` for `mcp` **only**, deliberately not the whole dependency: 1.x minor and
-  patch releases, security fixes included, must keep flowing, since 1.x is the line the engine is pinned to
-  until the port happens. The entry carries the reason and comes out *as part of* that port — an
-  unexplained suppressed dependency is the same "rule extended, consumer left behind" shape as the defects
-  above.
-- **The divergence lane no longer reads as foreign code.** A mechanical PEP 585/604 typing sweep
-  (`Dict`/`List`/`Tuple`/`Set` → builtins, `Optional[X]` → `X | None`, `Union[A, B]` → `A | B`,
-  `Sequence`/`Callable` → `collections.abc`) retired the Python 3.9-era `typing` imports inherited from the
-  Cambrian donor, which were the last visible seam between the two halves of the fusion. Annotation-only and
-  safe by construction: every touched module already carries `from __future__ import annotations` and none
-  evaluate annotations at runtime (checked, not assumed), and the rewrite ran through a tokenizer that masks
-  every string and comment token first — the diff contains zero comment lines. `scripts/bump_version.py` and
-  `projector.py`'s `Callable` came along as the last holdouts outside the lane. `Any`/`NamedTuple`/
-  `TYPE_CHECKING` stay on `typing`: no builtin form, a runtime base class, and a runtime flag respectively.
-- **The boundary's node-lane flood charge is written in the shape it is documented as mirroring** — the same
-  form as the edge lane. Behavior identical.
-
-### Docs
-
-- `docs/ARCHITECTURE.md` §3.2 states the live-topology vocabulary as a contract: what
-  `NON_LIVE_STATE_VALUES` is, the five surfaces that must agree on it, and the one deliberate exception.
-  §3.5 no longer calls the rank subgraph "non-failed" (it is the *live* subgraph — failures *and*
-  `obsolete`), §9 records the version-consistency gate and the load-bearing mcp pin, and §9/§11 carry the
-  I11 donor gate as it actually behaves since 0.3.2: **reachability** of each pinned Stage-0 commit from its
-  donor's `HEAD`, not a frozen `HEAD` or a clean donor working tree. README, `MIGRATION.md` and the
-  `docs/fusion/` record were corrected when Cambrian was republished; ARCHITECTURE was the surface left
-  behind.
-- `docs/fusion/DECISIONS.md` records the asymmetry as a decision, since it is the one a future reader will
-  want to "fix": the widening is the consequence, the **falsification counter not following it** is the
-  decision. Consistency of vocabulary is not consistency of meaning.
-- `CLAUDE.md` carries the mcp cap and the five version sites, the two things an agent could plausibly break
-  by being helpful.
-
-### Tests
-
-- `tests/test_review_r12.py` pins all of the above — the non-live vocabulary itself, `shortest_path`, both
-  `kg_agenda` gaps, the falsification-counter exception, the malformed-note skip, the merge-driver note, and
-  the mcp import path — each with its control. Confirmed to be real pins: with the fixes stashed, exactly
-  the six expected cases fail while the controls and the `rejected`/`failed` parametrizations stay green.
-  1287 → 1306 passed, 2 skipped.
-
-## 0.4.0 — 2026-07-31
-
-Divergence-lane correctness release. Two through-lines: **a candidate id is a primary key and nothing was
-treating it as one**, and **three writers were guarding one invariant with two locks**. Both are the kind of
-bug that never raises — it degrades the archive quietly and the slate keeps looking fine. One agent-facing
-contract change comes with them (`parents` → `slate_ids` on the ingest response), which is what makes this a
-minor rather than a patch. No change to the 27-tool MCP surface's shape, no change to graph semantics, and
-nothing here can touch a verdict — the import firewall (I3) still holds in both directions.
-
-Six of these fixes were first made in [Cambrian](https://github.com/sergiparpal/cambrian) after the Stage-0
-pin (`ddca026`) and are reimplemented here against Burgess's own state layout. The donor pin is unchanged:
-it is a permanent Stage-0 identity, not a sync point (see README → *Lineage*).
-
-### Fixed
 
 - **A duplicate candidate id inside one generation was absorbed, not rejected.** An id keys every downstream
   store at once — the archive's `elite_id`, the candidate record store, both embedding stores, pins/discards,
@@ -154,6 +98,34 @@ it is a permanent Stage-0 identity, not a sync point (see README → *Lineage*).
 
 ### Changed
 
+- **The `mcp<2` cap is documented as load-bearing, and pinned like it.** Verified rather than assumed: mcp
+  2.0.0 **removed** `mcp.server.fastmcp` and the `FastMCP` class entirely (the server API moved to
+  `mcp.server.mcpserver`), so a bump past `mcp>=1.2,<2` raises `ModuleNotFoundError` at startup and drops
+  every `kg_*` tool for the session. Adopting 2.x needs a real port of the tool surface and
+  `readiness_lifespan`, not a version edit. The existing coverage guarded that import behind
+  `pytest.importorskip`, so it would have **skipped** on exactly the bump that breaks production — the
+  "coverage vanishes with the suite still green" hazard the CI config already calls out for the Node
+  launcher tests. `tests/test_review_r12.py` now asserts the import path hard.
+- **Dependabot no longer proposes mcp majors it can never land.** It runs weekly on pip, so it would keep
+  opening a 2.x PR that CI correctly fails and a human correctly closes — recurring noise that trains
+  everyone to skim the one file where skimming is most expensive. `.github/dependabot.yml` ignores
+  `version-update:semver-major` for `mcp` **only**, deliberately not the whole dependency: 1.x minor and
+  patch releases, security fixes included, must keep flowing, since 1.x is the line the engine is pinned to
+  until the port happens. The entry carries the reason and comes out *as part of* that port — an
+  unexplained suppressed dependency is the same "rule extended, consumer left behind" shape as the defects
+  above.
+- **The divergence lane no longer reads as foreign code.** A mechanical PEP 585/604 typing sweep
+  (`Dict`/`List`/`Tuple`/`Set` → builtins, `Optional[X]` → `X | None`, `Union[A, B]` → `A | B`,
+  `Sequence`/`Callable` → `collections.abc`) retired the Python 3.9-era `typing` imports inherited from the
+  Cambrian donor, which were the last visible seam between the two halves of the fusion. Annotation-only and
+  safe by construction: every touched module already carries `from __future__ import annotations` and none
+  evaluate annotations at runtime (checked, not assumed), and the rewrite ran through a tokenizer that masks
+  every string and comment token first — the diff contains zero comment lines. `scripts/bump_version.py` and
+  `projector.py`'s `Callable` came along as the last holdouts outside the lane. `Any`/`NamedTuple`/
+  `TYPE_CHECKING` stay on `typing`: no builtin form, a runtime base class, and a runtime flag respectively.
+- **The boundary's node-lane flood charge is written in the shape it is documented as mirroring** — the same
+  form as the edge lane. Behavior identical.
+
 - **The ingest response field `parents` is now `slate_ids`** (breaking, agent-facing JSON). Those ids are the
   slate items: they honour neither pins nor discards, so a caller that read the name literally and bred from
   them skipped both of the user's levers. The `parents` **command** is the only source of parents; its
@@ -165,8 +137,49 @@ it is a permanent Stage-0 identity, not a sync point (see README → *Lineage*).
   outside every existing gate — and `tests/test_e2e_generative.py` no longer compares against a hardcoded
   literal, which had made the test itself a seventh site to remember on every bump.
   `scripts/bump_version.py` rewrites all five at once, refuses to bump from an inconsistent state, and is a
-  dry run unless `--write`. It is not a release driver: Burgess cuts no GitHub release and publishes to no
-  index, so only the version-site sweep was worth taking.
+  dry run unless `--write`. It is not a release driver: Burgess publishes to no package index, and the
+  annotated tag and GitHub release are still cut by hand, so only the version-site sweep was worth taking.
+  (An earlier draft of this entry claimed Burgess "cuts no GitHub release" — wrong, and corrected here:
+  every version from 0.2.4 to 0.3.1 has one. 0.3.2 is the release that was written up and never tagged,
+  which is why this tag carries it.)
+
+### Dependencies
+
+- **Four floor raises inside the existing major caps**, all green across the 3.10–3.14 matrix: `pydantic`
+  `>=2` → `>=2.13.4`, `scikit-learn` `>=1.4` → `>=1.7.2`, `model2vec` `>=0.3` → `>=0.8.2`, and
+  `anthropic` `>=0.77` → `>=0.120.1` in the `backend` extra. No upper bound moved — the caps are the part
+  that is load-bearing.
+- **`mcp` stays capped at `<2` and Dependabot no longer asks.** See *Changed* above; the ignore is scoped to
+  major updates only, so 1.x security patches keep flowing.
+- **The dependency comment column was realigned to 33.** Dependabot preserves whatever padding it finds, so
+  the four floor raises split the trailing-comment column three ways (28 / 31 / 33). Whitespace only,
+  verified with an empty `git diff -w` and a `tomllib` comparison of the parsed requirements — it will drift
+  again on the next bump, which is a two-minute fix and not a reason to adopt a formatter this repo has
+  deliberately never had.
+
+### Docs
+
+- `docs/ARCHITECTURE.md` §3.2 states the live-topology vocabulary as a contract: what
+  `NON_LIVE_STATE_VALUES` is, the five surfaces that must agree on it, and the one deliberate exception.
+  §3.5 no longer calls the rank subgraph "non-failed" (it is the *live* subgraph — failures *and*
+  `obsolete`), §9 records the version-consistency gate and the load-bearing mcp pin, and §9/§11 carry the
+  I11 donor gate as it actually behaves since 0.3.2: **reachability** of each pinned Stage-0 commit from its
+  donor's `HEAD`, not a frozen `HEAD` or a clean donor working tree. README, `MIGRATION.md` and the
+  `docs/fusion/` record were corrected when Cambrian was republished; ARCHITECTURE was the surface left
+  behind.
+- `docs/fusion/DECISIONS.md` records the asymmetry as a decision, since it is the one a future reader will
+  want to "fix": the widening is the consequence, the **falsification counter not following it** is the
+  decision. Consistency of vocabulary is not consistency of meaning.
+- `CLAUDE.md` carries the mcp cap and the five version sites, the two things an agent could plausibly break
+  by being helpful.
+
+### Tests
+
+- `tests/test_review_r12.py` pins all of the above — the non-live vocabulary itself, `shortest_path`, both
+  `kg_agenda` gaps, the falsification-counter exception, the malformed-note skip, the merge-driver note, and
+  the mcp import path — each with its control. Confirmed to be real pins: with the fixes stashed, exactly
+  the six expected cases fail while the controls and the `rejected`/`failed` parametrizations stay green.
+  1287 → 1306 passed, 2 skipped.
 
 ## 0.3.2 — 2026-07-30
 
