@@ -55,3 +55,17 @@ Stage-2 fix in vendored Sproutgraph tests: `test_rfix_server.py` bare `from conf
 | `scripts/kg_engine/server.py` (+6 tools) | — (new, wrapping the ported pipeline) | `kg_diverge_init/ingest/remember/parents/metrics/recall`; lazy divergence imports (I3); state home forced to `<project>/.kg/diverge` |
 | `scripts/kg_engine/divergence/importer.py` + `import-cambrian` CLI | — (new) | one-shot preference-memory importer from `~/.cambrian/<project>` (read-only on source; geometry + meta deliberately skipped and reported — I10) |
 | `pack/pack.yaml` `divergence:` section + `pack.py` shape validator + `config.resolve_axes_source`/section-unwrap | `config/domains/_schema.md` concepts | one domain-pack format: extraction vocabulary + behavior axes in one file; deep validation stays in the divergence package (I3) |
+
+## Fixes authored in a donor *after* Stage 0
+
+The tables above record what was **copied** at the pinned SHAs. This section records the separate case: a
+bug fixed in a donor after its Stage-0 pin, then **reimplemented** — not vendored — in Burgess against
+Burgess's own state layout. Nothing here moves a pin. The pins are a permanent Stage-0 identity, not a sync
+point; advancing one would break every claim in the tables above.
+
+| Burgess release | Donor commit | Reimplemented here |
+|---|---|---|
+| 0.4.0 | Cambrian [`ddca026`](https://github.com/sergiparpal/cambrian/commit/ddca02651d820215c4e3a2bcb618b320b36659d1) (2026-07-28) — *"id-collision and stale-pin corruption, one lock for pins+discards"* | batch-local and cross-generation candidate-id guards (`pipeline._parse_candidates`, `pipeline._guard_id_reuse`); the shared pin/discard lock (`state._preference_lock`, extended to Burgess's `remove_discard` un-seal lever, which the donor does not have); `state.project_read_lock` over the multi-file reads; `variety_erosion` on the empty-generation response; `stale_pins` reporting in `parents()`; the cycle-response rename `parents` → `slate_ids`. Tests are Burgess-authored against its project-local `.kg/diverge/` layout, not ported. |
+
+The claim is checkable the same way the tables are: `git show ddca026` in the published donor, whose SHA is
+still reachable from its `HEAD` (which is exactly what the I11 gate asserts).

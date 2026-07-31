@@ -292,6 +292,35 @@ anti-collapse monitor reading every round.
   the Voronoi partition) is **session-ephemeral**: a new session id wipes it. The knowledge graph,
   not the archive, is the durable store.
 
+**Candidate ids are primary keys.** One id keys the archive's `elite_id`, the candidate record store,
+both embedding stores, pins/discards, and the slate's `embedding_ref`, so the contract is: **unique
+within a batch, and unique for the life of a project unless resubmitted verbatim.** A batch-local
+duplicate is rejected by `_parse_candidates`; an id already recorded under *different* text is
+rejected by `_guard_id_reuse` (before embedding, inside the project lock). A byte-identical
+resubmission is not a collision — dedup drops it as a no-op. Without both guards a niche silently
+acquires another idea's text/coords/embedding, and dedup cannot see it: dedup compares text, not ids.
+
+**Locking** (all three are the same best-effort atomic-`mkdir` lock, which proceeds unlocked on
+timeout rather than deadlock — a divergence command must never hang):
+
+| Lock | Guards |
+|---|---|
+| `State.project_lock` | the whole-project read-modify-write of `ingest` (and an axes-changing `init`) |
+| `State.project_read_lock` | the multi-file reads of `recall` / `metrics` / `parents`, so none of them can pair a new `archive.json` with an old `candidates.json`. A no-op when the project dir does not exist — a read-only command must not materialize state |
+| `State._preference_lock` | pins **and** discards together for one domain. `add_pin`, `add_discard` and `remove_discard` each mutate *both* files, so one lock per file let a concurrent pin and discard of an id interleave and land it in both lists or neither |
+
+**Cycle response** (`kg_diverge_ingest`): `slate`, `slate_ids`, `ask_pairs`, `ask_policy`, `monitor`,
+`slate_mechanism_novelty`, `open_axis` (+ `surface_mechanism_gap` when the probe is on). `slate_ids`
+is the id list of the slate items and honours neither pins nor discards — **not** breeding parents;
+it was named `parents` before 0.4.0, which invited exactly that misread. The empty-generation
+response carries every key with neutral values, `monitor.variety_erosion` included.
+
+**`parents` command response**: `{"parents": [{id, text, coords, niche_id, novelty, pinned}]}`, plus
+optional `stale_pins` / `stale_pins_note` — pinned ids with no candidate record, which happens
+because an axes change resets the geometry while preserving preference memory. They are reported
+rather than emitted as parents with empty `text`, and the keys are absent (not empty) when every pin
+resolves.
+
 **Materialization** (`kg_diverge_materialize`) is the only door from divergence into the graph:
 pinned ideas become nodes via the propose lane exclusively (`provenance=hypothesized`,
 `epistemic_state=unverified`, `authored_by=agent`, full `[diverge]` lineage in the body). A
