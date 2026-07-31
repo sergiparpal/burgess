@@ -1046,3 +1046,107 @@ def test_default_wait_outlasts_stale_lock(tmp_path, monkeypatch):
     # An explicit --wait override still wins (operator can shorten/lengthen at will).
     bootstrap.main(["--venv", str(tmp_path / "venv"), "--wait", "5"])
     assert seen["wait_secs"] == 5.0
+
+
+# --------------------------------------------------------------------------- #
+# review-r13 — the Windows sharing violation on the lock DIRECTORY renames
+#
+# Every rename in dirlock moves the live lock dir while waiting provisioners poll it:
+# try_acquire -> is_stealable -> parse_info OPENS `lock/info` on each poll, and Python's
+# open() does not grant FILE_SHARE_DELETE, so on Windows renaming that directory raises
+# PermissionError (ERROR_SHARING_VIOLATION). These pins inject exactly that error, so the
+# regression fails on EVERY platform rather than occasionally on the Windows CI leg — the
+# flake that found it passed on a rerun of the identical commit.
+# --------------------------------------------------------------------------- #
+class _FlakyReplace:
+    """os.replace that raises the Windows sharing violation for its first ``n`` calls."""
+
+    def __init__(self, n, real):
+        self.left, self.real, self.calls = n, real, 0
+
+    def __call__(self, src, dst):
+        self.calls += 1
+        if self.left > 0:
+            self.left -= 1
+            raise PermissionError(
+                32, "The process cannot access the file because it is being used by another process"
+            )
+        return self.real(src, dst)
+
+
+@pytest.fixture
+def flaky_replace(monkeypatch):
+    def install(n):
+        flaky = _FlakyReplace(n, os.replace)
+        monkeypatch.setattr(dirlock.os, "replace", flaky)
+        return flaky
+
+    return install
+
+
+def test_release_survives_a_transient_sharing_violation(tmp_path, flaky_replace):
+    """THE flake. A peer holding `lock/info` open made release()'s rename fail; the OSError was
+    read as "already reclaimed", the token dropped, and the lock dir outlived its owner."""
+    lock = tmp_path / "provision.lock"
+    assert dirlock.try_acquire(lock, stale_secs=1800)
+    flaky = flaky_replace(3)  # three violations, then the reader closes its handle
+
+    dirlock.release(lock)
+
+    assert not lock.exists(), "the lock outlived release() — the leak this retry exists to close"
+    assert flaky.calls == 4, f"expected 3 retries then success, got {flaky.calls} attempts"
+    assert not list(tmp_path.glob("*.release-*")), "no sideline may survive a successful release"
+    assert str(lock) not in dirlock._OWNED_TOKENS
+
+
+def test_release_still_degrades_when_the_violation_never_clears(tmp_path, flaky_replace):
+    """The budget is bounded, so a PERSISTENT violation must still return quietly rather than
+    raise out of a release running in bootstrap's `finally`. The lock leaks, exactly as before —
+    reclaimable by the next acquirer's pid probe. The retry narrows the window, it does not
+    promise the rename."""
+    lock = tmp_path / "provision.lock"
+    assert dirlock.try_acquire(lock, stale_secs=1800)
+    flaky = flaky_replace(10**6)
+
+    start = time.monotonic()
+    dirlock.release(lock)  # must not raise
+    elapsed = time.monotonic() - start
+
+    assert lock.exists(), "a permanent violation cannot be renamed away — the leak is the fallback"
+    assert elapsed < dirlock._REPLACE_TIMEOUT * 3, f"release stalled {elapsed:.1f}s at exit"
+    assert flaky.calls > 1, "the deadline must buy more than one attempt"
+
+
+def test_a_lost_race_is_not_slowed_by_the_retry_budget(tmp_path, monkeypatch):
+    """Only PermissionError is retried. A genuinely lost race surfaces as FileNotFoundError —
+    another racer already moved the dir — and must back off NOW rather than sleep out a budget
+    waiting for a directory that is gone."""
+    lock = tmp_path / "provision.lock"
+    lock.mkdir()
+    calls = {"n": 0}
+
+    def vanished(src, dst):
+        calls["n"] += 1
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(dirlock.os, "replace", vanished)
+    start = time.monotonic()
+    assert dirlock._steal(lock, stale_secs=0.0) is False
+    elapsed = time.monotonic() - start
+
+    assert calls["n"] == 1, "FileNotFoundError must not be retried"
+    assert elapsed < dirlock._REPLACE_TIMEOUT / 2, f"a lost race waited {elapsed:.2f}s"
+
+
+def test_steal_survives_a_transient_sharing_violation(tmp_path, flaky_replace):
+    """The reclaim path has the same exposure: without the retry a stealable lock is abandoned for
+    the round and the waiter re-loops a whole POLL_SECS later."""
+    lock = tmp_path / "provision.lock"
+    lock.mkdir()
+    (lock / "info").write_text("pid=0 host=nowhere token=dead t=0\n", encoding="utf-8")
+    os.utime(lock, (0, 0))  # ancient -> genuinely stealable
+    flaky = flaky_replace(2)
+
+    assert dirlock._steal(lock, stale_secs=1.0) is True
+    assert not lock.exists(), "a successful steal moves the stale dir aside"
+    assert flaky.calls == 3

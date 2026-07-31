@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A provision lock could outlive the process that owned it, on Windows.** Found as a CI flake —
+  `test_concurrent_provisioners_run_one_build_and_none_starve` failing on `windows-latest` with "the provision
+  lock outlived the wave", then passing on a rerun of the identical commit. It was not a flaky test.
+  `dirlock.release` moves the live lock **directory** aside with `os.replace` before removing it, and every
+  waiting provisioner has a file inside that directory open: each poll runs `try_acquire` → `is_stealable` →
+  `parse_info`, which **opens `lock/info`**. Python's `open()` does not grant `FILE_SHARE_DELETE`, so on
+  Windows that rename raises `PermissionError` (ERROR_SHARING_VIOLATION) — which `release` read as "already
+  gone/reclaimed", dropping its ownership token and returning with the lock dir still there. The one process
+  that could clean it up had just forgotten it owned it. Not a wedge: the leaked lock names an exited pid, so
+  the next acquirer's `pid_probe` reclaims it in milliseconds — unless the OS had recycled that pid, in which
+  case the next session waits out `STALE_LOCK_SECS` (**30 minutes**) in the least recoverable part of the
+  install.
+- **…and the same rename was unguarded on three more paths.** `_steal`'s reclaim (a violation abandons the
+  steal for the round, costing the waiter a whole `POLL_SECS`) and both restore paths. The restore inside
+  `release` is the one that mattered most: its existing fallback **deletes** the directory it could not put
+  back, and that directory belongs to a successor who may be live — so retrying the transient is what keeps a
+  sharing violation from escalating into destroying someone else's lock.
+
+The repo already had this discipline in two places and `dirlock` never received it: `atomicio._replace_with_retry`
+and `canon._replace_lockfile`, whose docstring names the identical mechanism ("concurrent waiters may have it
+open for read; on Windows that raises PermissionError … because Python's `open()` does not grant
+`FILE_SHARE_DELETE`"). Same shape as 0.4.0's through-line — a rule single-homed and then extended, with a
+consumer left behind. `dirlock` now has its own local `_replace_with_retry`, kept local rather than imported
+because the module's defining constraint is being a stdlib-only leaf importable by a bare system Python before
+any venv exists (it already keeps a deliberate parallel copy of `_win_pid_alive` for the same reason).
+
+Two things the retry deliberately does **not** do. Its budget is **2 s**, shorter than the 5 s used by
+`atomicio`/`canon`, because the cost of giving up differs: there a lost rename fails a *write* and rolls back a
+whole build wave, here it leaks a lock that self-heals — and `release` runs from bootstrap's `finally` as the
+session exits, so the budget is bought with exit latency. And it retries **`PermissionError` only**: a
+genuinely lost race surfaces as `FileNotFoundError`, which must back off immediately rather than sleep out a
+budget waiting for a directory that is already gone.
+
+### Tests
+
+- Four pins in `tests/test_bootstrap.py` inject the sharing violation directly, so the regression fails on
+  **every** platform instead of occasionally on one CI leg — the failure mode that let this ship was a real
+  bug presenting as an unreliable test. They cover the release leak, the bounded degradation when the
+  violation never clears (`release` must still not raise at exit), the steal path, and the guarantee that a
+  lost race is not slowed by the retry budget. Verified as real pins: all four **fail** with the fix reverted.
+  1306 → 1310 passed, 2 skipped.
+
 ## 0.4.0 — 2026-07-31
 
 First tag since **v0.3.1**, and it therefore also carries everything in 0.3.2 below — that version was
