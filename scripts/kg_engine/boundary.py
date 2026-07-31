@@ -314,11 +314,16 @@ def _validate_node(node_in: NodeIn, node_types, restore, seen_nodes: set, sig_by
     # flood guard: cap NET-NEW writable nodes. A node id already in the canon (or repeated in this
     # payload) grows the canon by zero, so it costs no budget and is never flooded — mirroring the
     # edge "deduped costs zero" rule so an idempotent re-build never trips the limiter.
+    # Written in the SAME shape as the edge lane's charge (`_validate_edge`), which this function is
+    # documented as the mirror of: tag the dedup, then let `_FloodBudget.fits` decide (it already treats a
+    # deduped item as free), then seed the dedup set. The two lanes previously spelled one rule two ways —
+    # an `elif` short-circuit here, an unconditional `fits(is_deduped)` there — so a reader had to prove
+    # they agreed rather than see it (review-r12). Behavior is unchanged.
     if node_budget is not None and disp in (Disposition.ACCEPTED, Disposition.DEMOTED):
         is_deduped = node.id in seen_nodes
         if is_deduped:
             reason = _add_reason(reason, "deduped")
-        elif not node_budget.fits(is_deduped):
+        if not node_budget.fits(is_deduped):
             disp, reason = Disposition.REJECTED, "rate-limited-flood"
         else:
             seen_nodes.add(node.id)

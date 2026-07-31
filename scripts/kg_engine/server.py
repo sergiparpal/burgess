@@ -2087,10 +2087,19 @@ class KGEngine:
             if entry.get("unsealed_source_sig") and entry.get("unsealed_source_sig") == current_source_sig:
                 continue
             failed_state = None
+            # Both loops below tolerate ANY read fault on a referenced note, not just FileNotFoundError
+            # (§1.2, and the posture of every other read_node call site: _owner_of_edge, kg_ground,
+            # kg_rename, kg_merge, _refresh_baseline, projector._full_note_for_terms all catch broadly).
+            # A note that is malformed rather than MISSING — a hand-edit that broke the frontmatter, a
+            # BOM, a CR-only file — raises ValueError from node_from_markdown, and a ledger id that is
+            # not a clean slug raises ValueError from node_path. Narrowing to FileNotFoundError let one
+            # such note escape through _tool_result and turn the WHOLE kg_diverge_recall /
+            # kg_diverge_metrics call into {ok: False}, instead of skipping that one entry. An unreadable
+            # note simply yields no fate this sync; the next one retries it (review-r12).
             for node_id in entry.get("nodes", ()):
                 try:
                     node = self.canon.read_node(node_id)
-                except FileNotFoundError:
+                except Exception:  # noqa: BLE001 — one bad note must not fail the whole fate sync
                     continue
                 if node and node.epistemic_state in MATERIALIZED_DISCARD_STATES:
                     failed_state = node.epistemic_state.value
@@ -2098,7 +2107,7 @@ class KGEngine:
                 owner, ref_edge_id = ref.get("owner"), ref.get("id")
                 try:
                     node = self.canon.read_node(owner) if owner else None
-                except FileNotFoundError:
+                except Exception:  # noqa: BLE001 — one bad note must not fail the whole fate sync
                     continue
                 for e in (node.edges if node else ()):
                     if e.id == ref_edge_id and e.epistemic_state in MATERIALIZED_DISCARD_STATES:

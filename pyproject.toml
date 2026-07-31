@@ -12,6 +12,12 @@ dependencies = [
     # would fail LOUDLY at startup — but the no-uv pip-fallback install path (bootstrap.install_with_pip)
     # resolves these fresh from PyPI against THESE constraints, not uv.lock, so a cap is what stops a
     # fresh user venv from pulling an untested major. The primary uv path is pinned by uv.lock regardless.
+    # The <2 cap is LOAD-BEARING, not precautionary — do NOT let a Dependabot bump lift it. Verified
+    # against mcp 2.0.0 (review-r12): `mcp.server.fastmcp` is REMOVED and the `FastMCP` class no longer
+    # exists anywhere in the distribution (the server API moved to `mcp.server.mcpserver`), so
+    # `server.py`'s `from mcp.server.fastmcp import FastMCP` raises ModuleNotFoundError at startup and
+    # the whole kg_* tool surface disappears for the session. Lifting the cap therefore requires a real
+    # port of the tool surface + `readiness_lifespan` to the 2.x server API, not a version edit.
     "mcp>=1.2,<2",         # FastMCP server + tool surface (the graph engine interface)
     "pydantic>=2,<3",      # the boundary contract (P_write validation)
     "networkx>=3,<4",      # node-link graph.json interchange
