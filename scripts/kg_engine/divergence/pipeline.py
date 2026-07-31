@@ -672,7 +672,7 @@ def _empty_cycle(
         "ask_pairs": [],
         "ask_policy": _ask_policy(econfig, gen_index),
         "monitor": mon,
-        "parents": [],
+        "slate_ids": [],
         "slate_mechanism_novelty": None,
         "open_axis": _open_axis_status(
             state, spec, econfig.open_niches, econfig.open_niche_freeze_factor
@@ -1085,7 +1085,12 @@ def _ingest_locked(
         "ask_pairs": ask_pairs,
         "ask_policy": ask_policy,
         "monitor": mon,
-        "parents": slate_ids,
+        # The ids of the slate items, NOT breeding parents — it honors neither pins nor
+        # discards. Named ``parents`` until this release, which invited exactly the misread
+        # that skips both of the user's levers; the ``parents`` COMMAND is the only source
+        # of parents. Kept as a distinct field because the agent needs the id list to build
+        # its remember/pin/discard events.
+        "slate_ids": slate_ids,
         "slate_mechanism_novelty": (
             round(sum(_mvals) / len(_mvals), 4) if _mvals else None
         ),

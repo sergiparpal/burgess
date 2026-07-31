@@ -631,10 +631,13 @@ with the monitor reading the round. Candidate shape (see `/kg-diverge` step 6):
  "ask_pairs": [["c3", "c7"]], "ask_policy": "refine",
  "monitor": {"collapsing": false, "under_generation": false, "variety_eroding": false,
              "mean_cosine": 0.34, "entropy": 0.82},
- "parents": [], "slate_mechanism_novelty": 0.44, "open_axis": {"frozen": false, "n": 9}}
+ "slate_ids": ["c3", "c7"], "slate_mechanism_novelty": 0.44,
+ "open_axis": {"frozen": false, "n": 9}}
 ```
 
-Field honesty: `novelty` is mean k-NN cosine distance (k=5) to THIS SESSION's own ideas — a variety proxy,
+Field honesty: `slate_ids` is the id list of the slate items, NOT breeding parents — it honors neither
+pins nor discards, so never breed from it; use `kg_diverge_parents` for that. `novelty` is mean k-NN
+cosine distance (k=5) to THIS SESSION's own ideas — a variety proxy,
 never originality against the world; `mechanism_novelty` is the same for the open-axis value. `monitor`
 flags are advisory notices (react per `/kg-diverge` step 9). When the axes set `engine: {gap_probe: true}`
 the result also carries a `surface_mechanism_gap` block (measurement only).

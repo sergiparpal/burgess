@@ -44,7 +44,7 @@ def test_empty_cycle_returns_full_schema(home):
     # one, so consumers never KeyError on the advisory keys.
     pipeline.init_project("e", _generic(), seed=0, home=home)
     res = pipeline.ingest("e", [], _generic(), seed=0, home=home)
-    for key in ("slate", "ask_pairs", "ask_policy", "monitor", "parents", "open_axis"):
+    for key in ("slate", "ask_pairs", "ask_policy", "monitor", "slate_ids", "open_axis"):
         assert key in res, key
     assert res["ask_policy"]["phase"] in ("explore", "refine")
     assert res["monitor"]["under_generation"] is False
