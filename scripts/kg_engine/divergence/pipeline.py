@@ -667,6 +667,33 @@ def _empty_cycle(
     }
 
 
+def _guard_id_reuse(
+    cand_list: List[Candidate], cand_store: Dict[str, Any], project: str
+) -> None:
+    """Fail loudly when a candidate reuses an id already recorded under DIFFERENT text.
+
+    The batch-local twin of the duplicate-id check in :func:`_parse_candidates`, for the
+    cross-GENERATION case: a later cycle (or a later session — a fresh agent that restarts
+    its ``c-0001`` counter) submitting an old id would overwrite that id's record while the
+    niche it was already elite of keeps pointing at it, so an existing archive entry
+    silently acquires a different idea's text, coords and embedding.
+
+    Re-submitting a candidate VERBATIM is not an error — it is a harmless no-op that dedup
+    drops (identical text embeds to cosine 1.0 > tau) — so only a text change is rejected.
+    """
+    collisions = sorted(
+        c.id for c in cand_list
+        if c.id in cand_store and cand_store[c.id].get("text") != c.text
+    )
+    if collisions:
+        raise config.ConfigError(
+            f"candidate id(s) already used in project {project!r} with different text: "
+            f"{', '.join(collisions)}; ids must be unique for the life of a project "
+            f"(reusing one silently rewrites the archived idea it names) — give new "
+            f"candidates fresh ids, e.g. prefix them with the generation"
+        )
+
+
 def _guard_embedding_dim(
     stored_emb: Dict[str, List[float]], vecs: np.ndarray, embedder, project: str
 ) -> None:
@@ -938,6 +965,9 @@ def _ingest_locked(
                  stored_emb=state.read_embeddings(),
                  stored_mech_emb=state.read_mech_embeddings())
     stored_emb, stored_mech_emb, cand_store = cyc.stored_emb, cyc.stored_mech_emb, cyc.cand_store
+    # Before any embedding, so a rejected batch costs no model work — and INSIDE the lock,
+    # so the cand_store it reads is the same snapshot this cycle will write back.
+    _guard_id_reuse(cand_list, cand_store, project)
 
     embedder = cyc.embedder
     vecs = embedder.embed([c.text for c in cand_list])
