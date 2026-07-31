@@ -658,6 +658,15 @@ def _empty_cycle(
     mon["variety_eroding"] = (
         int(meta.get("erosion_streak", 0)) >= econfig.erosion_persist
     )
+    # Present on every normal cycle, so it must be present here too — this function's
+    # whole contract is that a JSON consumer never KeyErrors on an empty generation.
+    # Slopes are None (no survivor novelty to measure); the streak is the persisted one.
+    mon["variety_erosion"] = {
+        "streak": int(meta.get("erosion_streak", 0)),
+        "slope_earlier": None,
+        "slope_recent": None,
+        "note": "advisory; empty generation — sensor not advanced, last streak reported",
+    }
     return {
         "slate": [],
         "ask_pairs": [],
