@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -84,7 +84,7 @@ class FrozenVoronoiNicher:
         dim: int,
         k: int = 16,
         seed: int = 0,
-        centroids: Optional[np.ndarray] = None,
+        centroids: np.ndarray | None = None,
     ):
         self.seed = int(seed)
         # unit rows via the shared embed.l2_normalize — the "cosine == dot" contract has one home
@@ -133,14 +133,14 @@ class FrozenVoronoiNicher:
         vec = np.asarray(vec, dtype=np.float32)
         return int(np.argmax(self.centroids @ vec))
 
-    def cells(self, vecs: np.ndarray) -> List[int]:
+    def cells(self, vecs: np.ndarray) -> list[int]:
         vecs = np.asarray(vecs, dtype=np.float32)
         if vecs.shape[0] == 0:
             return []
         sims = vecs @ self.centroids.T  # (n, k)
         return [int(i) for i in np.argmax(sims, axis=1)]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "centroids": [[float(x) for x in row] for row in self.centroids],
             "k": self.k,
@@ -149,7 +149,7 @@ class FrozenVoronoiNicher:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "FrozenVoronoiNicher":
+    def from_dict(cls, d: dict[str, Any]) -> "FrozenVoronoiNicher":
         return cls(
             dim=int(d.get("dim", 0)),
             k=int(d.get("k", 0)),
@@ -183,7 +183,7 @@ def continuous_bin(axis: Axis, value: Any) -> int:
     return max(0, min(axis.bins - 1, idx))
 
 
-def axis_bucket(axis: Axis, value: Any, open_cell: Optional[int] = None) -> str:
+def axis_bucket(axis: Axis, value: Any, open_cell: int | None = None) -> str:
     """Bucket label for one axis (used both for the niche key and display)."""
     if axis.type == "categorical":
         return _MISSING_BUCKET if value is None else _niche_slug(value)
@@ -195,7 +195,7 @@ def axis_bucket(axis: Axis, value: Any, open_cell: Optional[int] = None) -> str:
     return f"cell{open_cell}"
 
 
-def niche_id_from_coords(spec: AxesSpec, coords: Dict[str, str]) -> str:
+def niche_id_from_coords(spec: AxesSpec, coords: dict[str, str]) -> str:
     """The canonical niche id: one ``axis=bucket`` segment per spec axis, ``|``-joined — the ONE
     home of the key format (review-r5: ``compute_niche`` and the freeze-time ``rekey_open_axis``
     each built it by hand). A coordinate missing from ``coords`` reads as ``none``."""
@@ -203,13 +203,13 @@ def niche_id_from_coords(spec: AxesSpec, coords: Dict[str, str]) -> str:
 
 
 def compute_niche(
-    descriptor: Dict[str, Any],
+    descriptor: dict[str, Any],
     spec: AxesSpec,
-    open_cells: Optional[Dict[str, int]] = None,
-) -> Tuple[str, Dict[str, str]]:
+    open_cells: dict[str, int] | None = None,
+) -> tuple[str, dict[str, str]]:
     """Return ``(niche_id, coords)`` for a candidate's descriptor."""
     open_cells = open_cells or {}
-    coords: Dict[str, str] = {}
+    coords: dict[str, str] = {}
     for axis in spec.axes:
         val = descriptor.get(axis.name)
         cell = open_cells.get(axis.name) if axis.type == "open" else None
@@ -222,18 +222,18 @@ class Archive:
 
     def __init__(self, spec: AxesSpec):
         self.spec = spec
-        self.niches: Dict[str, Niche] = {}
-        self.counts: Dict[str, int] = {}
+        self.niches: dict[str, Niche] = {}
+        self.counts: dict[str, int] = {}
 
     @classmethod
-    def from_dict(cls, spec: AxesSpec, data: Dict[str, Any]) -> "Archive":
+    def from_dict(cls, spec: AxesSpec, data: dict[str, Any]) -> "Archive":
         arc = cls(spec)
         for nid, rec in (data.get("niches", {}) or {}).items():
             arc.niches[nid] = Niche.from_dict(rec)
         arc.counts = dict(data.get("counts", {}) or {})
         return arc
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "niches": {nid: n.to_dict() for nid, n in self.niches.items()},
             "counts": dict(self.counts),
@@ -243,7 +243,7 @@ class Archive:
         self,
         candidate_id: str,
         niche_id: str,
-        coords: Dict[str, str],
+        coords: dict[str, str],
         fitness: float,
         novelty: float,
     ) -> bool:
@@ -267,8 +267,8 @@ class Archive:
         self,
         spec: AxesSpec,
         open_axis_name: str,
-        new_cell_by_nid: Dict[str, int],
-    ) -> Dict[str, str]:
+        new_cell_by_nid: dict[str, int],
+    ) -> dict[str, str]:
         """Re-assign every niche's open-axis bucket to a (frozen) cell and merge.
 
         ``new_cell_by_nid`` maps each current ``niche_id`` to its new open-axis
@@ -281,9 +281,9 @@ class Archive:
 
         Returns ``{old_niche_id: new_niche_id}``.
         """
-        new_niches: Dict[str, Niche] = {}
-        new_counts: Dict[str, int] = {}
-        remap: Dict[str, str] = {}
+        new_niches: dict[str, Niche] = {}
+        new_counts: dict[str, int] = {}
+        remap: dict[str, str] = {}
         for old_nid, niche in self.niches.items():
             coords = dict(niche.coords)
             cell = new_cell_by_nid.get(old_nid)
@@ -307,10 +307,10 @@ class Archive:
         self.counts = new_counts
         return remap
 
-    def elite_ids(self) -> List[str]:
+    def elite_ids(self) -> list[str]:
         return [n.elite_id for n in self.niches.values() if n.elite_id]
 
-    def niche_counts(self) -> List[int]:
+    def niche_counts(self) -> list[int]:
         return [self.counts.get(nid, 0) for nid in self.niches]
 
     def __len__(self) -> int:

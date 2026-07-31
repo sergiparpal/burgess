@@ -25,7 +25,6 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_NAME = "burgess"
@@ -58,7 +57,7 @@ def _text(rel: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _read_json_versions(rel: str) -> List[str]:
+def _read_json_versions(rel: str) -> list[str]:
     """Every version string this manifest declares for the burgess plugin.
 
     marketplace.json can list several plugins (and, in a bad edit, the same one twice), so
@@ -90,7 +89,7 @@ def _read_dunder_version(rel: str) -> str:
     return match.group(3)
 
 
-def read_pyproject_version(text: str) -> Optional[str]:
+def read_pyproject_version(text: str) -> str | None:
     """``[project].version`` specifically.
 
     A line-anchored scan would lock onto the first ``version = "..."`` in the file — which
@@ -116,7 +115,7 @@ def _read_toml_version(rel: str) -> str:
     return version
 
 
-def read_all_versions() -> Dict[str, List[str]]:
+def read_all_versions() -> dict[str, list[str]]:
     """``{site: [declared versions]}`` for all five sites; raises on an unreadable one."""
     return {
         PLUGIN_JSON: _read_json_versions(PLUGIN_JSON),
@@ -188,7 +187,7 @@ def next_version(current: str, part: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
-def current_version(sites: Dict[str, List[str]]) -> str:
+def current_version(sites: dict[str, list[str]]) -> str:
     """The single agreed version, or raise naming every site that disagrees."""
     distinct = {v for versions in sites.values() for v in versions}
     if len(distinct) != 1:
@@ -202,7 +201,7 @@ def current_version(sites: Dict[str, List[str]]) -> str:
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
-def _plan(old: str, new: str, sites: Dict[str, List[str]]) -> List[Tuple[str, str]]:
+def _plan(old: str, new: str, sites: dict[str, list[str]]) -> list[tuple[str, str]]:
     return [
         (PLUGIN_JSON, _rewrite_json(PLUGIN_JSON, old, new, len(sites[PLUGIN_JSON]))),
         (MARKETPLACE_JSON,
@@ -213,7 +212,7 @@ def _plan(old: str, new: str, sites: Dict[str, List[str]]) -> List[Tuple[str, st
     ]
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Bump the version across all five declaration sites."
     )

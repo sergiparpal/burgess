@@ -15,7 +15,6 @@ memory lives in.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from . import config
 from .config import AxesSpec
@@ -36,16 +35,16 @@ class Session:
         self,
         project: str,
         *,
-        home: Optional[Path] = None,
+        home: Path | None = None,
         seed: int = 0,
-        embedder: Optional[Embedder] = None,
+        embedder: Embedder | None = None,
     ):
         self.project = project
         self.seed = int(seed)
         self.state = State(project, home=home)
         self._embedder = embedder
-        self._spec: Optional[AxesSpec] = None
-        self._domain: Optional[str] = None
+        self._spec: AxesSpec | None = None
+        self._domain: str | None = None
 
     def ensure(self) -> "Session":
         """Create the project's state directory; return self for chaining."""

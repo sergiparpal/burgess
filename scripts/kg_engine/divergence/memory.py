@@ -16,7 +16,8 @@ and keeps the search both informed and diverse.
 from __future__ import annotations
 
 from collections import Counter
-from typing import NamedTuple, Any, Dict, List, Optional, Sequence, Set, Tuple
+from collections.abc import Sequence
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -47,7 +48,7 @@ W_NOVELTY = 0.2
 # --------------------------------------------------------------------------- #
 # remember
 # --------------------------------------------------------------------------- #
-def remember(state: State, domain: str, event: Dict[str, Any]) -> Dict[str, Any]:
+def remember(state: State, domain: str, event: dict[str, Any]) -> dict[str, Any]:
     """Append a comparison or pin to this domain's memory."""
     if not isinstance(event, dict) or "type" not in event:
         raise ValueError("event must be an object with a 'type'")
@@ -88,7 +89,7 @@ def remember(state: State, domain: str, event: Dict[str, Any]) -> Dict[str, Any]
 # --------------------------------------------------------------------------- #
 # recall
 # --------------------------------------------------------------------------- #
-def recall(state: State, domain: str, k: int = 10) -> Dict[str, Any]:
+def recall(state: State, domain: str, k: int = 10) -> dict[str, Any]:
     """Summarize memory for injection: recent comparisons, pins, discards, tallies."""
     comparisons = state.read_comparisons(domain)
     pins = state.read_pins(domain)
@@ -134,8 +135,8 @@ def recall(state: State, domain: str, k: int = 10) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # active learning: which pairs to ask
 # --------------------------------------------------------------------------- #
-def _compared_set(comparisons: Sequence[Dict[str, Any]]) -> Set[frozenset]:
-    out: Set[frozenset] = set()
+def _compared_set(comparisons: Sequence[dict[str, Any]]) -> set[frozenset]:
+    out: set[frozenset] = set()
     for ev in comparisons:
         if ev.get("type") == "comparison":
             winner, loser = ev.get("winner"), ev.get("loser")
@@ -145,12 +146,12 @@ def _compared_set(comparisons: Sequence[Dict[str, Any]]) -> Set[frozenset]:
 
 
 def select_ask_pairs(
-    slate: List[Dict[str, Any]],
-    emb_by_id: Dict[str, Sequence[float]],
-    comparisons: Optional[Sequence[Dict[str, Any]]] = None,
+    slate: list[dict[str, Any]],
+    emb_by_id: dict[str, Sequence[float]],
+    comparisons: Sequence[dict[str, Any]] | None = None,
     max_pairs: int = 2,
-    weights: Optional[Tuple[float, float, float]] = None,
-) -> List[List[Any]]:
+    weights: tuple[float, float, float] | None = None,
+) -> list[list[Any]]:
     """Pick the most-informative A-vs-B pairs from the slate.
 
     Informativeness is a weighted sum of (a) embedding **similarity** (a fine
@@ -170,7 +171,7 @@ def select_ask_pairs(
     if n < 2:
         return []
 
-    scored: List[Tuple[float, int, int]] = []
+    scored: list[tuple[float, int, int]] = []
     for i in range(n):
         for j in range(i + 1, n):
             a, b = slate[i], slate[j]
@@ -213,12 +214,12 @@ def select_ask_pairs(
 # diverse parents (honoring pins)
 # --------------------------------------------------------------------------- #
 def select_parents(
-    elite_ids: List[str],
-    emb_by_id: Dict[str, Sequence[float]],
-    pins: List[str],
+    elite_ids: list[str],
+    emb_by_id: dict[str, Sequence[float]],
+    pins: list[str],
     k: int,
-    discards: Optional[Sequence[str]] = None,
-) -> List[str]:
+    discards: Sequence[str] | None = None,
+) -> list[str]:
     """Diverse parent ids for the next generation; pins are ALWAYS included.
 
     Starts from the pinned stepping stones and greedily adds the elites farthest
@@ -235,7 +236,7 @@ def select_parents(
     discarded = set(discards or ())
 
     # pins first, de-duplicated, order preserved — never dropped
-    selected: List[str] = []
+    selected: list[str] = []
     seen: set = set()  # membership twin of `selected` (order lives in the list, lookups here)
     for p in pins:
         if p not in seen:

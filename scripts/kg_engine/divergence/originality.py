@@ -18,12 +18,12 @@ consistent with every embedder in :mod:`embed`.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 
 
-def originality_scores(idea_vecs, obvious_vecs) -> Dict[str, Any]:
+def originality_scores(idea_vecs, obvious_vecs) -> dict[str, Any]:
     """Distance-to-obvious for each idea vector.
 
     For each idea, ``originality = 1 - max cosine similarity to any vector in

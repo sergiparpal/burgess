@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .config import ConfigError
 from .state import State, read_jsonl
@@ -35,7 +35,7 @@ def _default_source(project: str) -> Path:
     return base / project
 
 
-def _read_json_list(path: Path, report: Dict[str, Any]) -> List[str]:
+def _read_json_list(path: Path, report: dict[str, Any]) -> list[str]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -49,9 +49,9 @@ def _read_json_list(path: Path, report: Dict[str, Any]) -> List[str]:
 
 def import_cambrian(
     project: str,
-    source: Optional[Path] = None,
-    home: Optional[Path] = None,
-) -> Dict[str, Any]:
+    source: Path | None = None,
+    home: Path | None = None,
+) -> dict[str, Any]:
     """Import old Cambrian preference memory into ``.kg/diverge/<project>``."""
     src = Path(source).expanduser() if source else _default_source(project)
     if not src.is_dir():
@@ -60,7 +60,7 @@ def import_cambrian(
             f"(e.g. ~/.cambrian/<project>)"
         )
 
-    report: Dict[str, Any] = {"ok": True, "source": str(src), "imported": {},
+    report: dict[str, Any] = {"ok": True, "source": str(src), "imported": {},
                               "skipped": [], "errors": []}
     state = State(project, home=home).ensure()
     report["target"] = str(state.root)

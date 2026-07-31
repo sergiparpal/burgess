@@ -30,8 +30,8 @@ under the old default (re-embed, or pin ``KG_DIVERGE_EMBEDDER=local``).
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -101,7 +101,7 @@ class Embedder:
         providers (hash / api / tests) keep the default and load nothing."""
         return self.dim
 
-    def _embed_raw(self, texts: List[str]) -> np.ndarray:  # pragma: no cover
+    def _embed_raw(self, texts: list[str]) -> np.ndarray:  # pragma: no cover
         """Return UNnormalized ``(n, d)`` rows; the base class normalizes them."""
         raise NotImplementedError
 
@@ -124,7 +124,7 @@ class HashingEmbedder(Embedder):
             norm=None,  # we normalize ourselves so zero rows are handled
         )
 
-    def _embed_raw(self, texts: List[str]) -> np.ndarray:
+    def _embed_raw(self, texts: list[str]) -> np.ndarray:
         return self._vec.transform(texts).toarray()
 
 
@@ -200,7 +200,7 @@ class StaticEmbedder(LazyModelEmbedder):
             ) from exc
         return model, int(model.dim)
 
-    def _embed_raw(self, texts: List[str]) -> np.ndarray:
+    def _embed_raw(self, texts: list[str]) -> np.ndarray:
         model = self._ensure()
         # StaticModel.encode already returns a float32 ndarray; the base class
         # L2-normalizes, so we only need the raw rows here.
@@ -225,7 +225,7 @@ class LocalEmbedder(LazyModelEmbedder):
         )
         return model, int(get_dim())
 
-    def _embed_raw(self, texts: List[str]) -> np.ndarray:
+    def _embed_raw(self, texts: list[str]) -> np.ndarray:
         model = self._ensure()
         return model.encode(
             list(texts),
@@ -235,10 +235,10 @@ class LocalEmbedder(LazyModelEmbedder):
         )
 
 
-_CACHE: "Dict[str, Embedder]" = {}
+_CACHE: "dict[str, Embedder]" = {}
 
 
-def get_embedder(provider: Optional[str] = None) -> Embedder:
+def get_embedder(provider: str | None = None) -> Embedder:
     """Return the embedder selected by ``provider`` or ``$KG_DIVERGE_EMBEDDER``.
 
     Cached per-provider so repeated calls reuse the (lazily loaded) model.
@@ -278,8 +278,8 @@ def reset_cache() -> None:
 def dedupe(
     vecs: np.ndarray,
     tau: float = DEFAULT_DEDUP_TAU,
-    existing: Optional[np.ndarray] = None,
-) -> Tuple[List[int], List[int]]:
+    existing: np.ndarray | None = None,
+) -> tuple[list[int], list[int]]:
     """Greedy near-duplicate removal over normalized rows.
 
     Keeps a row unless its cosine similarity to an already-kept row (or to any
@@ -300,8 +300,8 @@ def dedupe(
     if n_existing:
         kept[:n_existing] = np.asarray(existing, dtype=np.float32)
         count = n_existing
-    keep: List[int] = []
-    drop: List[int] = []
+    keep: list[int] = []
+    drop: list[int] = []
     for i in range(n):
         v = vecs[i]
         if count and float(np.max(kept[:count] @ v)) > tau:

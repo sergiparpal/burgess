@@ -12,7 +12,7 @@ prove the diverse slate beats a non-diverse baseline.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -29,7 +29,7 @@ KERNEL_JITTER = 1e-6
 
 def build_kernel(
     vecs: np.ndarray,
-    quality: Optional[np.ndarray] = None,
+    quality: np.ndarray | None = None,
     jitter: float = KERNEL_JITTER,
 ) -> np.ndarray:
     """Build a PSD DPP kernel ``L = diag(q) (X Xᵀ) diag(q) + jitter·I``.
@@ -51,7 +51,7 @@ def build_kernel(
 # --------------------------------------------------------------------------- #
 # Selection
 # --------------------------------------------------------------------------- #
-def greedy_map_dpp(kernel: np.ndarray, k: int, epsilon: float = 1e-10) -> List[int]:
+def greedy_map_dpp(kernel: np.ndarray, k: int, epsilon: float = 1e-10) -> list[int]:
     """Fast greedy MAP inference for a DPP (Chen et al., 2018).
 
     Returns up to ``k`` item indices, greedily maximizing the marginal gain in
@@ -72,7 +72,7 @@ def greedy_map_dpp(kernel: np.ndarray, k: int, epsilon: float = 1e-10) -> List[i
         return []
     cis = np.zeros((k, n))
     di2s = np.diag(kernel).astype(np.float64).copy()
-    selected: List[int] = []
+    selected: list[int] = []
     j = int(np.argmax(di2s))
     selected.append(j)
     while len(selected) < k:
@@ -95,8 +95,8 @@ def farthest_point_sampling(
     vecs: np.ndarray,
     k: int,
     start: int = 0,
-    seeds: Optional[Sequence[int]] = None,
-) -> List[int]:
+    seeds: Sequence[int] | None = None,
+) -> list[int]:
     """Max-min cosine-distance greedy selection (also the DPP fallback).
 
     Returns indices into ``vecs`` that are mutually far apart, each chosen to
@@ -183,10 +183,10 @@ def bounded_quality(
 def select_diverse(
     vecs: np.ndarray,
     k: int,
-    quality: Optional[np.ndarray] = None,
+    quality: np.ndarray | None = None,
     seed: int = 0,
     quality_weight: float = 1.0,
-) -> List[int]:
+) -> list[int]:
     """Pick ``k`` diverse item indices. Greedy DPP, farthest-point fallback.
 
     When ``quality`` is given it is bounded by :func:`bounded_quality` (using

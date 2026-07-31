@@ -31,7 +31,7 @@ import os
 import tempfile
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -69,7 +69,7 @@ _OPERATORS = ["mutation", "analogy", "reframe", "scamper", "biomimicry", "invers
 # --------------------------------------------------------------------------- #
 # Canned generators (the "stubbed LLM")
 # --------------------------------------------------------------------------- #
-def diverse_candidates(n: int, gen: int = 0, prefix: str = "d") -> List[Dict[str, Any]]:
+def diverse_candidates(n: int, gen: int = 0, prefix: str = "d") -> list[dict[str, Any]]:
     """Vary every axis widely -> well-spread embeddings and niches."""
     out = []
     for i in range(n):
@@ -93,7 +93,7 @@ def diverse_candidates(n: int, gen: int = 0, prefix: str = "d") -> List[Dict[str
     return out
 
 
-def single_shot_candidates(n: int, prefix: str = "s") -> List[Dict[str, Any]]:
+def single_shot_candidates(n: int, prefix: str = "s") -> list[dict[str, Any]]:
     """A clichéd single shot: one angle/form/mechanism, minor wording -> clustered."""
     verbs = ["boost", "increase", "drive", "grow", "raise", "lift", "improve", "scale"]
     out = []
@@ -114,7 +114,7 @@ def single_shot_candidates(n: int, prefix: str = "s") -> List[Dict[str, Any]]:
     return out
 
 
-def collapsing_candidates(n: int, prefix: str = "x") -> List[Dict[str, Any]]:
+def collapsing_candidates(n: int, prefix: str = "x") -> list[dict[str, Any]]:
     """Samey but not exact-duplicate: comfortably survives dedup (cos < 0.92) yet
     trips the monitor (cos > 0.55). Two words vary to sit mid-band."""
     nouns = ["birds", "trees", "rivers", "gardens", "markets", "bridges", "murals", "cafes"]
@@ -137,7 +137,7 @@ def collapsing_candidates(n: int, prefix: str = "x") -> List[Dict[str, Any]]:
     return out
 
 
-def dpp_isolation_candidates(n: int, slate_size: int) -> List[Dict[str, Any]]:
+def dpp_isolation_candidates(n: int, slate_size: int) -> list[dict[str, Any]]:
     """A pool whose first ``slate_size`` items are near-clones (so naive first-N
     is low-diversity) followed by diverse items (so DPP can find spread). Isolates
     the engine's selection value from the generator's."""
@@ -149,7 +149,7 @@ def dpp_isolation_candidates(n: int, slate_size: int) -> List[Dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 # Metrics helpers
 # --------------------------------------------------------------------------- #
-def _slate_diversity(vecs: np.ndarray, niche_ids: List[str]) -> Dict[str, float]:
+def _slate_diversity(vecs: np.ndarray, niche_ids: list[str]) -> dict[str, float]:
     counts = Counter(niche_ids)
     return {
         "mean_pairwise_distance": round(diversity.mean_pairwise_distance(vecs), 4),
@@ -284,7 +284,7 @@ def _null_check(spec, embedder, seed, trials=50, eps=0.02):
     }
 
 
-def _value_elite_wins_niche(axes, seed, home, project) -> Dict[str, Any]:
+def _value_elite_wins_niche(axes, seed, home, project) -> dict[str, Any]:
     """The variety gate's first VALUE assertion: higher fitness wins its niche.
 
     Two candidates share an identical descriptor (so they map to the **same**
@@ -329,7 +329,7 @@ def _value_elite_wins_niche(axes, seed, home, project) -> Dict[str, Any]:
     }
 
 
-def _live_semantic_check(live: bool) -> Dict[str, Any]:
+def _live_semantic_check(live: bool) -> dict[str, Any]:
     """Under the real embedder, a paraphrase must beat an unrelated sentence.
 
     Only runs on a ``--live`` invocation, and **skips cleanly** (without failing
@@ -356,7 +356,7 @@ def _live_semantic_check(live: bool) -> Dict[str, Any]:
     }
 
 
-def _originality_probe(spec, settings, embedder, seed) -> Dict[str, Any]:
+def _originality_probe(spec, settings, embedder, seed) -> dict[str, Any]:
     """Advisory: how far the engine's diverse slate sits from an "obvious-set".
 
     **Advisory only** — never a pass/fail gate, never part of ``ok``, and never
@@ -415,7 +415,7 @@ def _originality_probe(spec, settings, embedder, seed) -> Dict[str, Any]:
     }
 
 
-def _surface_mechanism_gap_probe(spec, settings, embedder, seed) -> Dict[str, Any]:
+def _surface_mechanism_gap_probe(spec, settings, embedder, seed) -> dict[str, Any]:
     """Advisory: the diverse slate's surface vs mechanism spread, plus the gap that a
     surface-diverse / mechanism-monotone slate shows by contrast.
 
@@ -494,7 +494,7 @@ def _collapse_reversal(settings, axes, seed, home, project):
 
 
 def run(project: str = "selftest", live: bool = False, seed: int = 0,
-        home: Optional[Path] = None) -> Dict[str, Any]:
+        home: Path | None = None) -> dict[str, Any]:
     # The self-test must be hermetic. With no explicit home (the CLI path) it
     # would otherwise write to the persistent default home under fixed project
     # names; init-project never resets a project, so MAP-Elites occupancy would
@@ -566,7 +566,7 @@ def run(project: str = "selftest", live: bool = False, seed: int = 0,
         }
 
 
-def _skipped(reason: str) -> Dict[str, Any]:
+def _skipped(reason: str) -> dict[str, Any]:
     """The uniform not-run probe record (review-r5: the shape was pasted at three sites whose
     excuse strings had already drifted)."""
     return {"ran": False, "skipped": True, "reason": reason}
@@ -592,7 +592,7 @@ def _forced_embedder(name: str):
 
 
 def _build_variety_gate(engine_metrics, base_metrics, dpp_metrics, firstn_metrics,
-                        null_check, value_check) -> Dict[str, Any]:
+                        null_check, value_check) -> dict[str, Any]:
     """Assemble the variety gate — the audit-critical part of the report: `checks` are exactly what
     feeds `passed` (and so `ok`); everything else in the block is context (review-r5: this literal
     was buried mid-run() under environment bookkeeping)."""
