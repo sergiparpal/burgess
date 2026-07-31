@@ -35,7 +35,7 @@ verdict path.
 
 | Module | Role |
 |---|---|
-| `model.py` | Core data model: the three axes (enums), `Node`/`Edge`, span verification/normalization, frontmatter Markdown I/O, shared vocabularies (`VERDICT_STATES`, `FAILURE_STATES`, `MIN_SPAN_CHARS`) |
+| `model.py` | Core data model: the three axes (enums), `Node`/`Edge`, span verification/normalization, frontmatter Markdown I/O, shared vocabularies (`VERDICT_STATES`, `FAILURE_STATES`, `NON_LIVE_STATE_VALUES`, `MIN_SPAN_CHARS`) |
 | `envconfig.py` | Stdlib-only leaf: env-value cleaning + project/data/source/pack resolution rules |
 | `atomicio.py` | Stdlib-only leaf: crash-safe atomic writes (temp + fsync + replace) |
 | `graphio.py` | Version-robust NetworkX node-link (de)serialization for `graph.json` |
@@ -90,8 +90,24 @@ dropping the note, and coerces unknown enum values to safe defaults.
 
 A high-provenance edge can be unverified; a grounded edge can be inferred. A verifying span never
 auto-promotes `inferred` → `span-present` on a write; only `kg_ground` promotion upgrades
-provenance. Vocabulary sets used everywhere: `VERDICT_STATES = {grounded, rejected, failed}`;
-`GROUNDABLE_STATES` adds `obsolete`; `FAILURE_STATES = {rejected, failed}` — never pruned.
+provenance. Vocabulary sets used everywhere, single-homed in `model.py` so extending one can never
+silently leave a consumer behind on the older form: `VERDICT_STATES = {grounded, rejected, failed}`;
+`GROUNDABLE_STATES` adds `obsolete` (every state `kg_ground` may stamp); `FAILURE_STATES =
+{rejected, failed}` — never pruned; `NON_LIVE_STATE_VALUES = FAILURE_STATE_VALUES ∪ {obsolete}`.
+
+That last set is **what is not live topology**, and every structural surface reads it: a refuted
+relation and a superseded one are both dead, so neither may confer degree/community/betweenness
+weight (`projector._live_subgraph`), carry a path (`DerivedReader.shortest_path`), be walked by the
+generators (`generate._live_undirected`), answer a query (`kg_context`'s answer lane), or count as a
+live relation in `kg_agenda`'s detectors and its edgeless-communities crossing test. A surface left
+on the narrower failure-only set presents connectivity every other surface calls dead — which is
+exactly what `shortest_path` and `kg_agenda` did after `obsolete` joined the vocabulary, and what
+`tests/test_review_r12.py` now pins. Nodes are never dropped, only edges: an attacked hub whose
+relations are all refuted still ranks honestly at degree 0.
+
+The **one deliberate exception**: `kg_context`'s falsification counter stays on `FAILURE_STATES`. It
+counts refutations, and `obsolete` is a lifecycle transition, not negative information (§1.7). That
+exception is pinned too, so nobody "consistently" widens it.
 
 ### 3.3 The write path
 
@@ -162,9 +178,9 @@ exactly one audit record, defeating replay. State cache: `<project>/.kg-reconcil
 `projector.py` builds, under `<data_dir>/derived/`:
 
 - **`graph.json`** — NetworkX node-link JSON. Advisory ranks (degree, Leiden `community`,
-  `betweenness`, specificity-weighted `spec_betweenness`) are computed over the **non-failed
-  subgraph**, but the stored graph and tables stay complete: failure memory is drawn, never
-  filtered.
+  `betweenness`, specificity-weighted `spec_betweenness`) are computed over the **live subgraph**
+  (`NON_LIVE_STATE_VALUES` edges excluded — failures *and* `obsolete`; §3.2), but the stored graph
+  and tables stay complete: failure memory is drawn, never filtered.
 - **`index.sqlite`** — `nodes` (label, type, axes, degree, community, `structural_bridge`,
   betweenness, `spec_betweenness`, `specificity`, `gate_on`), `edges` (id PK, endpoints, relation,
   axes, span, `source_file`, confidence, and **`owner`** — the canon note the edge is persisted
@@ -239,7 +255,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
 - **Read/query (12):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
   status + section coverage + the engine-resolved `source` — the build-resume probe and
   `/kg-build`'s source-of-truth for the configured `source_path`), `query_graph`, `get_node`, `get_neighbors`,
-  `shortest_path`, `kg_explain_path` (grounded-edges-only chain + advisory `leap`; capped at
+  `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
+  (grounded-edges-only chain + advisory `leap`; capped at
   `pathing.MAX_EXPLAIN_NODES` distinct nodes — its closure is quadratic in that count, so an uncapped
   model-supplied list would outrun the handler watchdog), `kg_context`
   (budgeted, falsification-aware; grounded `items[]` never mixed with `hypotheses[]`), `kg_agenda`
@@ -392,9 +409,23 @@ divergence templates ship as pack fragments under `pack/domains/`.
   with a fresh handshake. Logs: `<KG_DATA>/server.log`.
 - **CI/structural gates**: `scripts/validate_plugin.py` (stdlib-only: manifest JSON validity,
   4-file version agreement across plugin.json/marketplace/pyproject/`kg_engine.__version__`,
-  every declared component file exists); `scripts/check_donors_clean.py` (invariant I11: the two
-  pinned donor checkouts exist, are clean, and sit at their pinned SHAs; installed as the
-  pre-commit hook).
+  every declared component file exists); `scripts/check_donors_clean.py` (invariant I11, installed
+  as the pre-commit hook: each donor checkout exists and its pinned Stage-0 commit is still
+  **reachable** from that donor's `HEAD` — see §11).
+- **Version sites**: the version is declared in five places, and `tests/test_version_consistency.py`
+  asserts they agree — including `kg_engine.divergence.__version__`, which sits outside
+  `validate_plugin.py`'s four-file check. It parses the sites independently of
+  `scripts/bump_version.py` (a guard sharing a parser with the tool it guards only proves the parser
+  is self-consistent). `bump_version.py` rewrites all five at once, refuses to bump from an
+  inconsistent state, and is a dry run unless `--write`.
+- **Dependency pins**: `mcp>=1.2,<2` is **load-bearing**, not conservatism. mcp 2.0.0 removed
+  `mcp.server.fastmcp` and the `FastMCP` class outright (the server API moved to
+  `mcp.server.mcpserver`), so a bump past the cap raises `ModuleNotFoundError` at startup and every
+  `kg_*` tool disappears for the session. Adopting 2.x needs a real port of the tool surface and
+  `readiness_lifespan`, not a version edit. `tests/test_review_r12.py` pins the import path with a
+  hard assertion rather than `importorskip`, which would have *skipped* on exactly the bump that
+  breaks production, and `.github/dependabot.yml` ignores mcp **major** updates only — 1.x
+  minor/patch releases, security fixes included, must keep flowing.
 
 ### Environment contract
 
@@ -480,8 +511,13 @@ The eleven fusion invariants, all test-enforced (`tests/fusion/`):
 - **I9 — graceful degradation**: every `kg_*` graph tool works with divergence deps blocked.
 - **I10 — session-ephemeral archives**: geometry dies with the session; only pins, discards,
   comparisons and session metadata persist.
-- **I11 — donors untouched**: the two pinned donor checkouts are never modified
-  (`scripts/check_donors_clean.py`).
+- **I11 — donors untouched**: the fusion never wrote to a donor. `scripts/check_donors_clean.py`
+  asserts what preserves that historical fact — each pinned Stage-0 commit still **exists and is
+  reachable from its donor's `HEAD`**, so the copied-from tree stays recoverable with
+  `git show <sha>` and every `ATTRIBUTION.md` claim stays checkable. A frozen `HEAD` and a clean
+  donor working tree are deliberately *not* asserted: they were a proxy that held only while both
+  donors stayed retired, and Cambrian has since been republished and resumed development. An
+  **unreachable** pin is still a hard failure — that is where provenance is genuinely lost.
 
 The historical decision record (how these were chosen, the blind-experiment rule D1, per-file
 attribution) lives in `docs/fusion/` — that directory documents the project's history and is the
