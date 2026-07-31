@@ -541,12 +541,27 @@ class State:
     def write_pins(self, domain: str, pins: List[str]) -> None:
         self.write_json(self.pins_path(domain), pins)
 
-    def add_pin(self, domain: str, candidate_id: str) -> List[str]:
-        # Lock the read-modify-write so two concurrent invocations can't each read
-        # the same list and clobber the other's pin (pins are "never dropped").
+    @contextlib.contextmanager
+    def _preference_lock(self, domain: str):
+        """One lock covering BOTH preference files for a domain.
+
+        Pins and discards are a single invariant, not two: every writer here mutates both
+        files (pinning drops the discard, discarding drops the pin, un-sealing edits the
+        discard list a pin may be racing on). Locking each file separately let a concurrent
+        pin and discard of one id take different locks, interleave their read-modify-writes,
+        and leave that id in both lists or in neither — "latest action wins" silently stops
+        holding. The pins path is the arbitrary but stable choice of lock target; what
+        matters is that all three writers agree on one.
+        """
         path = self.pins_path(domain)
         path.parent.mkdir(parents=True, exist_ok=True)
         with _file_lock(path):
+            yield
+
+    def add_pin(self, domain: str, candidate_id: str) -> List[str]:
+        # Lock the read-modify-write so two concurrent invocations can't each read
+        # the same list and clobber the other's pin (pins are "never dropped").
+        with self._preference_lock(domain):
             pins = self.read_pins(domain)
             if candidate_id not in pins:
                 pins.append(candidate_id)
@@ -565,10 +580,9 @@ class State:
     def add_discard(self, domain: str, candidate_id: str) -> List[str]:
         # Locked read-modify-write, mirroring add_pin. A discard is the negative of
         # a pin; the two are mutually exclusive (latest action wins), so discarding
-        # an id also drops it from pins.
-        path = self.discards_path(domain)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with _file_lock(path):
+        # an id also drops it from pins — hence the SHARED lock covering both files
+        # (see _preference_lock), not one lock per file.
+        with self._preference_lock(domain):
             discards = self.read_discards(domain)
             if candidate_id not in discards:
                 discards.append(candidate_id)
@@ -580,21 +594,25 @@ class State:
         """Un-seal (the explicit inverse of ``add_discard``): drop a candidate from this domain's
         discards so it returns to the proposal pool. Locked read-modify-write, mirroring ``add_discard``.
         Does NOT re-pin it (pin/discard mutual exclusivity is a latest-action rule; un-sealing is neither
-        a pin nor a discard). No-op if the id isn't discarded. Used by the re-examinable un-seal lever."""
-        path = self.discards_path(domain)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with _file_lock(path):
+        a pin nor a discard). No-op if the id isn't discarded. Used by the re-examinable un-seal lever.
+        Takes the SHARED preference lock (see ``_preference_lock``): un-sealing edits the discard list
+        a concurrent pin of the same id is also about to rewrite."""
+        with self._preference_lock(domain):
             discards = self.read_discards(domain)
             if candidate_id in discards:
                 self.write_discards(domain, [d for d in discards if d != candidate_id])
             return self.read_discards(domain)
 
     def _remove_pin(self, domain: str, candidate_id: str) -> None:
+        # Deliberately UNLOCKED: called only from inside _preference_lock, and the mkdir
+        # lock is not re-entrant — taking it again here would deadlock against its holder.
         pins = self.read_pins(domain)
         if candidate_id in pins:
             self.write_pins(domain, [p for p in pins if p != candidate_id])
 
     def _remove_discard(self, domain: str, candidate_id: str) -> None:
+        # Deliberately UNLOCKED: called only from inside _preference_lock, and the mkdir
+        # lock is not re-entrant — taking it again here would deadlock against its holder.
         discards = self.read_discards(domain)
         if candidate_id in discards:
             self.write_discards(domain, [d for d in discards if d != candidate_id])
