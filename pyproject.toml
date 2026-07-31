@@ -19,7 +19,7 @@ dependencies = [
     # the whole kg_* tool surface disappears for the session. Lifting the cap therefore requires a real
     # port of the tool surface + `readiness_lifespan` to the 2.x server API, not a version edit.
     "mcp>=1.2,<2",         # FastMCP server + tool surface (the graph engine interface)
-    "pydantic>=2,<3",      # the boundary contract (P_write validation)
+    "pydantic>=2.13.4,<3",      # the boundary contract (P_write validation)
     "networkx>=3,<4",      # node-link graph.json interchange
     "pyyaml>=6,<7",        # pack.yaml / glossary loader
     # Upper bounds pin BELOW the next (unverified) major so a fresh user venv can't silently pull a
