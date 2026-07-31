@@ -46,9 +46,52 @@ _HOST = socket.gethostname()
 # crash-orphan that never got its info written and may be reclaimed (review: info-less-window steal).
 _INFO_GRACE_SECS = 5.0
 
+# Bounded retry for the Windows sharing-violation case on the two directory renames below. Both
+# `release` and `_steal` move the LIVE lock dir aside with os.replace while every waiting
+# provisioner is polling it — `try_acquire` -> `is_stealable` -> `parse_info` OPENS `lock/info` on
+# each poll, and Python's open() does not grant FILE_SHARE_DELETE, so on Windows renaming a
+# directory whose files are held open raises PermissionError (ERROR_SHARING_VIOLATION). The reader
+# closes within microseconds; retrying is what turns that into a non-event.
+#
+# The budget is deliberately SHORTER than the 5s used by atomicio._replace_with_retry and
+# canon._replace_lockfile, because the cost of giving up differs: there, a lost rename fails a WRITE
+# (canon.write_nodes rolls back a whole build wave), so the deadline is sized to outlast an AV hold.
+# Here, giving up leaks a lock that the next acquirer's pid_probe reclaims in milliseconds — so the
+# budget is sized to outlast a normal reader window without stalling process exit, since `release`
+# runs from bootstrap's `finally` as the session ends.
+_REPLACE_TIMEOUT = 2.0     # seconds — deadline, not an attempt count
+_REPLACE_BACKOFF = 0.02    # initial sleep; doubles per attempt
+_REPLACE_BACKOFF_MAX = 0.2
+
 
 def _new_token() -> str:
     return uuid.uuid4().hex
+
+
+def _replace_with_retry(src: Path, dst: Path) -> None:
+    """``os.replace(src, dst)`` retrying ONLY the Windows sharing violation.
+
+    PermissionError alone is retried. Every other OSError propagates immediately and unchanged, so
+    the callers' existing ``except OSError`` arms keep their current meaning and timing: a
+    FileNotFoundError in ``_steal`` is a genuinely lost race (another racer already moved the dir)
+    and must back off NOW rather than sleep out a budget waiting for a dir that is gone. A no-op on
+    POSIX, where renaming a directory with open files inside succeeds.
+
+    A persistent violation still raises after the deadline — the callers degrade from there exactly
+    as they did before this retry existed (a leaked lock stays reclaimable via the pid probe and the
+    staleness window; it is never a wedge)."""
+    deadline = time.monotonic() + _REPLACE_TIMEOUT
+    backoff = _REPLACE_BACKOFF
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            now = time.monotonic()
+            if now >= deadline:
+                raise
+            time.sleep(min(backoff, _REPLACE_BACKOFF_MAX, deadline - now))
+            backoff *= 2
 
 
 def _info_record(token: str) -> str:
@@ -273,12 +316,17 @@ def _steal(lock: Path, stale_secs: float) -> bool:
     _reap_stale_orphans(lock, stale_secs)
     sidelined = lock.parent / f"{lock.name}.stale-{os.getpid()}-{time.time_ns()}"
     try:
-        os.replace(lock, sidelined)
+        # Retry the Windows sharing violation (a peer polling `info` mid-steal): without it the
+        # reclaim is abandoned for this round and the waiter re-loops a whole POLL_SECS later.
+        _replace_with_retry(lock, sidelined)
     except OSError:
         return False  # lost the steal race; caller re-loops and waits
     if not is_stealable_sidelined(sidelined, stale_secs):
         try:
-            os.replace(sidelined, lock)
+            # Retried too: a peer's handle on the file we just moved aside (it follows the file, not
+            # the path) can block putting a LIVE holder's lock back. The documented failure below is
+            # ENOTEMPTY from a third racer, which is NOT a PermissionError and so still fails fast.
+            _replace_with_retry(sidelined, lock)
         except OSError:
             # A third racer created ``lock`` in the gap, so the restore failed. The dir we hold was JUST
             # re-validated as a LIVE holder — never rmtree it (that destroys a live holder's lock mid-job,
@@ -347,7 +395,11 @@ def release(lock: Path) -> None:
         return  # we never recorded ownership of this lock — leave it alone
     sidelined = lock.parent / f"{lock.name}.release-{os.getpid()}-{time.time_ns()}"
     try:
-        os.replace(lock, sidelined)
+        # THE leak site. A bare os.replace here made the release a no-op whenever a peer had
+        # `lock/info` open on Windows: the OSError was read as "already reclaimed", the token was
+        # dropped, and the lock dir outlived the process that owned it — reclaimable only via the
+        # next acquirer's pid probe, or after STALE_LOCK_SECS if that pid had been recycled.
+        _replace_with_retry(lock, sidelined)
     except OSError:
         _OWNED_TOKENS.pop(str(lock), None)
         return  # already gone/reclaimed — nothing of ours to release
@@ -357,7 +409,10 @@ def release(lock: Path) -> None:
         return
     # We moved a foreign/changed lock aside (a successor reclaimed the path) — restore it.
     try:
-        os.replace(sidelined, lock)
+        # Retried for the same reason, and it matters most here: the fallback below DESTROYS the dir
+        # it could not put back, and that dir belongs to a successor who may be live. Retrying the
+        # transient is what keeps a sharing violation from escalating into deleting someone's lock.
+        _replace_with_retry(sidelined, lock)
     except OSError:
         shutil.rmtree(sidelined, ignore_errors=True)
     _OWNED_TOKENS.pop(str(lock), None)

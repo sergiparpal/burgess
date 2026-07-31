@@ -141,3 +141,17 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **The shape, which is the reusable part:** all of it is *a rule that was single-homed and then extended, with a consumer left behind on the older form*. Single-homing the vocabulary in `model.py` is what makes the next extension mechanical, but it does not by itself find the consumers that re-derived the set locally — those have to be swept. The same shape produced the `_sync_materialized_fates` §1.2 gap (`FileNotFoundError` where every sibling call site had already widened to a broad catch) in the same review.
 - **Rejected alternatives:** (a) *widen the counter for symmetry* — see above; it corrupts the meaning of the one number that reports falsification effort; (b) *keep `obsolete` live and drop it only from centrality* — the pre-L14 state, and the reason the surfaces disagreed in the first place: a superseded relation invisible as an answer but still conferring betweenness is an undocumented split; (c) *let each surface own its own filter* — that is precisely the defect, five times over.
 - **Pinned in:** `tests/test_review_r12.py` — the vocabulary premise itself (`obsolete` is non-live but **not** a failure state), `shortest_path`, both `kg_agenda` gaps, the crossing test, and `test_falsification_counter_still_counts_failures_only`, which exists so nobody "consistently" widens the exception. Each has a control proving a genuinely live edge still carries a path and still joins communities; the `rejected`/`failed` parametrizations stay green throughout.
+
+> **Addendum (2026-07-31) — the rename side of the line needs a retry to hold.** The structural lesson above
+> ("keep liveness on the rename side") is right and unchanged, but it was stated as though a rename always
+> lands. On Windows it does not: `dirlock.release` and `_steal` move the live lock **directory** aside while
+> every waiting provisioner has `lock/info` open (each poll runs `try_acquire` → `is_stealable` →
+> `parse_info`), and Python's `open()` grants no `FILE_SHARE_DELETE`, so the rename raises
+> ERROR_SHARING_VIOLATION. `release` read that as "already reclaimed" and returned with the lock still
+> present — the leak this addendum records. It surfaced as a `windows-latest` CI flake that passed on rerun.
+> The fix is the retry discipline `atomicio._replace_with_retry` and `canon._replace_lockfile` already
+> applied and `dirlock` never received; the budget is deliberately shorter (2 s) because giving up here leaks
+> a self-healing lock rather than failing a write. **What this does not change:** the reason the ticket queue
+> was not ported. That decision rests on provisioning waiters needing an *outcome, not a turn*, and on the
+> blast radius of a wedged installer — both untouched. If anything it sharpens the point: even the rename
+> path, the one Windows *does* promise, needed hardening to be dependable there.
