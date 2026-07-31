@@ -248,11 +248,12 @@ The fusion invariants live in `tests/fusion/` (import firewall, DB isolation, ad
 
 ## Lineage
 
-Burgess is a fusion of two MIT-licensed plugins by the same author. Both donor repositories have since been
-retired and are no longer published; Burgess is their continuation:
+Burgess is a fusion of two MIT-licensed plugins by the same author:
 
-- **Sproutgraph** — the convergence spine (engine, MCP boundary, commands, agents, experiment harness, canon/derived model), vendored at `17c4066`.
-- **Cambrian** — the divergence engine (embedder, MAP-Elites, novelty, DPP, monitor, judge bounds, cliché discipline), vendored at `a2adfa1`.
+- **Sproutgraph** — the convergence spine (engine, MCP boundary, commands, agents, experiment harness, canon/derived model), vendored at `17c4066`. Retired and no longer published; Burgess is its continuation.
+- **Cambrian** — the divergence engine (embedder, MAP-Elites, novelty, DPP, monitor, judge bounds, cliché discipline), vendored at `a2adfa1`. Republished at [sergiparpal/cambrian](https://github.com/sergiparpal/cambrian) and developing on its own again; the vendored commit is still reachable from its `HEAD`, so every attribution claim below stays checkable against the public repository.
+
+The donor pins are a permanent Stage-0 identity, not a sync point: Burgess does not track either donor's later work, and a donor resuming development changes nothing about what the fusion copied (invariant I11 asserts reachability of the pinned SHA, not a frozen `HEAD`).
 
 Per-file attribution with SHAs and every adaptation: [`docs/fusion/ATTRIBUTION.md`](docs/fusion/ATTRIBUTION.md). Migrating from either donor: [`docs/MIGRATION.md`](docs/MIGRATION.md). How this plugin was built (the full fusion plan and its decision log): [`docs/fusion/`](docs/fusion/).
 

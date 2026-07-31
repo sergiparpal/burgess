@@ -1,9 +1,11 @@
 # Migrating to Burgess
 
 Burgess vendors both donors at pinned SHAs (Sproutgraph @ `17c4066`, Cambrian @
-`a2adfa1`). Both donor repositories have since been retired and are no longer
-published — Burgess is their continuation. This guide maps what you had to what
-Burgess does.
+`a2adfa1`). Sproutgraph has since been retired and is no longer published —
+Burgess is its continuation. Cambrian was republished at
+[sergiparpal/cambrian](https://github.com/sergiparpal/cambrian) and develops
+independently again; Burgess does not track it, and the pin above stays fixed at
+the tree the fusion copied. This guide maps what you had to what Burgess does.
 
 ## From Sproutgraph
 
