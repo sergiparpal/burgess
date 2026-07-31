@@ -5,6 +5,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # mcp 2.x is a REWRITE, not a bump: 2.0.0 removed `mcp.server.fastmcp` and the `FastMCP`
+      # class entirely (the server API moved to `mcp.server.mcpserver`), so `server.py`'s
+      # `from mcp.server.fastmcp import FastMCP` raises ModuleNotFoundError at startup and every
+      # kg_* tool disappears for the session. Adopting it needs a real port of the tool surface +
+      # `readiness_lifespan`, not a version edit — so the `mcp>=1.2,<2` cap in pyproject.toml is
+      # load-bearing and a major-bump PR here would only ever be closed. Scoped to MAJOR only, NOT
+      # the whole dependency: 1.x minor/patch releases (security fixes included) must keep flowing.
+      # Delete this entry as part of the port, not before it.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
