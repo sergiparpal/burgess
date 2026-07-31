@@ -1208,8 +1208,19 @@ def parents(project: str, k: int = 4, seed: int = 0,
     ]
     chosen = memory.select_parents(elite_ids, stored_emb, pins, k, discards=discards)
     records = []
+    stale: List[str] = []
     for cid in chosen:
-        rec = cand_store.get(cid, {})
+        rec = cand_store.get(cid)
+        if rec is None:
+            # A pin whose candidate record is gone — ``init-project`` resets the
+            # geometry (archive/candidates/embeddings) on an axes change but
+            # deliberately PRESERVES preference memory, so a pin can outlive the idea
+            # it names. Emitting it as a parent with an empty ``text`` hands the agent
+            # a contentless stepping stone to breed from. Report it separately instead,
+            # so the caller can drop it rather than generate from nothing. Non-pinned
+            # ids can't reach here: they come from ``elite_ids``.
+            stale.append(cid)
+            continue
         records.append(
             {
                 "id": cid,
@@ -1220,4 +1231,14 @@ def parents(project: str, k: int = 4, seed: int = 0,
                 "pinned": cid in pins,
             }
         )
-    return {"parents": records}
+    # The stale keys are ABSENT, not empty, on the happy path — an optional key is a
+    # weaker promise to callers than a key that is sometimes an empty list.
+    out: Dict[str, Any] = {"parents": records}
+    if stale:
+        out["stale_pins"] = stale
+        out["stale_pins_note"] = (
+            f"{len(stale)} pinned id(s) have no candidate record in this project "
+            f"(the axes changed and init-project reset the geometry); they are kept "
+            f"in memory but cannot be used as parents"
+        )
+    return out
