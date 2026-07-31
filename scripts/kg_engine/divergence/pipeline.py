@@ -165,7 +165,11 @@ def paths(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
 def recall(project: str, k: int = 10, home: Optional[Path] = None) -> Dict[str, Any]:
     """Return memory for in-context injection: recent choices, pins, win tallies."""
     sess = Session(project, home=home)
-    return memory.recall(sess.state, sess.domain, k=k)
+    # Reads comparisons + pins + discards + the candidate store together; take the
+    # project lock so a concurrent ingest can't be observed mid-rewrite (see
+    # State.project_read_lock — best-effort, never blocks for long).
+    with sess.state.project_read_lock():
+        return memory.recall(sess.state, sess.domain, k=k)
 
 
 # --------------------------------------------------------------------------- #
@@ -1091,12 +1095,19 @@ def _ingest_locked(
 def metrics(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
     """Current archive health: entropy, mean cosine, coverage, n."""
     sess = Session(project, home=home)
-    arc = archive_mod.Archive.from_dict(sess.spec, sess.state.read_archive())
-    stored_emb = sess.state.read_embeddings()
+    # The archive, embeddings, mechanism embeddings and meta are rewritten together by
+    # ingest, so snapshot them all under the project lock; everything below is pure
+    # computation over that snapshot (see State.project_read_lock — best-effort).
+    with sess.state.project_read_lock():
+        arc = archive_mod.Archive.from_dict(sess.spec, sess.state.read_archive())
+        stored_emb = sess.state.read_embeddings()
+        meta = sess.state.read_meta()
+        # Advisory parallel store (S4), read here rather than at its point of use below so
+        # it belongs to the SAME snapshot as the archive whose elites it is indexed by.
+        stored_mech_emb = sess.state.read_mech_embeddings()
     elite_ids = [i for i in arc.elite_ids() if i in stored_emb]
     # Engine knobs from the persisted meta (fall back to the module defaults for older
     # projects whose meta predates the engine block).
-    meta = sess.state.read_meta()
     eng = meta.get("engine") or {}
     open_niches = int(eng.get("open_niches", OPEN_NICHES))
     freeze_factor = int(eng.get("open_niche_freeze_factor", OPEN_NICHE_FREEZE_FACTOR))
@@ -1118,7 +1129,6 @@ def metrics(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
     # elites' mechanism (open-axis) embeddings. This is ARCHIVE-scoped and distinct
     # from the slate-scoped `mechanism_spread` inside `surface_mechanism_gap` (gap.py).
     # Measurement only — never feeds selection, the monitor, or any gate.
-    stored_mech_emb = sess.state.read_mech_embeddings()
     # Same cap discipline as the surface snapshot above (review-r6: this pass ran the O(N²·d)
     # pairwise matrix over ALL elites' mechanism vectors while the surface pass was already capped
     # with the comment explaining why). At/below the cap the id set — and so the advisory number —
@@ -1173,13 +1183,17 @@ def parents(project: str, k: int = 4, seed: int = 0,
     distance to this session's own elites + batch), NOT originality vs. prior art.
     """
     sess = Session(project, home=home, seed=seed)
-    arc = archive_mod.Archive.from_dict(sess.spec, sess.state.read_archive())
-    stored_emb = sess.state.read_embeddings()
-    cand_store = sess.state.read_candidates()
-    # Session.domain is the shared snapshot-resolved namespace, so pins are read
-    # from the namespace recall/ingest/remember wrote them to.
-    pins = sess.state.read_pins(sess.domain)
-    discards = sess.state.read_discards(sess.domain)
+    # Snapshot every file this reads under the project lock: the archive names elites
+    # whose records live in the candidate store, so an unlocked read could catch a
+    # concurrent ingest between the two writes (see State.project_read_lock).
+    with sess.state.project_read_lock():
+        arc = archive_mod.Archive.from_dict(sess.spec, sess.state.read_archive())
+        stored_emb = sess.state.read_embeddings()
+        cand_store = sess.state.read_candidates()
+        # Session.domain is the shared snapshot-resolved namespace, so pins are read
+        # from the namespace recall/ingest/remember wrote them to.
+        pins = sess.state.read_pins(sess.domain)
+        discards = sess.state.read_discards(sess.domain)
     elite_ids = [
         i for i in arc.elite_ids() if i in stored_emb and i not in set(discards)
     ]

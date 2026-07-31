@@ -393,6 +393,22 @@ class State:
         files as ``<root>/.project.lock``."""
         return _file_lock(self.root / ".project", timeout=timeout)
 
+    def project_read_lock(self, timeout: float = _LOCK_TIMEOUT):
+        """The same lock, taken for a multi-file READ (``metrics`` / ``parents`` / ``recall``).
+
+        Those commands read several files that ``ingest`` rewrites together (archive +
+        candidates + embeddings + meta). Reading unlocked could catch a cycle mid-write and
+        mix a new ``archive.json`` with an old ``candidates.json`` — an elite whose record
+        isn't there yet. Same best-effort semantics as :meth:`project_lock`: on timeout it
+        proceeds anyway, so a reader can never be blocked for long by a writer.
+
+        A no-op when the project dir doesn't exist: there is no cycle to be inconsistent
+        with, and a read-only command must not create state as a side effect (the lock dir
+        would otherwise materialize the project root)."""
+        if not self.root.exists():
+            return contextlib.nullcontext()
+        return _file_lock(self.root / ".project", timeout=timeout)
+
     # -- generic json helpers ---------------------------------------------- #
     def read_json(self, path: Path, default: Any = None) -> Any:
         if not path.exists():
