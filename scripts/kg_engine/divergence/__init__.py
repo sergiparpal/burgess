@@ -21,4 +21,4 @@ rather than merely unexercised. Its vectors never touch canon or the query DB
 never truth (I5).
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

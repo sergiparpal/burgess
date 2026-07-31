@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 — 2026-08-01
+
+Single-bug patch release, and the bug is one the test suite had already been reporting for a while in a form
+nobody could act on: an intermittent `windows-latest` failure that passed on rerun. It was never the test.
 
 ### Fixed
 
