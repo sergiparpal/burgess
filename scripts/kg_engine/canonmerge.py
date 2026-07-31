@@ -171,9 +171,14 @@ def merge_nodes(base: Node | None, ours: Node, theirs: Node) -> tuple[Node, list
         elif base_state is not None and theirs.epistemic_state == base_state:
             pass                                               # only OURS changed -> keep ours (in merged)
         else:
-            if merged.epistemic_state != EpistemicState.UNVERIFIED:  # two-sided conflict (or no base) -> demote
-                demotions.append(
-                    _demotion_note(f"node:{merged.id}", ours.epistemic_state, theirs.epistemic_state))
+            # Two-sided conflict (or no base) -> demote. Report it UNCONDITIONALLY, exactly as the edge
+            # branch above does. The old `if merged.epistemic_state != UNVERIFIED` guard tested OURS
+            # (merged starts as a deepcopy of ours), so when ours was already `unverified` and theirs
+            # carried a verdict, theirs' verdict was dropped SILENTLY — the one side whose state actually
+            # changed was the one the report omitted. The states differ by the enclosing `if`, so a
+            # demotion has always really happened here; there is no no-op case to suppress (review-r12).
+            demotions.append(
+                _demotion_note(f"node:{merged.id}", ours.epistemic_state, theirs.epistemic_state))
             merged.epistemic_state = EpistemicState.UNVERIFIED
 
     return merged, demotions

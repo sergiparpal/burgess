@@ -10,7 +10,8 @@ gap. Pure measurement: advisory only, never a gate, and never fed into selection
 
 from __future__ import annotations
 
-from typing import Any, Dict, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -20,7 +21,7 @@ from . import diversity
 def surface_mechanism_gap(
     surface_vecs: Sequence[Sequence[float]],
     mechanism_vecs: Sequence[Sequence[float]],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Spread in each space, their gap, and the pairwise-distance correlation.
 
     ``gap = surface_spread - mechanism_spread``: positive means the slate is more spread in

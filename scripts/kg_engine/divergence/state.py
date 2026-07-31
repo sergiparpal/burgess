@@ -42,7 +42,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..atomicio import atomic_write_bytes, atomic_write_text
 from .config import ConfigError
@@ -56,12 +56,12 @@ class StateError(ConfigError):
     which read untrue when raised for a corrupt archive/candidates file)."""
 
 
-def read_jsonl(path: Path) -> Tuple[List[Dict[str, Any]], int]:
+def read_jsonl(path: Path) -> tuple[list[dict[str, Any]], int]:
     """Tolerant JSONL read: skip blank lines, skip corrupt lines (an interrupted append) and COUNT
     them — the ONE recovery policy shared by ``State.read_comparisons`` and the Cambrian importer
     (review-r5: two hand-synced copies agreed only by coincidence). Raises OSError like
     ``read_text`` (the importer catches it; State callers pre-check existence)."""
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     corrupt = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -203,7 +203,7 @@ def _file_lock(target: Path, timeout: float = _LOCK_TIMEOUT):
 class State:
     """Handle to one project's on-disk state."""
 
-    def __init__(self, project: str, home: Optional[Path] = None):
+    def __init__(self, project: str, home: Path | None = None):
         self.project = project
         self.base = Path(home).expanduser() if home else base_dir()
         self.root = self.base / _path_slug(project)
@@ -225,10 +225,10 @@ class State:
         it maps BRIEF state to GRAPH state, and both survive the session."""
         return self.root / "materialized.json"
 
-    def read_materialized(self) -> Dict[str, Any]:
+    def read_materialized(self) -> dict[str, Any]:
         return self.read_json(self.materialized_path, {}) or {}
 
-    def write_materialized(self, data: Dict[str, Any]) -> None:
+    def write_materialized(self, data: dict[str, Any]) -> None:
         self.write_json(self.materialized_path, data)
 
     @property
@@ -318,7 +318,7 @@ class State:
                 if p.is_file() and p.stat().st_mtime < cutoff:
                     p.unlink()
 
-    def paths(self) -> Dict[str, str]:
+    def paths(self) -> dict[str, str]:
         return {
             "root": str(self.root),
             "meta": str(self.meta_path),
@@ -338,7 +338,7 @@ class State:
     GEOMETRY_META_KEYS = ("cycles", "cos_window", "novelty_window",
                           "erosion_streak", "gap_log")
 
-    def read_session(self) -> Dict[str, Any]:
+    def read_session(self) -> dict[str, Any]:
         return self.read_json(self.session_path, {}) or {}
 
     def begin_session(self, session_id: str) -> bool:
@@ -440,7 +440,7 @@ class State:
         _atomic_write(path, text, durable=durable)
 
     # -- vector stores (npz; review-r6) -------------------------------------- #
-    def _read_vector_store(self, path: Path, legacy_json: Path) -> Dict[str, List[float]]:
+    def _read_vector_store(self, path: Path, legacy_json: Path) -> dict[str, list[float]]:
         """id -> vector store, npz-backed. ``.tolist()`` of the float64 rows returns the identical
         Python floats ``json.loads`` produced from the legacy file, so consumers (and the
         write/read == roundtrip) are unchanged. Falls back to the legacy pretty-JSON file so a
@@ -462,7 +462,7 @@ class State:
         return self.read_json(legacy_json, {}) or {}
 
     def _write_vector_store(self, path: Path, legacy_json: Path,
-                            embeddings: Dict[str, List[float]]) -> None:
+                            embeddings: dict[str, list[float]]) -> None:
         import io
 
         import numpy as np
@@ -477,59 +477,59 @@ class State:
             legacy_json.unlink(missing_ok=True)
 
     # -- typed accessors ---------------------------------------------------- #
-    def read_meta(self) -> Dict[str, Any]:
+    def read_meta(self) -> dict[str, Any]:
         return self.read_json(self.meta_path, {}) or {}
 
-    def write_meta(self, meta: Dict[str, Any]) -> None:
+    def write_meta(self, meta: dict[str, Any]) -> None:
         self.write_json(self.meta_path, meta)
 
-    def read_axes(self) -> Optional[Dict[str, Any]]:
+    def read_axes(self) -> dict[str, Any] | None:
         return self.read_json(self.axes_path, None)
 
-    def write_axes(self, axes: Dict[str, Any]) -> None:
+    def write_axes(self, axes: dict[str, Any]) -> None:
         self.write_json(self.axes_path, axes)
 
     # Session-zone (I10) writers pass durable=False: these files are wiped on the next session
     # anyway, so per-cycle fsync pairs bought durability for data whose loss is an accepted
     # outcome; atomicity (never a torn read) is kept. Durable stores (meta/axes/session/pins/
     # discards/materialized) keep the full fsync protocol (review-r6).
-    def read_archive(self) -> Dict[str, Any]:
+    def read_archive(self) -> dict[str, Any]:
         return self.read_json(self.archive_path, {}) or {}
 
-    def write_archive(self, archive: Dict[str, Any]) -> None:
+    def write_archive(self, archive: dict[str, Any]) -> None:
         self.write_json(self.archive_path, archive, durable=False)
 
-    def read_candidates(self) -> Dict[str, Any]:
+    def read_candidates(self) -> dict[str, Any]:
         return self.read_json(self.candidates_path, {}) or {}
 
-    def write_candidates(self, candidates: Dict[str, Any]) -> None:
+    def write_candidates(self, candidates: dict[str, Any]) -> None:
         # compact: the largest JSON store (full idea texts + genealogy), machine-only.
         self.write_json(self.candidates_path, candidates, durable=False, compact=True)
 
-    def read_embeddings(self) -> Dict[str, List[float]]:
+    def read_embeddings(self) -> dict[str, list[float]]:
         return self._read_vector_store(self.embeddings_path, self._legacy_embeddings_json)
 
-    def write_embeddings(self, embeddings: Dict[str, List[float]]) -> None:
+    def write_embeddings(self, embeddings: dict[str, list[float]]) -> None:
         self._write_vector_store(self.embeddings_path, self._legacy_embeddings_json, embeddings)
 
-    def read_mech_embeddings(self) -> Dict[str, List[float]]:
+    def read_mech_embeddings(self) -> dict[str, list[float]]:
         return self._read_vector_store(self.mech_embeddings_path,
                                        self._legacy_mech_embeddings_json)
 
-    def write_mech_embeddings(self, embeddings: Dict[str, List[float]]) -> None:
+    def write_mech_embeddings(self, embeddings: dict[str, list[float]]) -> None:
         self._write_vector_store(self.mech_embeddings_path,
                                  self._legacy_mech_embeddings_json, embeddings)
 
-    def read_open_nicher(self) -> Optional[Dict[str, Any]]:
+    def read_open_nicher(self) -> dict[str, Any] | None:
         """Persisted open-axis nicher: cold-start accumulation or frozen centroids."""
         return self.read_json(self.open_nicher_path, None)
 
-    def write_open_nicher(self, data: Dict[str, Any]) -> None:
+    def write_open_nicher(self, data: dict[str, Any]) -> None:
         # compact: the pre-freeze accumulation buffer is up to freeze_factor*k raw vectors.
         self.write_json(self.open_nicher_path, data, durable=False, compact=True)
 
     # -- memory (namespaced by domain) ------------------------------------- #
-    def append_comparison(self, domain: str, event: Dict[str, Any]) -> None:
+    def append_comparison(self, domain: str, event: dict[str, Any]) -> None:
         path = self.comparisons_path(domain)
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
@@ -543,7 +543,7 @@ class State:
         finally:
             os.close(fd)
 
-    def read_comparisons(self, domain: str) -> List[Dict[str, Any]]:
+    def read_comparisons(self, domain: str) -> list[dict[str, Any]]:
         path = self.comparisons_path(domain)
         if not path.exists():
             return []
@@ -551,10 +551,10 @@ class State:
         # single bad record can't poison every future read of this domain.
         return read_jsonl(path)[0]
 
-    def read_pins(self, domain: str) -> List[str]:
+    def read_pins(self, domain: str) -> list[str]:
         return self.read_json(self.pins_path(domain), []) or []
 
-    def write_pins(self, domain: str, pins: List[str]) -> None:
+    def write_pins(self, domain: str, pins: list[str]) -> None:
         self.write_json(self.pins_path(domain), pins)
 
     @contextlib.contextmanager
@@ -574,7 +574,7 @@ class State:
         with _file_lock(path):
             yield
 
-    def add_pin(self, domain: str, candidate_id: str) -> List[str]:
+    def add_pin(self, domain: str, candidate_id: str) -> list[str]:
         # Lock the read-modify-write so two concurrent invocations can't each read
         # the same list and clobber the other's pin (pins are "never dropped").
         with self._preference_lock(domain):
@@ -587,13 +587,13 @@ class State:
             self._remove_discard(domain, candidate_id)
             return pins
 
-    def read_discards(self, domain: str) -> List[str]:
+    def read_discards(self, domain: str) -> list[str]:
         return self.read_json(self.discards_path(domain), []) or []
 
-    def write_discards(self, domain: str, discards: List[str]) -> None:
+    def write_discards(self, domain: str, discards: list[str]) -> None:
         self.write_json(self.discards_path(domain), discards)
 
-    def add_discard(self, domain: str, candidate_id: str) -> List[str]:
+    def add_discard(self, domain: str, candidate_id: str) -> list[str]:
         # Locked read-modify-write, mirroring add_pin. A discard is the negative of
         # a pin; the two are mutually exclusive (latest action wins), so discarding
         # an id also drops it from pins — hence the SHARED lock covering both files
@@ -606,7 +606,7 @@ class State:
             self._remove_pin(domain, candidate_id)
             return discards
 
-    def remove_discard(self, domain: str, candidate_id: str) -> List[str]:
+    def remove_discard(self, domain: str, candidate_id: str) -> list[str]:
         """Un-seal (the explicit inverse of ``add_discard``): drop a candidate from this domain's
         discards so it returns to the proposal pool. Locked read-modify-write, mirroring ``add_discard``.
         Does NOT re-pin it (pin/discard mutual exclusivity is a latest-action rule; un-sealing is neither

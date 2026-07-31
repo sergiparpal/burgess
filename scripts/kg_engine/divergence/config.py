@@ -19,7 +19,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 # The shared env-value cleaner (review-r5): KG_PACK_PATH reads here go through the same ${...}
 # placeholder filter as the engine's. Directionally legal — the I3 firewall forbids the verdict
@@ -87,12 +87,12 @@ class Axis:
 
     name: str
     type: str
-    range: Optional[Tuple[float, float]] = None
+    range: tuple[float, float] | None = None
     primary_novelty: bool = False
     bins: int = 5  # discretization granularity for continuous axes
 
-    def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"name": self.name, "type": self.type}
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"name": self.name, "type": self.type}
         if self.range is not None:
             out["range"] = list(self.range)
         if self.primary_novelty:
@@ -116,11 +116,11 @@ class AxesSpec:
 
     domain: str
     unit_of_generation: str
-    axes: List[Axis]
+    axes: list[Axis]
     slate_size: int = 6
 
     @property
-    def axis_names(self) -> List[str]:
+    def axis_names(self) -> list[str]:
         return [a.name for a in self.axes]
 
     def axis(self, name: str) -> Axis:
@@ -130,7 +130,7 @@ class AxesSpec:
         raise KeyError(name)
 
     @property
-    def primary_axis(self) -> Optional[Axis]:
+    def primary_axis(self) -> Axis | None:
         for a in self.axes:
             if a.primary_novelty:
                 return a
@@ -140,7 +140,7 @@ class AxesSpec:
                 return a
         return None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "domain": self.domain,
             "unit_of_generation": self.unit_of_generation,
@@ -174,14 +174,14 @@ class SessionSettings:
     candidates_per_generation: int = 12
     judge_rubric: str = "references/judge_rubric.md"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "candidates_per_generation": self.candidates_per_generation,
             "judge_rubric": self.judge_rubric,
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "SessionSettings":
+    def from_dict(cls, d: dict[str, Any]) -> "SessionSettings":
         if not isinstance(d, dict):
             raise ConfigError(
                 f"settings must be an object, got {type(d).__name__}"
@@ -222,7 +222,7 @@ class EngineConfig:
     open_niche_freeze_factor: int = 2
     # novelty / dedup
     knn_k: int = 5
-    dedup_tau: Optional[float] = None
+    dedup_tau: float | None = None
     novelty_ref_cap: int = 500
     # DPP slate
     max_dpp_pool: int = 200
@@ -286,7 +286,7 @@ class EngineConfig:
             return -abs(self.ask_sim_weight)
         return self.ask_sim_weight
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "open_niches": self.open_niches,
             "open_niche_freeze_factor": self.open_niche_freeze_factor,
@@ -314,7 +314,7 @@ class EngineConfig:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "EngineConfig":
+    def from_dict(cls, d: dict[str, Any]) -> "EngineConfig":
         """Build from a full config dict, reading its optional ``engine:`` block."""
         if not isinstance(d, dict):
             raise ConfigError(f"config must be an object, got {type(d).__name__}")
@@ -449,12 +449,12 @@ class Candidate:
 
     id: str
     text: str
-    descriptor: Dict[str, Any] = field(default_factory=dict)
-    genealogy: Dict[str, Any] = field(default_factory=dict)
+    descriptor: dict[str, Any] = field(default_factory=dict)
+    genealogy: dict[str, Any] = field(default_factory=dict)
     fitness: float = 1.0  # within-niche quality from the judge; NOT novelty
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "Candidate":
+    def from_dict(cls, d: dict[str, Any]) -> "Candidate":
         if not isinstance(d, dict):
             raise ConfigError(f"candidate must be an object, got {type(d).__name__}")
         cid = d.get("id")
@@ -486,7 +486,7 @@ class Candidate:
         return cls(id=cid, text=text, descriptor=descriptor,
                    genealogy=genealogy, fitness=fitness)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "text": self.text,
@@ -501,13 +501,13 @@ class Niche:
     """One MAP-Elites cell: at most one elite candidate per niche."""
 
     id: str
-    coords: Dict[str, Any] = field(default_factory=dict)
-    elite_id: Optional[str] = None
+    coords: dict[str, Any] = field(default_factory=dict)
+    elite_id: str | None = None
     fitness: float = 0.0
     novelty: float = 0.0
 
-    def challenge(self, elite_id: Optional[str], fitness: float, novelty: float,
-                  coords: Dict[str, Any]) -> bool:
+    def challenge(self, elite_id: str | None, fitness: float, novelty: float,
+                  coords: dict[str, Any]) -> bool:
         """Apply THE elite rule (review-r5: it lived as two hand-kept copies in archive.place and
         the freeze-time rekey merge): higher fitness wins; ties break toward higher novelty. On a
         win the challenger replaces this niche's elite (all four fields) and True is returned; on
@@ -518,7 +518,7 @@ class Niche:
             return True
         return False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "coords": dict(self.coords),
@@ -528,7 +528,7 @@ class Niche:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "Niche":
+    def from_dict(cls, d: dict[str, Any]) -> "Niche":
         return cls(
             id=d["id"],
             coords=dict(d.get("coords", {})),
@@ -541,7 +541,7 @@ class Niche:
 # --------------------------------------------------------------------------- #
 # Axes loading & validation
 # --------------------------------------------------------------------------- #
-def _coerce_range(value: Any, axis_name: str) -> Tuple[float, float]:
+def _coerce_range(value: Any, axis_name: str) -> tuple[float, float]:
     if not isinstance(value, (list, tuple)) or len(value) != 2:
         raise ConfigError(
             f"axis {axis_name!r}: 'range' must be a [lo, hi] pair"
@@ -568,7 +568,7 @@ def _axis_from_dict(d: Any) -> Axis:
         raise ConfigError(
             f"axis {name!r}: 'type' must be one of {AXIS_TYPES}, got {atype!r}"
         )
-    arange: Optional[Tuple[float, float]] = None
+    arange: tuple[float, float] | None = None
     if atype == "continuous":
         if "range" not in d:
             raise ConfigError(f"axis {name!r}: continuous axis requires a 'range'")
@@ -586,7 +586,7 @@ def _axis_from_dict(d: Any) -> Axis:
                 primary_novelty=primary, bins=bins)
 
 
-def axes_spec_from_dict(d: Dict[str, Any]) -> AxesSpec:
+def axes_spec_from_dict(d: dict[str, Any]) -> AxesSpec:
     """Build and validate an :class:`AxesSpec` from a plain dict (json or yaml)."""
     if not isinstance(d, dict):
         raise ConfigError(f"axes spec must be an object, got {type(d).__name__}")
@@ -621,7 +621,7 @@ def axes_spec_from_dict(d: Dict[str, Any]) -> AxesSpec:
     )
 
 
-def _load_config_dict(source: Union[str, Path, Dict[str, Any]]) -> Dict[str, Any]:
+def _load_config_dict(source: str | Path | dict[str, Any]) -> dict[str, Any]:
     """Read a raw config dict from a dict, a ``.json`` file, or a ``.yaml`` file.
 
     Shared by :func:`load_axes` and :func:`load_session_settings` so axes and
@@ -651,7 +651,7 @@ def _load_config_dict(source: Union[str, Path, Dict[str, Any]]) -> Dict[str, Any
     return data
 
 
-def _divergence_axes_section(d: Any) -> "Optional[Dict[str, Any]]":
+def _divergence_axes_section(d: Any) -> "dict[str, Any] | None":
     """The embedded ``divergence:`` axes section of a pack dict, or None — THE one predicate for
     "this pack carries a divergence domain config" (review-r5: it was written twice, with slightly
     different guards, in the unwrap path and in ``resolve_axes_source``)."""
@@ -663,7 +663,7 @@ def _divergence_axes_section(d: Any) -> "Optional[Dict[str, Any]]":
     return None
 
 
-def _unwrap_divergence_section(d: Dict[str, Any]) -> Dict[str, Any]:
+def _unwrap_divergence_section(d: dict[str, Any]) -> dict[str, Any]:
     """One domain-pack format (FUSION_PLAN Stage 3): a Burgess ``pack.yaml`` may
     embed the behavior-axes descriptor under a ``divergence:`` key beside the
     extraction vocabulary. When a loaded config carries that section (and is not
@@ -681,7 +681,7 @@ def _unwrap_divergence_section(d: Dict[str, Any]) -> Dict[str, Any]:
     return d
 
 
-def load_axes(source: Union[str, Path, Dict[str, Any]]) -> AxesSpec:
+def load_axes(source: str | Path | dict[str, Any]) -> AxesSpec:
     """Load axes from a dict, a ``.json`` file, or a ``.yaml``/``.yml`` file.
 
     All three paths produce an identical :class:`AxesSpec`.
@@ -690,14 +690,14 @@ def load_axes(source: Union[str, Path, Dict[str, Any]]) -> AxesSpec:
 
 
 def load_session_settings(
-    source: Union[str, Path, Dict[str, Any]]
+    source: str | Path | dict[str, Any]
 ) -> SessionSettings:
     """Load the agent-/session-level :class:`SessionSettings` from the same
     dict/file the axes come from (missing keys fall back to defaults)."""
     return SessionSettings.from_dict(_load_config_dict(source))
 
 
-def load_engine_config(source: Union[str, Path, Dict[str, Any]]) -> EngineConfig:
+def load_engine_config(source: str | Path | dict[str, Any]) -> EngineConfig:
     """Load the engine tuning :class:`EngineConfig` (its optional ``engine:``
     block) from the same dict/file the axes come from; defaults reproduce the
     original behavior."""
@@ -705,8 +705,8 @@ def load_engine_config(source: Union[str, Path, Dict[str, Any]]) -> EngineConfig
 
 
 def load_all(
-    source: Union[str, Path, Dict[str, Any]]
-) -> Tuple[AxesSpec, SessionSettings, EngineConfig]:
+    source: str | Path | dict[str, Any]
+) -> tuple[AxesSpec, SessionSettings, EngineConfig]:
     """Load axes + session settings + engine config in a SINGLE file read.
 
     The three single-purpose loaders each re-read and re-parse the source; a caller
@@ -722,8 +722,8 @@ def load_all(
 
 
 def load_axes_and_engine(
-    source: Union[str, Path, Dict[str, Any]]
-) -> Tuple[AxesSpec, EngineConfig]:
+    source: str | Path | dict[str, Any]
+) -> tuple[AxesSpec, EngineConfig]:
     """Load axes + engine config in one file read (the pair ``ingest`` consumes).
 
     Deliberately does NOT parse :class:`SessionSettings`: ``ingest`` never reads them,
@@ -734,7 +734,7 @@ def load_axes_and_engine(
     return axes_spec_from_dict(d), EngineConfig.from_dict(d)
 
 
-def generic_axes_path(pack_path: "Union[str, Path, None]" = None) -> Path:
+def generic_axes_path(pack_path: "str | Path | None" = None) -> Path:
     """Absolute path to the bundled neutral fallback ``generic.yaml``.
 
     Domain templates ship as pack fragments under ``pack/domains/`` (FUSION_PLAN
@@ -760,10 +760,10 @@ def load_generic_axes() -> AxesSpec:
 
 
 def resolve_axes_source(
-    axes: Union[None, str, Path, Dict[str, Any]] = None,
+    axes: None | str | Path | dict[str, Any] = None,
     *,
-    pack_path: "Union[str, Path, None]" = None,
-) -> Union[Path, Dict[str, Any]]:
+    pack_path: "str | Path | None" = None,
+) -> Path | dict[str, Any]:
     """Resolve the ``axes`` argument of the kg_diverge_* MCP tools to a source
     every loader accepts.
 

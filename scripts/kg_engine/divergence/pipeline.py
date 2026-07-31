@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 
@@ -76,9 +76,9 @@ def init_project(
     project: str,
     axes_source,
     seed: int = 0,
-    home: Optional[Path] = None,
-    session: Optional[str] = None,
-) -> Dict[str, Any]:
+    home: Path | None = None,
+    session: str | None = None,
+) -> dict[str, Any]:
     """Create state dirs, begin/resume a session, snapshot the resolved axes.
 
     The axes geometry goes to ``axes.json``; the agent-/session-level settings
@@ -147,7 +147,7 @@ def init_project(
 # --------------------------------------------------------------------------- #
 # paths
 # --------------------------------------------------------------------------- #
-def paths(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
+def paths(project: str, home: Path | None = None) -> dict[str, Any]:
     """Ensure the project's state dir (incl. its ``tmp/`` scratch dir) and return
     the resolved paths. The skill calls this **before** writing its hand-off files
     so it can drop ``axes.json`` / ``candidates.json`` / ``event.json`` under
@@ -162,7 +162,7 @@ def paths(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # recall
 # --------------------------------------------------------------------------- #
-def recall(project: str, k: int = 10, home: Optional[Path] = None) -> Dict[str, Any]:
+def recall(project: str, k: int = 10, home: Path | None = None) -> dict[str, Any]:
     """Return memory for in-context injection: recent choices, pins, win tallies."""
     sess = Session(project, home=home)
     # Reads comparisons + pins + discards + the candidate store together; take the
@@ -175,7 +175,7 @@ def recall(project: str, k: int = 10, home: Optional[Path] = None) -> Dict[str, 
 # --------------------------------------------------------------------------- #
 # ingest
 # --------------------------------------------------------------------------- #
-def _parse_candidates(candidates) -> List[Candidate]:
+def _parse_candidates(candidates) -> list[Candidate]:
     if isinstance(candidates, dict):
         candidates = candidates.get("candidates", [])
     if not isinstance(candidates, list):
@@ -188,8 +188,8 @@ def _parse_candidates(candidates) -> List[Candidate]:
     # silently ends up pointing at a different idea's text/coords/embedding, and the
     # slate renders the same item twice. Dedup does not catch it (it compares text, not
     # ids). Reject loudly instead of degrading the one thing the slate promises.
-    seen: Set[str] = set()
-    dupes: Set[str] = set()
+    seen: set[str] = set()
+    dupes: set[str] = set()
     for c in parsed:
         (dupes if c.id in seen else seen).add(c.id)
     if dupes:
@@ -227,12 +227,12 @@ def _survivor_novelty(
 
 def _survivor_mechanism_novelty(
     open_vecs: np.ndarray,
-    open_axis: Optional[Any],
-    existing_ids: List[str],
-    stored_mech_emb: Dict[str, List[float]],
+    open_axis: Any | None,
+    existing_ids: list[str],
+    stored_mech_emb: dict[str, list[float]],
     k: int,
     n_survivors: int,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Mechanism-space novelty for survivors: mean k-NN distance of each survivor's
     mechanism embedding to (archive mechanisms ∪ other survivors). Returns None when
     there is no open axis (nothing to measure). Same kernel as surface novelty."""
@@ -245,7 +245,7 @@ def _survivor_mechanism_novelty(
     return _survivor_novelty(open_vecs, existing_mech, k)
 
 
-def _slate_item(record: Dict[str, Any]) -> Dict[str, Any]:
+def _slate_item(record: dict[str, Any]) -> dict[str, Any]:
     """Shape one elite record into a slate item for the agent/human.
 
     The ``novelty`` field carried here is a variety proxy — mean k-NN distance to
@@ -276,22 +276,22 @@ def _slate_item(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _open_axis_texts(
-    open_axis: Any, descriptors: List[Dict[str, Any]], texts: List[str]
-) -> List[str]:
+    open_axis: Any, descriptors: list[dict[str, Any]], texts: list[str]
+) -> list[str]:
     """The text to embed for the open axis: its descriptor value, else the idea."""
     return [str(d.get(open_axis.name) or t) for d, t in zip(descriptors, texts)]
 
 
 def assign_open_cells(
     spec: AxesSpec,
-    descriptors: List[Dict[str, Any]],
-    texts: List[str],
+    descriptors: list[dict[str, Any]],
+    texts: list[str],
     embedder,
     seed: int,
-    nicher: Optional["archive_mod.FrozenVoronoiNicher"] = None,
+    nicher: "archive_mod.FrozenVoronoiNicher" | None = None,
     open_niches: int = OPEN_NICHES,
-    surface_vecs: Optional[np.ndarray] = None,
-) -> Tuple[Optional[Any], List[Optional[int]], np.ndarray]:
+    surface_vecs: np.ndarray | None = None,
+) -> tuple[Any | None, list[int | None], np.ndarray]:
     """Voronoi cell per item for the primary "open" axis.
 
     Returns ``(open_axis, cells, open_vecs)`` where ``cells[i]`` is the item's
@@ -313,7 +313,7 @@ def assign_open_cells(
         return open_axis, [None] * n, np.zeros((0, 1), dtype=np.float32)
     open_texts = _open_axis_texts(open_axis, descriptors, texts)
     if surface_vecs is not None and surface_vecs.shape[0] == n:
-        rows: List[Optional[np.ndarray]] = [
+        rows: list[np.ndarray | None] = [
             surface_vecs[i] if open_texts[i] == texts[i] else None for i in range(n)
         ]
         miss = [i for i, r in enumerate(rows) if r is None]
@@ -330,8 +330,8 @@ def assign_open_cells(
 
 
 def _frozen_open_nicher(
-    on_state: Optional[Dict[str, Any]], open_axis: Optional[Any]
-) -> Optional["archive_mod.FrozenVoronoiNicher"]:
+    on_state: dict[str, Any] | None, open_axis: Any | None
+) -> "archive_mod.FrozenVoronoiNicher" | None:
     """The persisted frozen nicher, or ``None`` (cold start / no open axis)."""
     if open_axis is None or not on_state:
         return None
@@ -342,14 +342,14 @@ def _frozen_open_nicher(
 
 def _elite_open_cells(
     arc: "archive_mod.Archive",
-    cand_store: Dict[str, Any],
+    cand_store: dict[str, Any],
     open_axis: Any,
     embedder,
     nicher: "archive_mod.FrozenVoronoiNicher",
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """Frozen-cell index for each niche, from its elite's open-axis embedding."""
-    nids: List[str] = []
-    texts: List[str] = []
+    nids: list[str] = []
+    texts: list[str] = []
     for nid, niche in arc.niches.items():
         rec = cand_store.get(niche.elite_id, {})
         # Falls back descriptor-value -> idea text -> "". An empty mechanism embeds
@@ -375,9 +375,9 @@ class _Cycle:
     embedder: Any
     seed: int
     arc: "archive_mod.Archive"
-    cand_store: Dict[str, Any]
-    stored_emb: Dict[str, List[float]]
-    stored_mech_emb: Dict[str, List[float]]
+    cand_store: dict[str, Any]
+    stored_emb: dict[str, list[float]]
+    stored_mech_emb: dict[str, list[float]]
     # True once the cycle actually changed stored_mech_emb (a survivor placed with an open axis, or
     # a prune that dropped mech entries). _persist_cycle skips rewriting the store otherwise — in
     # the common no-open-axis case it is a byte-identical rewrite every cycle (review-r6).
@@ -386,8 +386,8 @@ class _Cycle:
 
 def _accumulate_and_maybe_freeze(
     cyc: "_Cycle",
-    on_state: Optional[Dict[str, Any]],
-    open_axis: Optional[Any],
+    on_state: dict[str, Any] | None,
+    open_axis: Any | None,
     open_vecs: np.ndarray,
 ) -> None:
     """Grow the mechanism-embedding buffer; freeze the partition once it's full.
@@ -404,7 +404,7 @@ def _accumulate_and_maybe_freeze(
     if on_state.get("frozen"):
         return  # already frozen — niche ids are fixed
 
-    accum: List[List[float]] = list(on_state.get("accum", []))
+    accum: list[list[float]] = list(on_state.get("accum", []))
     if open_vecs.shape[0]:
         accum.extend([[float(x) for x in v] for v in open_vecs])
 
@@ -436,7 +436,7 @@ def _accumulate_and_maybe_freeze(
 
 def _open_axis_status(
     state: State, spec: AxesSpec, open_niches: int, freeze_factor: int
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Progress of the data-adaptive open-axis partition toward its one-time freeze.
 
     Surfaced by ``ingest`` and ``metrics`` so the fit-once-then-freeze feature is
@@ -470,11 +470,11 @@ def _open_axis_status(
 
 
 def _maybe_prune_state(
-    cand_store: Dict[str, Any],
-    stored_emb: Dict[str, List[float]],
+    cand_store: dict[str, Any],
+    stored_emb: dict[str, list[float]],
     keep_ids: set,
     threshold: int,
-    stored_mech_emb: Optional[Dict[str, List[float]]] = None,
+    stored_mech_emb: dict[str, list[float]] | None = None,
 ) -> int:
     """Drop candidate records + embeddings that are never read again, in place.
 
@@ -505,9 +505,9 @@ def _maybe_prune_state(
     return len(drop)
 
 
-def _apply_advisory_sensors(mon: Dict[str, Any], meta_now: Dict[str, Any],
+def _apply_advisory_sensors(mon: dict[str, Any], meta_now: dict[str, Any],
                             econfig: "config.EngineConfig", *, submitted: int,
-                            surv_mean_novelty) -> Dict[str, Any]:
+                            surv_mean_novelty) -> dict[str, Any]:
     """Attach the two ADVISORY sensors to a cycle's monitor result (review-r5: each sensor had
     landed as another inline block in _ingest_locked, which grew monotonically). Both only report —
     they never set `collapsing` and never touch the calibration window.
@@ -556,7 +556,7 @@ def _apply_advisory_sensors(mon: Dict[str, Any], meta_now: Dict[str, Any],
 
 
 def _compute_keep_ids(arc: "archive_mod.Archive", state: "State", domain: str,
-                      comparisons: List[Dict[str, Any]]) -> Set[str]:
+                      comparisons: list[dict[str, Any]]) -> set[str]:
     """State hygiene's keep set: archive elites + pins + comparison ids — exactly what
     dedup/novelty/slate, parents, and recall consume, so pruning to it changes no output.
     Discards need no entry: their id list lives in discards.json (never pruned), a discarded id
@@ -570,7 +570,7 @@ def _compute_keep_ids(arc: "archive_mod.Archive", state: "State", domain: str,
     return keep_ids
 
 
-def _run_gap_probe(cyc: "_Cycle", slate_ids: List[str], open_axis, dim: int):
+def _run_gap_probe(cyc: "_Cycle", slate_ids: list[str], open_axis, dim: int):
     """Advisory surface/mechanism gap (measurement only; off by default). Never touches selection,
     the monitor, the calibration window, or any gate — it only reads embeddings the cycle already
     produced. See gap.py / CLAUDE.md. Returns the gap record, or None when the probe is off."""
@@ -605,8 +605,8 @@ def _run_gap_probe(cyc: "_Cycle", slate_ids: List[str], open_axis, dim: int):
         return {"skipped": f"gap probe failed ({exc})"}
 
 
-def _evaluate_monitor(vecs: np.ndarray, niche_counts: List[int], baseline: List[float],
-                      econfig: "config.EngineConfig") -> Dict[str, Any]:
+def _evaluate_monitor(vecs: np.ndarray, niche_counts: list[int], baseline: list[float],
+                      econfig: "config.EngineConfig") -> dict[str, Any]:
     """The ONE place econfig's monitor knobs map onto ``monitor.evaluate`` (review-r5: the
     five-kwarg threading was duplicated between the empty-cycle and real-cycle paths, so a new
     monitor knob could silently evaluate under defaults on one of them)."""
@@ -620,7 +620,7 @@ def _evaluate_monitor(vecs: np.ndarray, niche_counts: List[int], baseline: List[
     )
 
 
-def _ask_policy(econfig: "config.EngineConfig", gen_index: int) -> Dict[str, Any]:
+def _ask_policy(econfig: "config.EngineConfig", gen_index: int) -> dict[str, Any]:
     """The ask-policy block both cycle paths report — generation, phase (from the single-homed
     ``EngineConfig.phase_for_generation``), and the effective similarity weight (review-r5: the
     dict shape and the explore predicate were each written twice)."""
@@ -636,7 +636,7 @@ def _empty_cycle(
     arc: "archive_mod.Archive",
     spec: AxesSpec,
     econfig: "config.EngineConfig",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Result dict for a generation with no candidates to ingest.
 
     Mirrors the normal-cycle response schema (the advisory keys present with
@@ -681,7 +681,7 @@ def _empty_cycle(
 
 
 def _guard_id_reuse(
-    cand_list: List[Candidate], cand_store: Dict[str, Any], project: str
+    cand_list: list[Candidate], cand_store: dict[str, Any], project: str
 ) -> None:
     """Fail loudly when a candidate reuses an id already recorded under DIFFERENT text.
 
@@ -708,7 +708,7 @@ def _guard_id_reuse(
 
 
 def _guard_embedding_dim(
-    stored_emb: Dict[str, List[float]], vecs: np.ndarray, embedder, project: str
+    stored_emb: dict[str, list[float]], vecs: np.ndarray, embedder, project: str
 ) -> None:
     """Fail loudly if a prior embedder wrote incompatible-dimension vectors.
 
@@ -726,7 +726,7 @@ def _guard_embedding_dim(
         )
 
 
-def _cap_by_novelty(arc: "archive_mod.Archive", ids: List[str], cap: int) -> List[str]:
+def _cap_by_novelty(arc: "archive_mod.Archive", ids: list[str], cap: int) -> list[str]:
     """Keep the ``cap`` most-novel of ``ids`` (all of them, order untouched, when already within
     cap). The ONE bounding rule for every quadratic-ish pass over elite vectors — the dedup/novelty
     reference and the metrics mech-spread snapshot (review-r6: the mech pass was uncapped)."""
@@ -738,9 +738,9 @@ def _cap_by_novelty(arc: "archive_mod.Archive", ids: List[str], cap: int) -> Lis
 
 def _novelty_reference_ids(
     arc: "archive_mod.Archive",
-    stored_emb: Dict[str, List[float]],
-    cap: Optional[int] = None,
-) -> List[str]:
+    stored_emb: dict[str, list[float]],
+    cap: int | None = None,
+) -> list[str]:
     """Elite ids used as the dedup/novelty reference, capped to the most-novel.
 
     At or below ``cap`` this is exactly the embedded elites in archive order, so
@@ -755,7 +755,7 @@ def _novelty_reference_ids(
 
 
 def _stack_embeddings(
-    ids: List[str], stored_emb: Dict[str, List[float]], dim: int
+    ids: list[str], stored_emb: dict[str, list[float]], dim: int
 ) -> np.ndarray:
     """``(len(ids), dim)`` float32 matrix of the given ids' vectors (empty if none)."""
     if ids:
@@ -765,13 +765,13 @@ def _stack_embeddings(
 
 def _place_survivors(
     cyc: "_Cycle",
-    survivors: List[Candidate],
+    survivors: list[Candidate],
     surv_vecs: np.ndarray,
-    cells: List[Optional[int]],
+    cells: list[int | None],
     novelties: np.ndarray,
-    open_axis: Optional[Any],
-    open_vecs: Optional[np.ndarray] = None,
-    mech_novelties: Optional[np.ndarray] = None,
+    open_axis: Any | None,
+    open_vecs: np.ndarray | None = None,
+    mech_novelties: np.ndarray | None = None,
 ) -> None:
     """Insert each survivor into its niche; record its candidate + embedding.
 
@@ -801,8 +801,8 @@ def _place_survivors(
 
 def _select_slate(
     cyc: "_Cycle",
-    discards: Optional[Set[str]] = None,
-) -> Tuple[List[Dict[str, Any]], List[str]]:
+    discards: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
     """DPP diverse slate over the current niche elites. Returns ``(slate, ids)``.
 
     ``discards`` are the user's vetoed ids: an elite the user discarded is skipped so
@@ -811,7 +811,7 @@ def _select_slate(
     ``discards`` is empty the slate is identical to before.
     """
     discarded = discards or set()
-    elites: List[Tuple[str, float, str]] = [
+    elites: list[tuple[str, float, str]] = [
         (niche.elite_id, niche.fitness, nid)
         for nid, niche in cyc.arc.niches.items()
         if niche.elite_id and niche.elite_id in cyc.stored_emb
@@ -841,8 +841,8 @@ def _select_slate(
 def _persist_cycle(
     cyc: "_Cycle",
     vecs: np.ndarray,
-    mon: Dict[str, Any],
-    novelty_window: List[float],
+    mon: dict[str, Any],
+    novelty_window: list[float],
     erosion_streak: int,
     gap_record=None,
 ) -> None:
@@ -896,8 +896,8 @@ def ingest(
     candidates,
     axes_source,
     seed: int = 0,
-    home: Optional[Path] = None,
-) -> Dict[str, Any]:
+    home: Path | None = None,
+) -> dict[str, Any]:
     """Embed → dedup → place → novelty → archive → DPP → monitor for one cycle.
 
     The whole-project read-modify-write (archive / candidates / embeddings / meta)
@@ -925,9 +925,9 @@ def _ingest_locked(
     spec: AxesSpec,
     econfig: "config.EngineConfig",
     project: str,
-    cand_list: List[Candidate],
+    cand_list: list[Candidate],
     seed: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """One ingest cycle, run while holding the project lock (see :func:`ingest`).
     ``cand_list`` arrives already parsed — :func:`ingest` parses (and warm-loads the embedder)
     OUTSIDE the lock so no slow, lock-irrelevant work runs inside the serialized section."""
@@ -1106,7 +1106,7 @@ def _ingest_locked(
 # --------------------------------------------------------------------------- #
 # metrics
 # --------------------------------------------------------------------------- #
-def metrics(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
+def metrics(project: str, home: Path | None = None) -> dict[str, Any]:
     """Current archive health: entropy, mean cosine, coverage, n."""
     sess = Session(project, home=home)
     # The archive, embeddings, mechanism embeddings and meta are rewritten together by
@@ -1182,15 +1182,15 @@ def metrics(project: str, home: Optional[Path] = None) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # remember / parents
 # --------------------------------------------------------------------------- #
-def remember(project: str, event: Dict[str, Any],
-             home: Optional[Path] = None) -> Dict[str, Any]:
+def remember(project: str, event: dict[str, Any],
+             home: Path | None = None) -> dict[str, Any]:
     """Append a comparison/pin to this domain's preference memory."""
     sess = Session(project, home=home).ensure()
     return memory.remember(sess.state, sess.domain, event)
 
 
 def parents(project: str, k: int = 4, seed: int = 0,
-            home: Optional[Path] = None) -> Dict[str, Any]:
+            home: Path | None = None) -> dict[str, Any]:
     """Diverse parents for the next generation; pinned stepping stones kept.
 
     Each parent's ``novelty`` is the same variety proxy as on the slate (mean k-NN
@@ -1213,7 +1213,7 @@ def parents(project: str, k: int = 4, seed: int = 0,
     ]
     chosen = memory.select_parents(elite_ids, stored_emb, pins, k, discards=discards)
     records = []
-    stale: List[str] = []
+    stale: list[str] = []
     for cid in chosen:
         rec = cand_store.get(cid)
         if rec is None:
@@ -1238,7 +1238,7 @@ def parents(project: str, k: int = 4, seed: int = 0,
         )
     # The stale keys are ABSENT, not empty, on the happy path — an optional key is a
     # weaker promise to callers than a key that is sometimes an empty list.
-    out: Dict[str, Any] = {"parents": records}
+    out: dict[str, Any] = {"parents": records}
     if stale:
         out["stale_pins"] = stale
         out["stale_pins_note"] = (

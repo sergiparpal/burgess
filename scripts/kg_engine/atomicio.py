@@ -101,8 +101,13 @@ def atomic_write_bytes(
         # note (a "human-editable" vault file) to owner-only, stripping any group/other bit a user or
         # umask had granted. A brand-new file keeps the 0o600 default — a sensible private default for
         # potentially-sensitive scrubbed content, and there is no prior mode to preserve.
+        # follow_symlinks=False (i.e. lstat): os.replace replaces the DIRECTORY ENTRY at `path`, so when
+        # `path` is a symlink the entry that survives is a regular file and the link is gone. Copying the
+        # TARGET's mode would then apply an unrelated file's permissions to the one we just wrote.
+        # Identical to stat() for the regular files every engine caller passes; this only makes the
+        # symlink case say what the replace actually does (bootstrap shares this module).
         try:
-            os.chmod(tmp, os.stat(path).st_mode & 0o777)
+            os.chmod(tmp, os.stat(path, follow_symlinks=False).st_mode & 0o777)
         except OSError:
             pass  # destination absent (new file) or chmod unsupported — keep the mkstemp default
         _replace_with_retry(tmp, path)

@@ -19,7 +19,8 @@ machinery is never removed or bypassed — it is the whole point.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -75,7 +76,7 @@ def mean_pairwise_cosine(vecs: np.ndarray) -> float:
 
 
 def _similarity_limit(
-    baseline: Optional[Sequence[float]],
+    baseline: Sequence[float] | None,
     cos_threshold: float,
     margin: float,
     cos_ceiling: float,
@@ -98,11 +99,11 @@ def evaluate(
     niche_counts: Sequence[float],
     cos_threshold: float = DEFAULT_COS_THRESHOLD,
     entropy_threshold: float = DEFAULT_ENTROPY_THRESHOLD,
-    baseline: Optional[Sequence[float]] = None,
+    baseline: Sequence[float] | None = None,
     margin: float = DEFAULT_MARGIN,
     cos_ceiling: float = DEFAULT_COS_CEILING,
     min_baseline: int = DEFAULT_MIN_BASELINE,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Compute monitor metrics and the ``collapsing`` flag.
 
     ``collapsing`` trips when the generation is too similar (mean cosine above the
@@ -123,7 +124,7 @@ def evaluate(
     base_n = len([b for b in (baseline or []) if b is not None])
     calibrated = base_n >= min_baseline
 
-    reasons: List[str] = []
+    reasons: list[str] = []
     too_similar = n >= 2 and mean_cos > cos_limit
     # Only treat low entropy as collapse once there's something to spread over.
     too_concentrated = occupied >= 3 and norm_ent < entropy_threshold
@@ -162,14 +163,14 @@ def evaluate(
 def assess_variety_erosion(
     prev_window: Sequence[float],
     prev_streak: int,
-    value: Optional[float],
+    value: float | None,
     submitted_healthy: bool,
     *,
     window: int = DEFAULT_EROSION_WINDOW,
     accel_ratio: float = DEFAULT_EROSION_ACCEL_RATIO,
     persist: int = DEFAULT_EROSION_PERSIST,
     min_slope: float = EROSION_MIN_SLOPE,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Advisory: is survivor-mean novelty decaying FASTER over time (the generator
     regressing to the mode) rather than the natural decelerating decay of a filling
     archive?

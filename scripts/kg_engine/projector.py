@@ -15,9 +15,10 @@ import json
 import os
 import re
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Callable
+from typing import TYPE_CHECKING, NamedTuple
 
 from . import envconfig
 from .atomicio import atomic_write_text as _atomic_write
@@ -1556,7 +1557,12 @@ def _agenda_from_rows(nodes: list, edges: list, *, limit: int = 5) -> dict:
         nid = n["id"]
         label = n.get("label") or nid
         deg = n.get("degree") or 0
-        live = [e for e in incident[nid] if e.get("epistemic_state") not in FAILURE_STATE_VALUES]
+        # NON_LIVE, not failure-only: `deg` below is read from the nodes table, which the projector
+        # computed over _live_subgraph (failures AND `obsolete` excluded). Filtering this `live` set on
+        # the narrower FAILURE set let the two disagree about the same edge — a node whose only other
+        # relation was superseded failed the `all(hypothesized)` test and dropped out of the agenda
+        # entirely, while the identical graph with that edge `rejected` surfaced normally (review-r12).
+        live = [e for e in incident[nid] if e.get("epistemic_state") not in NON_LIVE_STATE_VALUES]
         grounded = sum(1 for e in live if e.get("epistemic_state") == "grounded")
         unverified = sum(1 for e in live if e.get("epistemic_state") == "unverified")
         decided = grounded + unverified
@@ -1591,7 +1597,10 @@ def _agenda_from_rows(nodes: list, edges: list, *, limit: int = 5) -> dict:
     if len(present) > 1:
         crossing: set = set()
         for e in edges:
-            if e.get("epistemic_state") in FAILURE_STATE_VALUES:
+            # NON_LIVE, matching the `live` set above and _live_subgraph: a community reachable ONLY
+            # through a superseded edge is as disconnected as one reachable only through a refuted
+            # one, so it must still surface as a coverage gap (review-r12).
+            if e.get("epistemic_state") in NON_LIVE_STATE_VALUES:
                 continue
             a, b = comm_of.get(e.get("source")), comm_of.get(e.get("target"))
             if a is not None and b is not None and a != b:
@@ -1751,19 +1760,23 @@ class DerivedReader:
             con.close()
 
     def shortest_path(self, source: str, target: str) -> list[str] | None:
-        # path search over the derived edge list; still no centrality computation. Exclude
-        # `failed`/`rejected` edges (§1.7): grounding REFUTED those relations, so a path must not route
-        # through one and present a connectivity the graph already disproved — matches _live_subgraph,
-        # which excludes the identical edges from every centrality surface (review-fix: L13). Failure
-        # memory is still fully DRAWN/counted elsewhere; it just can't carry a live path here.
+        # path search over the derived edge list; still no centrality computation. Exclude the NON-LIVE
+        # edges (§1.7): grounding REFUTED a `failed`/`rejected` relation and a later verdict SUPERSEDED an
+        # `obsolete` one, so a path must not route through either and present a connectivity the graph
+        # already disproved or retired — matches _live_subgraph, which excludes the identical edges from
+        # every centrality surface (review-fix: L13). The set is model.NON_LIVE_STATE_VALUES, the single
+        # vocabulary home: this site was left on the FAILURE-only set when `obsolete` joined it (L14/r11),
+        # so a superseded edge still carried a live path while its own endpoints read degree 0 and
+        # kg_context refused to answer over it — three surfaces disagreeing about one edge. Failure memory
+        # is still fully DRAWN/counted elsewhere; it just can't carry a live path here.
         con = self._ro()
         try:
             adj: dict[str, list[str]] = {}
-            fail_states = sorted(FAILURE_STATE_VALUES)  # sorted → deterministic SQL text
-            placeholders = ",".join("?" * len(fail_states))
+            dead_states = sorted(NON_LIVE_STATE_VALUES)  # sorted → deterministic SQL text
+            placeholders = ",".join("?" * len(dead_states))
             for s, t in con.execute(
                     f"SELECT source,target FROM edges WHERE epistemic_state NOT IN ({placeholders})",
-                    fail_states):
+                    dead_states):
                 adj.setdefault(s, []).append(t)
                 adj.setdefault(t, []).append(s)
         finally:
