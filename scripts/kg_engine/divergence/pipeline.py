@@ -176,7 +176,25 @@ def _parse_candidates(candidates) -> List[Candidate]:
         candidates = candidates.get("candidates", [])
     if not isinstance(candidates, list):
         raise config.ConfigError("candidates must be a list (or {candidates: [...]})")
-    return [Candidate.from_dict(c) for c in candidates]
+    parsed = [Candidate.from_dict(c) for c in candidates]
+    # A candidate id is the PRIMARY KEY of every downstream store: the archive's
+    # ``elite_id``, ``cand_store``, ``stored_emb``, ``stored_mech_emb``, pins/discards,
+    # and the slate's ``embedding_ref``. Two candidates sharing one id therefore both
+    # "win" a niche while only the LAST record survives in cand_store — so one niche
+    # silently ends up pointing at a different idea's text/coords/embedding, and the
+    # slate renders the same item twice. Dedup does not catch it (it compares text, not
+    # ids). Reject loudly instead of degrading the one thing the slate promises.
+    seen: Set[str] = set()
+    dupes: Set[str] = set()
+    for c in parsed:
+        (dupes if c.id in seen else seen).add(c.id)
+    if dupes:
+        raise config.ConfigError(
+            f"duplicate candidate id(s) in this generation: {', '.join(sorted(dupes))}; "
+            f"ids must be unique within a batch (they key the archive, embeddings, "
+            f"and preference memory)"
+        )
+    return parsed
 
 
 def _survivor_novelty(
