@@ -52,6 +52,25 @@ def test_empty_cycle_returns_full_schema(home):
     assert res["monitor"]["collapsing"] is False
 
 
+def test_empty_cycle_carries_variety_erosion_detail(home):
+    # The empty cycle sets the `variety_eroding` BOOLEAN but must also carry the
+    # `variety_erosion` DETAIL dict every normal cycle carries — a consumer reading
+    # monitor.variety_erosion would otherwise KeyError on exactly the path the empty
+    # cycle's contract calls safe. Same shape, not the same values: slopes are None
+    # (no survivor novelty to measure) and the streak is the persisted one.
+    axes = _generic()
+    pipeline.init_project("ve", axes, seed=0, home=home)
+    target = int(State("ve", home=home).read_meta()["candidates_per_generation"])
+    normal = pipeline.ingest("ve", selftest.diverse_candidates(target), axes, seed=0, home=home)
+    empty = pipeline.ingest("ve", [], axes, seed=0, home=home)
+
+    assert "variety_erosion" in empty["monitor"]
+    assert set(empty["monitor"]["variety_erosion"]) == set(normal["monitor"]["variety_erosion"])
+    detail = empty["monitor"]["variety_erosion"]
+    assert detail["slope_earlier"] is None and detail["slope_recent"] is None
+    assert detail["streak"] == int(State("ve", home=home).read_meta().get("erosion_streak", 0))
+
+
 def test_empty_cycle_reflects_persisted_erosion_streak(home):
     # An empty generation is a no-op for the erosion sensor, but it must report the
     # LAST persisted streak's flag rather than a hard False — an in-progress streak
