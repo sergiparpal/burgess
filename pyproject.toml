@@ -42,7 +42,7 @@ dependencies = [
     # the donor's requirements.txt exactly.
     "numpy>=1.26,<3",         # geometry: embeddings, kernels, archives
     "scikit-learn>=1.7.2,<2",   # HashingVectorizer (hash embedder) + KMeans (CVT open-nicher)
-    "model2vec>=0.3,<0.9",    # static embedder (potion-multilingual-128M), torch-free (I7)
+    "model2vec>=0.8.2,<0.9",    # static embedder (potion-multilingual-128M), torch-free (I7)
 ]
 
 [project.optional-dependencies]
