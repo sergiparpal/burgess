@@ -2,7 +2,7 @@
 
 Burgess is a fusion of two MIT-licensed donor plugins by the same author. Code was **copied** (vendored) at the pinned SHAs below, never moved or modified upstream.
 
-Both donor repositories have since been **retired and unpublished** by their author; Burgess is their continuation. The MIT notices are retained below because the licence obligation survives the repositories, and the pinned SHAs remain the identity of the vendored code — they now resolve only against the local sibling checkouts recorded in `scripts/donor_pins.json`, not against any public URL.
+**Sproutgraph** has since been **retired and unpublished** by its author; Burgess is its continuation, and its pinned SHA resolves only against the local sibling checkout recorded in `scripts/donor_pins.json`. **Cambrian** was **republished** at [sergiparpal/cambrian](https://github.com/sergiparpal/cambrian) and has resumed development; its pinned SHA is still reachable from that repository's `HEAD`, so the claims in this file can be checked against the public tree with `git show a2adfa1`. Either way the MIT notices are retained below: the licence obligation survives the repositories, and the pinned SHAs — not the donors' current `HEAD`s — remain the identity of the vendored code.
 
 | Donor | Pinned SHA | License |
 |---|---|---|

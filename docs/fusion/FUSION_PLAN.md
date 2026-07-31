@@ -12,6 +12,13 @@
 > recorded in `scripts/donor_pins.json` are the surviving copies, and the I11 donor-integrity gate still runs
 > against them. Decision Rule **D5 (upstream drift)** is retired as a consequence — see the annotation at §14.
 > Apart from the removal of the donor URLs and that one marked annotation, the document is preserved as written.
+>
+> **Amended (2026-07-31).** Cambrian was **republished** at https://github.com/sergiparpal/cambrian and has
+> resumed development, so "both repositories retired" above holds only for Sproutgraph, and the clone steps
+> below resolve again for Cambrian — against a tree many commits past its pin. What does not change: this
+> plan is finished, the SHAs in `scripts/donor_pins.json` are the Stage-0 identity of the vendored code and
+> are never advanced, and I11 now asserts that each pin stays *reachable* from its donor's `HEAD` rather
+> than that the donor still sits at it (see the annotation at §2.2).
 
 ---
 
@@ -43,7 +50,7 @@ All three repositories sit side by side under one parent directory:
 └── Cambrian/        ← donor, read-only
 ```
 
-If a donor sibling is missing at Stage 0, the agent clones it into the parent directory. Cloning creates a local copy and modifies nothing upstream. (As written, this step cloned each donor from its GitHub URL; both repositories have since been retired, so the local checkouts pinned in `scripts/donor_pins.json` are now the only copies.)
+If a donor sibling is missing at Stage 0, the agent clones it into the parent directory. Cloning creates a local copy and modifies nothing upstream. (As written, this step cloned each donor from its GitHub URL. Sproutgraph has since been retired, so its pinned local checkout is the only surviving copy; Cambrian was republished and clones again, at a tree well past the pin the fusion reads.)
 
 ### 2.2 Read-only enforcement (Invariant I11)
 
@@ -210,7 +217,7 @@ Python ≥3.11 **(verify against donors' pins)**, `git`, `uv` (fallback `python 
 mkdir NewPlugin && cd NewPlugin && git init
 # put this file at the repo root as FUSION_PLAN.md  (the repo's only initial content)
 # optional but recommended — donors as siblings (the agent will clone them if absent).
-# NOTE: both donor repos have since been retired; these clone steps no longer resolve.
+# NOTE: Sproutgraph is retired, so its clone step no longer resolves; Cambrian clones again (past its pin).
 git -C .. clone <Sproutgraph>
 git -C .. clone <Cambrian>
 claude
@@ -374,6 +381,12 @@ Resuming later (new session): same instruction — the agent reads `docs/fusion/
   > foreclosed rather than taken. D5 governs nothing and requires nothing; the ID is kept, struck through,
   > so the historical record and every citation of it still resolve. Donor *integrity* is unaffected and
   > still enforced — that was always I11, not D5. See `DECISIONS.md`, "Decision Rule D5 retired".
+  >
+  > **Amended (2026-07-31).** Cambrian's republication restores an upstream that *can* gain commits, so
+  > "there is no upstream left to drift" now describes Sproutgraph alone. D5 stays retired on the ground
+  > that outlives its original rationale: it was a **build-time** rule, and the build is over. Re-syncing
+  > to newer Cambrian is therefore not impossible, merely ungoverned by this plan — the pins remain the
+  > permanent identity of the vendored code, never a sync point.
 
 ---
 

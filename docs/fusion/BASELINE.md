@@ -5,6 +5,11 @@ Both donors pinned at these SHAs for the whole build (Decision Rule D5: upstream
 > **D5 is retired (2026-07-09).** Both donor repositories have been unpublished, so there is no upstream to
 > drift from and no re-sync to decide; these SHAs are now permanent by necessity. Donor *integrity* is
 > unaffected — that is I11, which still runs against the local checkouts. See `DECISIONS.md`.
+>
+> **Amended (2026-07-31).** Cambrian has been republished (https://github.com/sergiparpal/cambrian) and has
+> moved many commits past its pin; Sproutgraph is still unpublished. The SHAs below do not move — they are
+> the identity of the vendored code — and I11 now checks that each remains reachable from its donor's
+> `HEAD`. The baselines recorded here are Stage-0 facts and stand as written.
 
 ## Sproutgraph (convergence donor)
 

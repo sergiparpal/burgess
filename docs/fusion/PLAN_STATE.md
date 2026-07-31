@@ -11,6 +11,11 @@ Handoff note: **ALL STAGES DONE AND PUBLISHED.** The publishing steps were origi
 > **D5 is retired (2026-07-09).** Both donor repositories have been unpublished, so there is no upstream
 > to re-sync from and no post-release decision left to take. Donor *integrity* is unaffected — that is
 > I11, which still runs green against the local sibling checkouts. See `DECISIONS.md`.
+>
+> **Amended (2026-07-31).** Cambrian is published again (https://github.com/sergiparpal/cambrian) and has
+> resumed development; Sproutgraph remains unpublished. D5 stays retired — the build is over, so no
+> build-time rule applies — and I11 now asserts that each pinned SHA is *reachable* from its donor's
+> `HEAD`, not that the donor still sits at it. See `DECISIONS.md`.
 
 | Stage | Status | Commit(s) | Notes |
 |---|---|---|---|
