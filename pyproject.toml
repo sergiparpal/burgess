@@ -53,7 +53,7 @@ dependencies = [
 # parameter, which `backend.py` does not use — it calls `output_config={"format": ...}`.)
 backend = ["anthropic>=1.6.0,<2"]
 # Test + dev tooling.
-dev = ["pytest>=9.1.1"]
+dev = ["pytest>=9.2.0"]
 # Optional `lightrag` ideation-experiment arm (§Stage 8): a real, published GraphRAG baseline
 # (`kg_engine.lightrag_arm`) built over the SAME prose corpus as the flat `rag` arm. OFF by default —
 # install it AND set `KG_LIGHTRAG=1` + `OPENAI_API_KEY` to enable; absent it, the experiment runs its
