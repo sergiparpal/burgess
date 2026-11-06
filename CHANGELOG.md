@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.4.2 — 2026-11-06
+
+Single-bug patch release. With the plugin enabled, **every** Claude Code session left Burgess files in the
+folder it opened — an empty `canon/`, `.kg-reconcile-state.json`, `.kg-ground-audit.jsonl.ckpt` and, in a git
+repo, five lines in `.git/info/exclude` — even when nothing in the session used Burgess, and the two files
+were rewritten every session. Found on a Windows install with leftovers in twelve folders, a home directory
+and an Obsidian vault among them; the vault's auto-commit pushed the checkpoint to its remote, because on that
+version (0.2.5) the exclude did not yet cover the `.ckpt` sidecar (fixed in 0.3.1).
+
+Two automatic triggers, and the first one defeated the guard of the second. No change to the MCP tool
+surface, to what grounding decides, or to the per-session full sweep in any folder that holds a canon.
+
+### Fixed
+
+- **The MCP server laid out a vault in whatever folder a session opened.** Claude Code starts every enabled
+  plugin's MCP server at session start, `.mcp.json` passes `KG_PROJECT_DIR=${CLAUDE_PROJECT_DIR}`, and
+  `main()` builds the engine before the first request. `KGEngine.__init__` constructed `Canon(project_dir)`
+  with its default `ensure_layout=True`, which creates `canon/` and appends the runtime patterns to
+  `.git/info/exclude`, so both appeared before any tool was called. The engine's `Canon` is now lazy, as the
+  precontext hook's already was (F37): building the engine and every read leave the folder untouched, and the
+  first write lays the vault out. `Canon.acquire_lock`, which every canon writer reaches (`write_one`,
+  `write_nodes`, the server's `_try_writer_lease`), calls the new public `Canon.ensure_layout()` before the
+  lease file exists, so the lease and every runtime file after it are already git-excluded when they first
+  appear. `try_acquire_lock` deliberately does not: its other caller is the lazy projector, on the read path,
+  where a query must never turn a folder into a vault.
+- **…and that empty `canon/` switched the per-session reconcile on everywhere.** The SessionStart hook
+  (`provision.mjs` → `bootstrap.py --background` → a detached `--reconcile` worker → `maybe_reconcile`) ran
+  the sweep wherever `canon/` was a directory, which the first defect made true in every folder from the first
+  session on. `Reconciler.scan()` then wrote the state file and the checkpoint unconditionally. The guard now
+  asks whether the folder holds a project, meaning at least one canon note or a non-empty audit ledger
+  (`bootstrap._holds_project`), and the sweep's `Canon` is lazy too. The full sweep itself is unchanged wherever
+  there is a canon: it is what defeats mtime-spoofed forged verdicts (§1.8), so every project still gets it
+  every session, state and checkpoint included.
+- **The sweep wrote even with nothing to reconcile.** Defense in depth for anything that reaches `scan()` past
+  a guard: with no note, no audit record and no baseline, spend ledger or file cache (not even one recovered
+  from the checkpoint), it now returns without touching the disk. That is safe for §1.8 because an empty state
+  reads back exactly like a missing one (`_load_state`'s fail-open default *is* the empty form), so skipping
+  the write can never strand a stale baseline. A non-empty baseline (every note deleted since the last sweep)
+  still takes the full sweep and is pruned and persisted (reconciler-1). The early return also skips the
+  sweep's housekeeping, which deletes `.tmp-*` files older than an hour at the folder root. In a Burgess vault
+  those are its own crash leftovers; in a home directory or an unrelated repo they are somebody else's, and
+  until now the sweep ran there too.
+
+### Changed
+
+- **A fresh clone gets its exclude patterns from the first sweep or write, not from server startup.**
+  `.git/info/exclude` is per-clone and never cloned. The eager server used to write it at startup; now the
+  first session's reconcile writes it (the sweep lays the vault out before it persists its state), or the first
+  write does. Either way it lands before the first runtime file, which is the property that matters.
+
+### Not changed
+
+- **Existing leftovers are left alone, never deleted.** An empty `canon/` counts as no project, so neither the
+  hook nor the sweep writes to a folder that only carries the leftovers of an older version. To clean one by
+  hand, in a folder that never held notes: remove the empty `canon/`, `.kg-reconcile-state.json`,
+  `.kg-ground-audit.jsonl.ckpt` (only when no `.kg-ground-audit.jsonl` sits beside it) and the five Burgess
+  lines in `.git/info/exclude`.
+- **A bare dev launch without `KG_DATA` still puts the data dir at `<project>/.kg-data`**, where the Node
+  supervisor and the server log both write before the engine exists. The installed plugin always sets
+  `KG_DATA` to the plugin's data directory, so this never happens in a user's folder.
+
+### Tests
+
+- `tests/test_fix_session_start.py` pins the defect end to end: building the engine like the server (with the
+  data dir outside the project) writes nothing and neither creates nor modifies `.git/info/exclude`; reads lay
+  nothing out; `maybe_reconcile` over an empty `canon/` launches no sweep and writes nothing, and leaves old
+  leftovers byte- and mtime-identical (a user's aged `.tmp-*` included); a real canon is still swept, state and
+  checkpoint included; the first `kg_write` creates `canon/` and the excludes, and the excludes land before the
+  lease file; a fresh clone gets them before the sweep writes its state; deleting every note still prunes the
+  baseline; and `bootstrap`'s mirrored names and note rule agree with `canon`'s. Each hook test runs the real
+  sweep in a subprocess and requires it to exit clean, so a crashed sweep can never pass for an empty one.
+  Verified as real pins: 22 of the 26 **fail** with the fix reverted; the other four pin what must not
+  change. 1310 → 1336 passed, 2 skipped.
+- Three existing tests adjusted. `test_valid_json_non_dict_state_does_not_crash_scan` (F19) now seeds a note,
+  as its null-sub-key sibling already did, because an empty vault no longer rewrites a corrupt state; that
+  case has its own pin. `test_fate_sync_skips_a_malformed_note_instead_of_failing` lays the vault out before
+  planting its malformed note by hand. The F37 docstrings describe the new lazy write path.
+
 ## 0.4.1 — 2026-08-01
 
 Single-bug patch release, and the bug is one the test suite had already been reporting for a while in a form

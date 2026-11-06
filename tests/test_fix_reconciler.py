@@ -22,6 +22,11 @@ def test_valid_json_non_dict_state_does_not_crash_scan(canon):
     """F19: a valid-JSON-but-non-dict state file ([1,2,3], or top-level null) must fall through to the
     fresh-dict default instead of crashing scan() with AttributeError on .get()."""
     recon = Reconciler(canon)
+    # Seed a real note, as the null-sub-key test below does. Since 0.4.2 a sweep with NOTHING to
+    # reconcile (no note, no audit record, an empty or unreadable state) writes nothing at all, so an
+    # empty vault would leave the corrupt file in place. That case is pinned on its own in
+    # tests/test_fix_session_start.py; here the sweep has work to do and must heal the file.
+    canon.write_one(Node(id="alpha", label="alpha", edges=[]))
     for bad in ("[1, 2, 3]", "null", '"a string"', "42"):
         _atomic_write(recon.state_path, bad)
         report = recon.scan(full_sweep=True)  # must not raise

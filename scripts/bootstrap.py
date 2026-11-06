@@ -679,16 +679,48 @@ def do_install(venv_dir: Path) -> Path:
 # --------------------------------------------------------------------------- #
 # Reconcile (§1.8) — re-attach/re-quarantine verdicts after the venv is ready
 # --------------------------------------------------------------------------- #
+# The two vault names the reconcile guard reads, mirrored from kg_engine.canon (CANON_SUBDIR and
+# GROUND_AUDIT). canon cannot be imported here: this guard runs under the bare system Python, before the
+# venv exists, and canon's model module needs yaml. tests/test_fix_session_start.py pins both names and
+# the note rule in _holds_project against the engine, so the mirror cannot drift silently.
+_CANON_SUBDIR = "canon"
+_GROUND_AUDIT = ".kg-ground-audit.jsonl"
+
+
+def _holds_project(project: Path) -> bool:
+    """Whether ``project`` already holds a Burgess project: at least one canon note, or a non-empty
+    grounding-audit ledger (a vault whose notes were all deleted still has verdict history to
+    reconcile against). An EMPTY canon/ is not a project. That includes the empty canon/ that older
+    versions left in every folder a session opened; it is left where it is, never deleted.
+
+    The note test is Canon.note_paths()'s rule: ``*.md`` minus dotfiles (the ``.tmp-*`` atomic-write
+    temporaries). ``any()`` stops at the first note, so a large canon costs one directory read."""
+    try:
+        if any(not p.name.startswith(".") for p in (project / _CANON_SUBDIR).glob("*.md")):
+            return True
+    except OSError:
+        pass  # an unreadable canon dir is not evidence of a project; fall through to the ledger
+    try:
+        return (project / _GROUND_AUDIT).stat().st_size > 0
+    except OSError:
+        return False
+
+
 def maybe_reconcile(venv_dir: Path) -> None:
     """Run the canon reconcile via the engine python; best-effort, never fatal.
 
     A FULL sweep here is deliberate: the per-file mtime/size pre-filter is only a
     within-session optimisation, and the once-per-session full re-hash is what actually
-    defeats mtime-spoofed forged verdicts (§1.8). Skipped silently when there is no
-    project/canon yet (e.g. the very first cold session before anything is built).
+    defeats mtime-spoofed forged verdicts (§1.8).
+
+    Runs ONLY where a Burgess project already exists (_holds_project). The SessionStart hook fires
+    in every folder a session opens, Burgess used there or not, and the old guard ("canon/ is a
+    directory") passed everywhere once the server's eager Canon had created an empty canon/ at
+    startup: the sweep then wrote its state file and checkpoint into home dirs, Obsidian vaults and
+    unrelated repos, every session. Skipped silently, too, before anything is built.
     """
     project = _clean(os.environ.get("CLAUDE_PROJECT_DIR"))
-    if not project or not (Path(project) / "canon").is_dir():
+    if not project or not _holds_project(Path(project)):
         return
     py = venv_python(venv_dir)
     if not py.exists():
@@ -697,7 +729,11 @@ def maybe_reconcile(venv_dir: Path) -> None:
         "import os\n"
         "from kg_engine.canon import Canon\n"
         "from kg_engine.reconciler import Reconciler\n"
-        "rep = Reconciler(Canon(os.environ['CLAUDE_PROJECT_DIR'])).scan(full_sweep=True)\n"
+        # ensure_layout=False: Reconciler.scan lays the vault out itself, and only once it has
+        # something to persist, so a canon emptied between the guard above and this sweep (or a
+        # guard/sweep disagreement) still leaves the folder untouched.
+        "rep = Reconciler(Canon(os.environ['CLAUDE_PROJECT_DIR'], ensure_layout=False))"
+        ".scan(full_sweep=True)\n"
         "if rep.requarantined:\n"
         "    print(f\"[burgess] reconcile re-quarantined {len(rep.requarantined)} \"\n"
         "          f\"forged verdict(s)\")\n"

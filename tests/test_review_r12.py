@@ -178,6 +178,9 @@ def test_fate_sync_skips_a_malformed_note_instead_of_failing(engine, monkeypatch
     escape through `_tool_result` and turn the whole kg_diverge_recall / kg_diverge_metrics call
     into {ok: False}.
     """
+    # The engine's Canon is lazy (0.4.2): canon/ exists only once something writes. This test places
+    # the malformed note by hand, as a user would in an existing vault, so it lays the vault out first.
+    engine.canon.ensure_layout()
     (engine.canon.notes_dir / "broken.md").write_text("no frontmatter here\n", encoding="utf-8")
     # the canon's own tolerant readers already skip it — the fate sync must match that posture
     assert engine.canon.parse_note(engine.canon.notes_dir / "broken.md") is None

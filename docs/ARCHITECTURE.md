@@ -400,7 +400,18 @@ divergence templates ship as pack fragments under `pack/domains/`.
   worker that builds the engine venv (`uv sync` if available, else stdlib `venv`+`pip`),
   stamp-gated on a hash of `pyproject.toml` + interpreter ABI so it's a no-op when current. Venv
   precedence: `--venv` > `$KG_ENGINE_VENV` > `$CLAUDE_PLUGIN_DATA/.venv` > `<repo>/.venv` (dev).
-  `--reconcile` runs the once-per-session canon reconcile after the venv is ready.
+  `--reconcile` runs the once-per-session canon reconcile after the venv is ready — but only in a
+  folder that already holds a project: at least one canon note, or a non-empty audit ledger
+  (`bootstrap._holds_project`). The hook fires in every folder a session opens, so an empty
+  `canon/` counts as no project, and `Reconciler.scan` itself returns without writing anything
+  when there is nothing to reconcile (no note, no audit record, no baseline or ledger).
+- **No footprint in unused folders**: Claude Code also starts the MCP server in every folder a
+  session opens, so the engine's `Canon` is lazy (`ensure_layout=False`). Building it, and every
+  read, leaves the project untouched. The vault's layout (the `canon/` dir and the
+  `.git/info/exclude` patterns for the runtime files) is created by the first write, in
+  `Canon.acquire_lock`, before the lease file exists, or by a reconcile sweep about to persist,
+  which is how a fresh clone (whose exclude file is never cloned) gets its patterns. Pinned by
+  `tests/test_fix_session_start.py`.
 - **Supervision**: `.mcp.json` starts `scripts/launch_server.mjs`, a Node parent that always
   spawns successfully, heals the venv in the foreground if provisioning hasn't finished, then
   supervises the Python engine: capped exponential backoff (200 ms → 5 s), max 5 restarts per
@@ -447,6 +458,10 @@ All env reads pass through one cleaner that drops empty values, unsubstituted `$
 and bare `/.venv` sentinels.
 
 ### On-disk map
+
+Nothing under `<project>/` below exists until Burgess first writes there (see "No footprint in
+unused folders" above). The data dir is created at engine start; it lands inside the project only
+in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
 
 ```text
 <project>/                      the user's project

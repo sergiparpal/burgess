@@ -549,6 +549,24 @@ class Reconciler:
         self._recover_spend_ledger(consumed, epistemic)
         audit = self._audit_counts()
         report = ReconcileReport(full_sweep=full_sweep)
+        notes = self.canon.note_paths()  # excludes .tmp-* atomic-write temporaries (canon-5)
+        if not (notes or audit or files_state or epistemic or consumed):
+            # Nothing to reconcile: no note, no verdict record, and no baseline, spend ledger or file
+            # cache — not even one recovered from the checkpoint. A sweep here would police nothing and
+            # prune nothing, yet it would still CREATE the state file and the checkpoint, and its
+            # housekeeping would reap aged `.tmp-*` files at the folder root. That is what the
+            # per-session reconcile did in every folder a session opened, once an empty canon/ was
+            # there. So touch nothing. Skipping is safe for §1.8: an empty state reads back exactly like
+            # a missing one (_load_state's fail-open default IS the empty form), so the skip can never
+            # strand a stale baseline. A NON-empty baseline (every note deleted since the last sweep)
+            # still takes the sweep below and gets pruned + persisted (reconciler-1).
+            return report
+        # About to write runtime state (the lease, a corrected note, the state cache, the checkpoint):
+        # lay the vault out first, so in a git-backed vault each of them is already excluded when it
+        # first appears. Usually a no-op, but a FRESH CLONE has notes and no excludes
+        # (.git/info/exclude is per-clone and never cloned), and the server no longer writes them at
+        # startup (its Canon is lazy), so this is where such a vault gets them.
+        self.canon.ensure_layout()
         # On a FULL SWEEP we visit and hash every note in the loop below, so we can build the live
         # file/key sets INCREMENTALLY (reconciler-6) and skip the old post-loop all_nodes() re-parse —
         # a hash match proves the cached keys are current, so the incremental sets are byte-identical to
@@ -561,7 +579,7 @@ class Reconciler:
         sweep = _Sweep(files_state=files_state, epistemic=epistemic, consumed=consumed,
                        audit=audit, report=report, live_files=live_files, live_keys=live_keys,
                        full_sweep=full_sweep)
-        for p in self.canon.note_paths():  # excludes .tmp-* atomic-write temporaries (canon-5)
+        for p in notes:
             report.scanned += 1
             self._scan_note(p, sweep)
 
