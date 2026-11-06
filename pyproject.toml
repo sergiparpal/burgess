@@ -48,9 +48,15 @@ dependencies = [
 [project.optional-dependencies]
 # Headless API-driven extraction backend (§2.2): the CI / non-interactive path. The in-session
 # path needs no API keys; this extra is only for `python -m kg_engine.backend`.
-# Floor is 0.77.0 (2026-01-29): the first SDK release that ships `output_config` on
-# `messages.create()` for structured outputs. (0.73.0 only had the beta `output_format`
-# parameter, which `backend.py` does not use — it calls `output_config={"format": ...}`.)
+# The floor moves with Dependabot; the hard minimum is 0.77.0 (2026-01-29), the first SDK release
+# that ships `output_config` on `messages.create()` for structured outputs (0.73.0 only had the beta
+# `output_format` parameter, which `backend.py` does not use — it calls `output_config={"format": ...}`).
+# tests/test_manifests.py fails if the floor ever drops below it.
+# The <3 cap admits SDK 2.x, which sends `anthropic-version: 2026-10-21` (1.x: 2023-06-01) and the key
+# as `Authorization: Bearer` (1.x: `X-Api-Key`; the API accepts either). Checked when 2.x was adopted
+# (#53): the request body backend.py sends is identical under SDK 1.17 and 2.6, and none of
+# 2026-10-21's breaking changes (sampling params, `document` blocks in assistant turns, `citations` in
+# user turns) touch a field it sends.
 backend = ["anthropic>=2.4.0,<3"]
 # Test + dev tooling.
 dev = ["pytest>=9.2.0"]

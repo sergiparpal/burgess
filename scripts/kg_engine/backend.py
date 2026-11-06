@@ -16,9 +16,9 @@ are nodes, which relations are edges, and the verbatim span proving each relatio
 
 Model: ``claude-opus-4-8`` by default. Structured output via ``output_config.format`` (a json_schema
 keyed to the pack vocabulary) so each section payload is always valid, parseable JSON. Adaptive
-thinking; no sampling parameters (removed on Opus 4.7+). The actual API call is isolated in
-``extract_section`` and the client is injectable, so the whole pipeline is unit-testable with a fake
-client and no network.
+thinking; no sampling parameters (removed on Opus 4.7+, and a 400 on ANY model under API version
+2026-10-21, which SDK 2.x sends). The actual API call is isolated in ``extract_section`` and the
+client is injectable, so the whole pipeline is unit-testable with a fake client and no network.
 """
 from __future__ import annotations
 
@@ -45,7 +45,8 @@ DEFAULT_MAX_TOKENS = 16000
 # (3600 * max_tokens / _SDK_TOKENS_PER_HOUR s) exceeds the _SDK_TIME_CEILING_S ~10-min wall, i.e.
 # max_tokens > _SDK_TIME_CEILING_S * _SDK_TOKENS_PER_HOUR / 3600 ≈ 21333. We clamp to this in
 # _effective_max_tokens so a large --max-tokens override can't fail every section pre-flight
-# (review-M4). Stable across the anthropic>=0.77 floor and current releases. This is the single
+# (review-M4). Re-checked when SDK 2.x was adopted (#53): the guard (_calculate_nonstreaming_timeout
+# in anthropic/_base_client.py) is source-identical at 1.17.0, 2.4.0 and 2.6.0. This is the single
 # authoritative derivation; _effective_max_tokens back-references it rather than restating the formula.
 _SDK_TIME_CEILING_S = 600       # SDK's non-streaming wall-clock ceiling (~10 min) before it demands streaming
 _SDK_TOKENS_PER_HOUR = 128000   # SDK's assumed throughput in the expected-time formula
@@ -247,10 +248,10 @@ class BackendExtractor:
 
     @staticmethod
     def _thinking_config():
-        """The `thinking` param for messages.create — a plain dict deliberately: "adaptive" is a
-        runtime-valid thinking type accepted by the API at the anthropic>=0.77 floor, but it is newer than
-        the typed ThinkingConfigParam union at that floor (the dict avoids a static-typing mismatch, no
-        runtime effect; the project runs no type-checker). "adaptive" is correct for the default
+        """The `thinking` param for messages.create — a plain dict. That was deliberate at the old 0.77
+        floor, whose typed ThinkingConfigParam union predated "adaptive" although the API accepted it;
+        the 2.x floor's union includes ThinkingConfigAdaptiveParam, so the dict is now merely equivalent
+        (no runtime difference; the project runs no type-checker). "adaptive" is correct for the default
         claude-opus-4-8 and every 4.6+ model, but a PRE-4.6 model chosen via --model / KG_BACKEND_MODEL
         REJECTS it with a 400 on every section — turning the whole headless run into N per-section
         failures. Set KG_BACKEND_THINKING=off (or 0/none/disabled) to OMIT thinking entirely for such a
