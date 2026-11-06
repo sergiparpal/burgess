@@ -7,7 +7,9 @@
   backfill case.
 - F37: a read-only consumer (the precontext PreToolUse hook, fired on every Grep/Glob/Read) can
   construct Canon(..., ensure_layout=False) WITHOUT the constructor side effects (canon-dir mkdir +
-  .git/info/exclude rewrite), while the default stays eager for every writer.
+  .git/info/exclude rewrite), while the default stays eager. Since 0.4.2 the MCP server and the
+  per-session reconcile are lazy too, and the layout is created by the first write
+  (tests/test_fix_session_start.py).
 """
 from __future__ import annotations
 
@@ -162,8 +164,9 @@ def test_f37_read_only_canon_still_serves_reads(engine):
 
 
 def test_f37_write_through_read_only_canon_self_heals_dir(tmp_path: Path):
-    """Belt-and-suspenders: even though ensure_layout=False skips the eager mkdir, a write still
-    self-heals the canon dir via _atomic_write_bytes' parent mkdir, so the instance is not crippled."""
+    """Even though ensure_layout=False skips the eager mkdir, a write still creates the canon dir, so
+    the instance is not crippled. Since 0.4.2 the write lays out the whole vault (acquire_lock →
+    ensure_layout, git excludes included), not only the parent dir _atomic_write_bytes would mkdir."""
     c = Canon(tmp_path, ensure_layout=False)
     assert not (tmp_path / CANON_SUBDIR).exists()
 

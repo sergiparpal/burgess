@@ -657,15 +657,37 @@ class Canon:
         # see LOCK_ACQUIRE_TIMEOUT). Per-instance so a test can shorten/zero it; the lazy projector's
         # try_acquire_lock() is unaffected and stays strictly non-blocking.
         self.lock_acquire_timeout = LOCK_ACQUIRE_TIMEOUT
-        # ensure_layout=False lets a READ-ONLY consumer (e.g. the precontext PreToolUse hook, which runs
-        # on every Grep/Glob/Read) construct a Canon for kg_context reads WITHOUT the constructor side
-        # effects: the canon-dir mkdir and the .git/info/exclude rewrite (_ensure_git_excludes re-reads
-        # that file on every call). Reads over a missing notes_dir just glob empty; a write through such
-        # an instance still self-heals the dir via _atomic_write_bytes' parent mkdir. Default True keeps
-        # the original eager-layout behavior for every writer (server/backend/reconciler).
+        # ensure_layout=False constructs a Canon WITHOUT the layout side effects (the canon-dir mkdir and
+        # the .git/info/exclude rewrite) and defers them to the first WRITE: acquire_lock() calls
+        # ensure_layout() before the lease file exists, and Reconciler.scan() calls it before it persists.
+        # Reads over a missing notes_dir just glob empty, so a vault that is only ever read never gets a
+        # layout. The precontext PreToolUse hook (every Grep/Glob/Read) relies on that and never writes,
+        # so it never lays out anything (F37). So do the MCP server and the per-session reconcile, which
+        # Claude Code starts in WHATEVER folder a session opens (a home dir, an Obsidian vault, an
+        # unrelated repo) whether or not Burgess is used there: built eagerly, they left an empty canon/,
+        # the exclude lines and (via the reconcile, which took that canon/ for a project) a state file +
+        # checkpoint in every such folder (0.4.2). Default True keeps the eager layout for a direct
+        # construction that is about to write anyway.
+        self._layout_ready = False
         if ensure_layout:
-            self.notes_dir.mkdir(parents=True, exist_ok=True)
-            self._ensure_git_excludes()
+            self.ensure_layout()
+
+    def ensure_layout(self) -> None:
+        """Lay the vault out — create the canon dir and keep the runtime files out of git — once per
+        instance. This is the step that turns a folder into a Burgess vault, so it runs only on a path
+        that is about to WRITE (acquire_lock, Reconciler.scan) or on an eager construction, never on a
+        read.
+
+        Memoized: after the first success every writer pays one attribute check, not the exclude-file
+        re-read (the cost F37 kept off the hook's hot path). A canon dir deleted mid-session still
+        self-heals on the next note write via _atomic_write_bytes' parent mkdir. A failed mkdir (a
+        read-only project) propagates to the writer and leaves the memo unset, so the next write
+        retries; the exclude rewrite stays best-effort (_ensure_git_excludes swallows OSError)."""
+        if self._layout_ready:
+            return
+        self.notes_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_git_excludes()
+        self._layout_ready = True
 
     def _ensure_git_excludes(self) -> None:
         """Keep transient runtime files (session lock, temp files, reconcile state) out of git in ANY
@@ -705,7 +727,16 @@ class Canon:
         """Bounded-BLOCKING writer acquire (raises RuntimeError when the vault stays held past the
         budget). Public like its counterpart ``release_lock`` and the non-blocking
         ``try_acquire_lock`` — three sibling modules consume this seam, so the old underscore name
-        mis-signalled "don't depend on me" (review-r5)."""
+        mis-signalled "don't depend on me" (review-r5).
+
+        Every canon writer funnels through here (write_one, write_nodes, the server's
+        _try_writer_lease), so this is where a lazily-constructed vault gets its layout — BEFORE the
+        lease file is created, so the lock and every runtime file after it are already git-excluded
+        when they first appear. Called at any depth: the reconciler takes the lease non-blockingly
+        and then writes through write_one at depth 1, and the memo makes the repeat calls free.
+        try_acquire_lock deliberately does NOT lay out: its other caller is the lazy projector on the
+        READ path, where a query must never turn a folder into a vault."""
+        self.ensure_layout()
         if self._lock_depth == 0 and not self._acquire_lease_blocking():
             raise RuntimeError("canon vault is locked by another live session")
         self._lock_depth += 1

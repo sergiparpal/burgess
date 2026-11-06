@@ -543,7 +543,14 @@ class KGEngine:
         self.project_dir = Path(project_dir)
         self.data_dir = Path(data_dir) if data_dir else (self.project_dir / envconfig.DATA_DIRNAME)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.canon = Canon(self.project_dir)
+        # LAZY layout: Claude Code builds this engine at session start (.mcp.json → main() →
+        # build_engine_from_env) in whatever folder the session opened, Burgess used there or not. An eager
+        # Canon left an empty canon/ + .git/info/exclude lines in every such folder — and that canon/ then
+        # passed the SessionStart reconcile's "is there a project here?" guard, which wrote the reconcile
+        # state + checkpoint beside it. The layout is now created by the first WRITE instead
+        # (Canon.acquire_lock → ensure_layout, which every canon writer reaches); reads glob a missing
+        # canon dir as empty, so a read-only session leaves the project untouched.
+        self.canon = Canon(self.project_dir, ensure_layout=False)
         self.reconciler = Reconciler(self.canon)
         # §1.8 grounding-audit log — the forge-detection WRITER half (the reconciler is the reader). A
         # collaborator, not inline, so the crash-safe append/truncate protocol is unit-testable.
