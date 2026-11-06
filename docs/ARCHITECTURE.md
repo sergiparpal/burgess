@@ -396,10 +396,15 @@ divergence templates ship as pack fragments under `pack/domains/`.
 ## 9. Runtime: provisioning and supervision
 
 - **Provisioning**: the SessionStart hook runs `hooks/provision.mjs` (async, 600 s cap), which
-  finds a system Python ≥ 3.10 and hands off to `scripts/bootstrap.py --background` — a detached
-  worker that builds the engine venv (`uv sync` if available, else stdlib `venv`+`pip`),
+  finds a system Python ≥ 3.10 and hands off to `scripts/bootstrap.py --background --reconcile` — a
+  detached worker that builds the engine venv (`uv sync` if available, else stdlib `venv`+`pip`),
   stamp-gated on a hash of `pyproject.toml` + interpreter ABI so it's a no-op when current. Venv
   precedence: `--venv` > `$KG_ENGINE_VENV` > `$CLAUDE_PLUGIN_DATA/.venv` > `<repo>/.venv` (dev).
+  The stamp is written as soon as the core imports verify; the advisory leidenalg/divergence probes
+  run after it, so they never hold readiness back. On Windows the worker gets a windowless console
+  of its own (`CREATE_NO_WINDOW`, not `DETACHED_PROCESS`): its children (`uv`, the probe
+  interpreters) inherit it, so no window opens and their output reaches `provision.log`, which is
+  opened for atomic appends (`FILE_APPEND_DATA`) because two workers write it on every cold start.
   `--reconcile` runs the once-per-session canon reconcile after the venv is ready — but only in a
   folder that already holds a project: at least one canon note, or a non-empty audit ledger
   (`bootstrap._holds_project`). The hook fires in every folder a session opens, so an empty
@@ -413,11 +418,21 @@ divergence templates ship as pack fragments under `pack/domains/`.
   which is how a fresh clone (whose exclude file is never cloned) gets its patterns. Pinned by
   `tests/test_fix_session_start.py`.
 - **Supervision**: `.mcp.json` starts `scripts/launch_server.mjs`, a Node parent that always
-  spawns successfully, heals the venv in the foreground if provisioning hasn't finished, then
-  supervises the Python engine: capped exponential backoff (200 ms → 5 s), max 5 restarts per
-  60 s window. A crash during startup heals once and retries; a crash after the engine served
-  `initialize` (signalled by the `.engine-ready` marker) exits cleanly so the client reconnects
-  with a fresh handshake. Logs: `<KG_DATA>/server.log`.
+  spawns successfully, then supervises the Python engine: capped exponential backoff (200 ms → 5 s),
+  max 5 restarts per 60 s window. A crash during startup heals once and retries; a crash after the
+  engine served `initialize` (signalled by the `.engine-ready` marker) exits cleanly so the client
+  reconnects with a fresh handshake. Logs: `<KG_DATA>/server.log`.
+- **The connect window**: Claude Code gives a stdio MCP server `MCP_TIMEOUT` ms (30 s by default;
+  `.mcp.json` has no per-server startup timeout) to answer `initialize`, then marks it failed for the
+  session, never retries it by itself, and kills it; on Windows the processes the launcher started
+  directly die with it (job objects). So the launcher never builds
+  in its own process: on a cold or stale venv it asks for a background build (`bootstrap.py
+  --background`, without `--reconcile`; the worker serializes with the hook's on the provision lock)
+  and waits for the stamp only until `MCP_TIMEOUT` minus a 10 s engine-start reserve. Ready by then,
+  the engine starts in the same session; otherwise the launcher exits with a message, shown under
+  `/mcp`, that names `provision.log` and says to reconnect once the build is done (or to start
+  Claude Code with `MCP_TIMEOUT=600000`). The early-failure heal follows the same rule. A stale venv is
+  never launched while it is being rebuilt in place.
 - **CI/structural gates**: `scripts/validate_plugin.py` (stdlib-only: manifest JSON validity,
   4-file version agreement across plugin.json/marketplace/pyproject/`kg_engine.__version__`,
   every declared component file exists); `scripts/check_donors_clean.py` (invariant I11, installed

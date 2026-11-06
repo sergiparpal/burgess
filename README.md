@@ -41,7 +41,7 @@ claude --plugin-dir /path/to/Burgess
 
 Installation asks for a `source_path`: a Markdown/text file, a directory, or a glob naming the corpus the graph will be checked against. The current MCP server does not start without it. The other three settings have working defaults and can normally be left alone.
 
-On first load a SessionStart hook provisions a local Python venv (Python ≥ 3.10; `uv` preferred, stdlib `venv`+`pip` fallback) in the plugin's persistent data directory. The engine dependencies are installed then. The [model2vec](https://github.com/MinishLab/model2vec) `potion-multilingual-128M` weights used by `/kg-diverge` are downloaded lazily the first time that workflow embeds candidates, then cached (~120 MB, CPU, torch-free).
+On first load a SessionStart hook provisions a local Python venv (Python ≥ 3.10; `uv` preferred, stdlib `venv`+`pip` fallback) in the plugin's persistent data directory. The engine dependencies are installed then. A first install can take a few minutes, longer than Claude Code waits for an MCP server to start (`MCP_TIMEOUT`, 30 s by default). If the first session reports that the `burgess` server failed to connect, the setup is still running in the background; the message under `/mcp` names its log. Once it has finished, reconnect the server from `/mcp`, or start a new session. To have a first session wait for the setup instead, start Claude Code with `MCP_TIMEOUT=600000` in its environment. The [model2vec](https://github.com/MinishLab/model2vec) `potion-multilingual-128M` weights used by `/kg-diverge` are downloaded lazily the first time that workflow embeds candidates, then cached (~120 MB, CPU, torch-free).
 
 The deterministic engine, graph storage, and embedding model run locally. `/kg-build` does hand source sections to Claude extractor subagents: each section is scrubbed for secrets and configured PII before that egress, then restored only when its source span is written to the local canon. See [Trust and privacy boundaries](#trust-and-privacy-boundaries).
 
@@ -234,7 +234,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1336 passed, 2 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1352 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

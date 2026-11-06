@@ -274,6 +274,8 @@ def test_node_python_contract_constants_agree():
     # venv marker files: bootstrap writes them, the Node launchers read them
     assert _js_const(resolver, "PTR_NAME") == boot.PTR_NAME
     assert _js_const(resolver, "STAMP_NAME") == boot.STAMP_NAME
+    # the worker's log, which the launcher names when it gives up on a connection mid-build
+    assert _js_const(resolver, "PROVISION_LOG_NAME") == boot.LOG_NAME
     # the readiness marker: server.py writes it, the supervisor classifies crashes by it
     assert _js_const(launcher, "READY_MARKER_NAME") == S.READY_MARKER_NAME
     # the shared rotating log + the data-dir fallback rule's dirname (serverLogDir mirrors

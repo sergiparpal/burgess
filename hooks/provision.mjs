@@ -19,8 +19,9 @@
 // returns in milliseconds when current.
 //
 // Failure is silent by design (this is a background hook): if anything goes wrong — no suitable
-// Python, no bootstrap script — the MCP launcher provisions in the foreground the first time the
-// server is spawned, with a clear, actionable message.
+// Python, no bootstrap script — the MCP launcher starts a background build of its own when the
+// server is spawned, and reports clearly if that build cannot finish inside Claude Code's MCP
+// connect window.
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -53,8 +54,10 @@ try {
       const venv = venvDir(root);
       // stdio ignored so bootstrap never writes to the hook log (it logs to provision.log).
       // Defensive timeout: `--background` returns in ms after spawning the detached worker, but a
-      // wedged interpreter must not block this synchronous spawn forever.
-      spawnSync(py, [boot, "--background", "--venv", venv], {
+      // wedged interpreter must not block this synchronous spawn forever. `--reconcile` asks the
+      // worker for the once-per-session canon sweep (§1.8); this hook is the only caller that does —
+      // the MCP launcher also starts background builds, and must not double the sweep.
+      spawnSync(py, [boot, "--background", "--reconcile", "--venv", venv], {
         stdio: "ignore",
         timeout: PROBE_TIMEOUT_MS,
         killSignal: "SIGKILL",

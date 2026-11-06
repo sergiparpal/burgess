@@ -1,5 +1,92 @@
 # Changelog
 
+## 0.4.3 — 2026-11-06
+
+Patch release for the first session after an install or an update on Windows, where the Burgess MCP server
+never connected. Found on the same Windows install as 0.4.2, right after reinstalling it: `/kg-build` reported
+`plugin:burgess:burgess` failed ("connection timed out after 30000ms"), and the engine's venv was left half-built
+with its provision lock held by a dead process. Three defects compounded; each was measured on that machine
+before it was fixed, and the fix was run there end to end. No change to the MCP tool surface, to grounding, or
+to anything a warm session does.
+
+### Fixed
+
+- **The MCP launcher built the venv inside Claude Code's connect window.** Claude Code gives a stdio MCP server
+  `MCP_TIMEOUT` ms (30 s by default) to answer `initialize`, marks it failed for the session if it does not,
+  and never retries it by itself; `.mcp.json` has no per-server startup timeout. On a cold venv,
+  `launch_server.mjs` ran `bootstrap.py` in its own process, in the foreground, before starting the engine. A
+  cold Windows build takes minutes, so the client gave up and tore the launcher down. Node's and the `py`
+  launcher's job objects kill their direct children when they close, so `bootstrap.py` died at once, with no
+  chance to clean up: the lock stayed held by a dead pid and the venv half-built, while `uv`, a level further
+  down, kept installing into it for 13 s. Now the launcher never builds. On a cold or stale venv it asks for a
+  background build (`bootstrap.py --background`), which outlives it (checked by killing the launcher's whole
+  process tree mid-wait: the build finished and sealed), and waits only while an engine started at the end of
+  the wait could still answer in time, `MCP_TIMEOUT` minus a 10 s reserve. Ready by then, the engine starts in
+  the same session. Otherwise the launcher exits before the client's deadline with a message, shown under
+  `/mcp`, that says the setup is still running, names `provision.log`, and says to reconnect from `/mcp` once it
+  is done, or to start Claude Code with `MCP_TIMEOUT=600000` so a first session waits. The early-failure heal
+  follows the same rule: a background rebuild, a wait within what is left of the window, and an exit instead of
+  a relaunch onto a venv being rewritten.
+- **The background build opened console windows on Windows, and closing one killed it.** The SessionStart
+  worker was created with `DETACHED_PROCESS`, that is, with no console at all, so Windows opened a new visible
+  console window for every console program it started: `uv`, and each interpreter it runs to check the venv,
+  probe it and reconcile, at every session start. Their output went to those windows instead of
+  `provision.log`, and a console program whose window is closed, or that gets Ctrl+C there, exits with
+  `STATUS_CONTROL_C_EXIT` (3221225786): the exit code the first build on that machine died with, mid-`uv sync`,
+  with nothing in the log to say why. The worker
+  now gets a windowless console of its own (`CREATE_NO_WINDOW` without `DETACHED_PROCESS`). Its children
+  inherit it, so no window opens and their output reaches `provision.log`. The console is the worker's alone, so
+  closing the terminal Claude Code runs in still never reaches the build. Measured with probe children under
+  both flag sets: a visible window and no output in the log before, neither after.
+- **Two workers writing `provision.log` at once overwrote each other's lines on Windows.** POSIX `O_APPEND`
+  writes at the end atomically; Windows' C runtime only emulates it with a seek and then a write. Measured on
+  NTFS: two processes writing 3 000 lines each kept 5 024 and 5 322 of the 6 000. A cold start now runs two
+  workers by design (the hook's and the launcher's), so the worker log is opened with `FILE_APPEND_DATA` and
+  without `FILE_WRITE_DATA`, which makes Windows put every write at the end itself, children's writes through
+  the inherited handle included: 6 000 of 6 000 in every run. A failure on that path falls back to the plain open.
+
+### Changed
+
+- **The advisory import probes run after the venv is sealed.** The stamp is what every waiter polls for, and the
+  leidenalg and divergence probes ran before it while deciding nothing. Measured on Windows with a warm uv
+  cache and a fresh venv: `uv sync` 1.0 s, core import check 2.2 s, leidenalg probe 0.2 s, divergence probe
+  28.5 s on a first import (over its 60 s timeout in two other runs). The venv was usable at 3.5 s and declared
+  ready at 32–63 s. With the probes after the seal, a cold first session on that machine connected in 6.0 s
+  instead of failing. A probe interrupted after the seal can no longer delete a sealed venv.
+- **A probe that times out is no longer reported as a missing dependency.** It says the import gave no answer
+  within the timeout, which a first import on a cold machine can take, where it used to say "divergence deps
+  unavailable … /kg-diverge degraded until provisioned".
+- **`bootstrap.py --background` reconciles only when `--reconcile` is passed with it.** The SessionStart hook
+  passes it, so the once-per-session sweep (§1.8) is unchanged. The launcher's builds do not, so a cold start
+  does not sweep twice.
+- **A worker that finds the build already done says so** ("Another setup just finished — engine ready."). That
+  is how the second worker of a cold start usually leaves, and it used to print nothing, so its stanza in
+  `provision.log` read like a worker that had died.
+
+### Not changed
+
+- **A first install with an empty uv cache can still outlast the first session's window.** Downloading the
+  dependencies is network-bound. What changes is what the user gets: a message saying what is happening and
+  what to do, a build that keeps going, and a reconnect that works, instead of a timeout and a wedged venv.
+- **An install left half-built by 0.4.2 heals itself.** The next build reclaims the dead holder's lock (pid
+  probe) and reuses or rebuilds the venv through the existing owner-sentinel path. Nothing to clean by hand.
+
+### Tests
+
+- `tests/test_fix_cold_start.py` (17 tests) runs the shipped launcher against a fake plugin root, a recording
+  `bootstrap.py` and a recording engine. A cold launch asks for exactly one background build, without
+  `--reconcile`, and never builds in its own process. It waits for the window and no longer, starts no engine on
+  an unready venv, and exits 1 with the message on stderr and a line in `server.log`. A build that lands inside
+  the window starts the engine in the same session, a warm venv starts no build, and a startup crash forces a
+  background rebuild and exits when it does not land in time. On a fake clock, the window follows
+  `MCP_TIMEOUT` and the wait never sleeps past its deadline. On the bootstrap side: the worker's creation flags,
+  `--reconcile` forwarding, the hook as the caller that asks for the sweep, two concurrent appenders and their
+  children keeping every line, the probes running after the seal, an interrupted probe keeping the venv, the
+  timeout wording, and the waiter's log line. One test runs only on Windows and repeats the console
+  measurement; its body, run on the reporting machine, passes with the shipped flags and fails with
+  `DETACHED_PROCESS`. Verified as real pins: 15 of the 16 that run on Linux **fail** with the fix reverted; the
+  16th pins the warm path, which must not change. 1336 → 1352 passed, 2 → 3 skipped.
+
 ## 0.4.2 — 2026-11-06
 
 Single-bug patch release. With the plugin enabled, **every** Claude Code session left Burgess files in the

@@ -8,8 +8,11 @@ invoked three ways, all idempotent and safe to re-run:
   cross-platform launcher since review-r5; ``provision.sh``/``provision.ps1`` remain
   as dev shims that exec it) right after the plugin is installed/loaded — see
   ``--background`` below;
-* by the MCP launcher (``scripts/launch_server.mjs``) as a foreground last-resort if
-  the server is spawned before the background provision has finished (graceful catch-up);
+* by the MCP launcher (``scripts/launch_server.mjs``): ``--check`` to decide whether the
+  venv is current and, when it is not, ``--background`` to make sure a build is under way,
+  which it then waits for inside Claude Code's MCP connect window. The launcher never
+  builds in its own process, because the client tears that process down when the window
+  closes (0.4.3);
 * by a developer from a shell (``python scripts/bootstrap.py``).
 
 What it does — adapted to this repo's runtime model:
@@ -387,7 +390,7 @@ def _is_functional_venv(venv_dir: Path) -> bool:
         return False
 
 
-def _soft_probe(py: Path, snippet: str, parent_fail_msg: str) -> None:
+def _soft_probe(py: Path, snippet: str, parent_fail_msg: str, timeout_msg: str | None = None) -> None:
     """Run an ADVISORY in-venv import probe that must never abort provisioning (review-r5: the
     two probes were structural copy-paste). A NON-checking subprocess (never ``run()``, which is
     ``check=True``); the in-venv import/DLL-load error is reported by the snippet itself, and a
@@ -396,12 +399,20 @@ def _soft_probe(py: Path, snippet: str, parent_fail_msg: str) -> None:
     Bounded like every other provisioning child: a soft probe that HANGS (an AV scanner holding the
     unsigned `_c_leiden` DLL is the known case) would otherwise wedge do_install indefinitely while the
     heartbeat keeps the provision lock fresh. TimeoutExpired lands in the same swallow-and-report path as
-    any other probe failure, because an advisory probe's verdict is never load-bearing (review-r11)."""
+    any other probe failure, because an advisory probe's verdict is never load-bearing (review-r11).
+
+    It is reported with ``timeout_msg`` when one is given, though, because no answer is not a failed
+    import. The first import of numpy/scikit-learn/model2vec into a fresh venv on Windows took 28.5 s in
+    one measured run and passed the 60 s timeout in two others, with every dep installed and fine; the
+    generic message then announced them "unavailable" (0.4.3)."""
     try:
         subprocess.run([str(py), "-c", snippet], check=False, env=_engine_env(),
                        timeout=PROBE_TIMEOUT_SECS)
     except Exception as exc:  # noqa: BLE001 — an optional/blocked dep must never abort provisioning
-        print(parent_fail_msg.format(exc=f"{type(exc).__name__}: {exc}"), flush=True)
+        if timeout_msg is not None and isinstance(exc, subprocess.TimeoutExpired):
+            print(timeout_msg.format(secs=PROBE_TIMEOUT_SECS), flush=True)
+        else:
+            print(parent_fail_msg.format(exc=f"{type(exc).__name__}: {exc}"), flush=True)
 
 
 def probe_leidenalg(py: Path) -> None:
@@ -421,7 +432,10 @@ def probe_leidenalg(py: Path) -> None:
         "    print('[bootstrap] leidenalg unavailable (' + type(e).__name__ + ': ' + str(e)\n"
         "          + '); using label-propagation fallback (projector._leiden)')\n"
     ), "[bootstrap] leidenalg unavailable ({exc}); "
-       "using label-propagation fallback (projector._leiden)")
+       "using label-propagation fallback (projector._leiden)",
+       "[bootstrap] leidenalg: no answer from the import probe within {secs:g}s. A first import on a "
+       "cold machine can take that long; the engine falls back to label propagation only if the "
+       "import actually fails (projector._leiden)")
 
 
 def probe_divergence(py: Path) -> None:
@@ -442,7 +456,10 @@ def probe_divergence(py: Path) -> None:
         "          + str(e) + '); /kg-diverge will raise a clear error until provisioned;'\n"
         "          + ' convergence (kg_*) tools are unaffected (I9)')\n"
     ), "[bootstrap] divergence deps unavailable ({exc}); "
-       "/kg-diverge degraded until provisioned; kg_* tools unaffected (I9)")
+       "/kg-diverge degraded until provisioned; kg_* tools unaffected (I9)",
+       "[bootstrap] divergence deps: no answer from the import probe within {secs:g}s. A first "
+       "import on a cold machine can take that long, so this alone does not mean they are missing; "
+       "/kg-diverge reports it if they are. kg_* tools are unaffected either way (I9)")
 
 
 def _has_engine_marker(venv_dir: Path) -> bool:
@@ -516,7 +533,8 @@ def _heartbeat_pulse(venv_dir: Path):
     """Keep the provision lock alive across a slow source-build (a daemon thread pulsing
     ``heartbeat`` every HEARTBEAT_SECS) so a concurrent provisioner does not mistake a healthy
     long install for an abandoned lock and steal it (bootstrap-1). Extracted from do_install
-    (review-r5) so the install body reads as guards -> install -> verify -> markers."""
+    (review-r5) so the install body reads as guards -> install -> verify -> markers -> advisory
+    probes."""
     stop = threading.Event()
 
     def _pulse() -> None:
@@ -638,10 +656,6 @@ def do_install(venv_dir: Path) -> Path:
             if not py.exists():
                 raise SystemExit(f"[bootstrap] venv interpreter not found at {py}")
             verify_imports(py)
-            # Optional, never fatal: the soft probes report whether Leiden / the divergence deps
-            # are loadable, or which fallback the engine will take. They swallow all failures.
-            probe_leidenalg(py)
-            probe_divergence(py)
         except BaseException:
             # A failed/interrupted install leaves a venv with an interpreter but a partial
             # dependency graph that the next run would silently "reuse". Remove it so the next
@@ -668,11 +682,21 @@ def do_install(venv_dir: Path) -> Path:
                     _clear_owner_sentinel(venv_dir)
             raise
 
-    _write_markers(venv_dir, py)
-    # Verified + sealed: drop the reclaim token so this healthy venv (and any user venv later placed at this
-    # path) is never mistaken for an interrupted build. Now that the token is a sibling that outlives a wipe
-    # of the venv dir, a stale one would otherwise be a live hazard (crash-report v0.2.4, hole B).
-    _clear_owner_sentinel(venv_dir)
+        _write_markers(venv_dir, py)
+        # Verified + sealed: drop the reclaim token so this healthy venv (and any user venv later placed at
+        # this path) is never mistaken for an interrupted build. Now that the token is a sibling that outlives
+        # a wipe of the venv dir, a stale one would otherwise be a live hazard (crash-report v0.2.4, hole B).
+        _clear_owner_sentinel(venv_dir)
+        # Optional, never fatal: the soft probes report whether Leiden / the divergence deps are loadable,
+        # or which fallback the engine will take. They swallow all failures. They run AFTER the seal
+        # (0.4.3): the stamp is what every waiter polls for, the MCP launcher among them with only its
+        # connect window to spend, and a probe decides nothing. Measured on Windows (warm uv cache, new
+        # venv): uv 1.0 s, core verify 2.2 s, leidenalg 0.2 s, divergence probe 28.5 s on a first import
+        # (over its 60 s timeout in two other runs), so the stamp landed at 32-63 s instead of 3.5 s.
+        # Still under the provision lock and the heartbeat; a failure here can no longer delete a venv
+        # that is already sealed.
+        probe_leidenalg(py)
+        probe_divergence(py)
     return py
 
 
@@ -813,14 +837,19 @@ def provision(venv_dir: Path, *, wait_secs: float, reconcile: bool = False) -> i
 
     try:
         if venv_current(venv_dir):  # re-check now that we hold the lock
+            # The usual way a waiter leaves: the builder seals the venv and releases within milliseconds,
+            # so the next poll takes the free lock rather than seeing the stamp while the lock is held.
+            # Say so, or this worker's stanza in provision.log ends at "Target venv" and reads as a
+            # worker that died (0.4.3: the launcher now adds a second worker on every cold start).
+            print("[bootstrap] Another setup just finished — engine ready.", flush=True)
             return _ok_with_reconcile(venv_dir, reconcile)
         do_install(venv_dir)
         print("[bootstrap] Done.", flush=True)
         return _ok_with_reconcile(venv_dir, reconcile)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        # A failed OR TIMED-OUT pip/uv/venv command: in the foreground catch-up path (the launcher
-        # racing the background build) show a clean, actionable line instead of a raw
-        # traceback. The detached worker logs the same to provision.log.
+        # A failed OR TIMED-OUT pip/uv/venv command: in a foreground run (a developer's shell) show a
+        # clean, actionable line instead of a raw traceback. The detached worker logs the same to
+        # provision.log.
         # A timeout is the interrupted-build path, not a distinct outcome: do_install's cleanup already
         # removed the husk and kept the owner sentinel, so the next session rebuilds. Report it as such —
         # TimeoutExpired carries `cmd` but no `returncode` (review-r11).
@@ -839,35 +868,92 @@ def provision(venv_dir: Path, *, wait_secs: float, reconcile: bool = False) -> i
         release(venv_dir)
 
 
-def spawn_background(venv_dir: Path) -> int:
+# Windows creation flags for the detached worker (see spawn_background for why DETACHED_PROCESS is not
+# among them). Named here so tests can assert the exact set without a Windows host.
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_NO_WINDOW = 0x08000000
+WORKER_CREATIONFLAGS = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+
+
+def _open_log_for_append(path: Path):
+    """Open the worker log so that concurrent writers never overwrite each other's lines.
+
+    POSIX ``O_APPEND`` puts every write at the end of the file atomically. Windows' C runtime only
+    emulates it, seeking to the end before each write, so two workers appending at once overwrite each
+    other: measured on NTFS, two processes writing 3 000 lines each kept 5 024 and 5 322 of the 6 000.
+    Two workers at once is the normal cold start, since the SessionStart hook and the MCP launcher both
+    ask for a build when a session opens. A handle opened with ``FILE_APPEND_DATA`` and without
+    ``FILE_WRITE_DATA`` makes Windows itself put each write at the end, for this process and for every
+    child that inherits the handle as its stdout (uv, the probes): 6 000 of 6 000, three runs.
+
+    Any failure on that path falls back to a plain append open: a log that may lose lines is better than
+    a worker that never starts. The caller handles an ``OSError`` from the fallback.
+    """
+    if os.name == "nt":
+        try:
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateFileW.restype = wintypes.HANDLE
+            kernel32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                             wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                                             wintypes.HANDLE)
+            FILE_APPEND_DATA, FILE_READ_ATTRIBUTES, SYNCHRONIZE = 0x0004, 0x0080, 0x00100000
+            FILE_SHARE_READ_WRITE_DELETE = 0x7  # other workers append, a user may read or delete it
+            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL = 4, 0x80
+            handle = kernel32.CreateFileW(str(path), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                                          FILE_SHARE_READ_WRITE_DELETE, None, OPEN_ALWAYS,
+                                          FILE_ATTRIBUTE_NORMAL, None)
+            if handle is None or handle == wintypes.HANDLE(-1).value:
+                raise ctypes.WinError(ctypes.get_last_error())
+            return open(msvcrt.open_osfhandle(handle, 0), "ab", buffering=0)
+        except Exception:  # noqa: BLE001 — never let the log's atomicity cost the build itself
+            pass
+    return open(path, "ab", buffering=0)
+
+
+def spawn_background(venv_dir: Path, *, reconcile: bool = False) -> int:
     """Re-spawn a fully detached worker and return immediately (non-blocking).
 
-    Always spawn — even on a warm session where the venv is already current — because
-    the worker also runs the per-session reconcile (§1.8). When the venv is ready the
-    worker's ``is_ready`` fast path means it reconciles and exits in milliseconds.
+    Two callers. The SessionStart hook passes ``reconcile=True`` and always spawns, even on a warm
+    session where the venv is already current, because the worker also runs the per-session
+    reconcile (§1.8); with the venv ready the worker's ``is_ready`` fast path reconciles and exits in
+    milliseconds. The MCP launcher passes ``reconcile=False``: it only needs a builder to exist, and
+    the sweep is the hook's job, once per session.
+
+    On Windows the worker gets its own console, created without a window, and NOT
+    ``DETACHED_PROCESS`` (which leaves it with no console at all). Measured on Windows 11 with
+    Python 3.14: a console-less worker makes Windows open a new, VISIBLE console window for every
+    console program it starts (``uv``, each probe and reconcile interpreter), and the output of those
+    programs goes to that window instead of ``provision.log``. A console program whose window is
+    closed, or that gets Ctrl+C there, exits with STATUS_CONTROL_C_EXIT (3221225786): the exit code a
+    0.4.2 user's first install died with, mid-``uv sync``, with nothing in the log to say why. With a
+    windowless console of its own, the worker's children inherit it: no window opens and their output
+    lands in ``provision.log``. The console is the worker's alone (``GetConsoleProcessList`` lists only
+    the worker), so closing the terminal Claude Code runs in still never reaches it, which is what
+    ``DETACHED_PROCESS`` was there for. ``CREATE_NEW_PROCESS_GROUP`` keeps Ctrl+C out of it as before.
     """
     venv_dir.parent.mkdir(parents=True, exist_ok=True)
     log_path = venv_dir.parent / LOG_NAME
     try:
-        log = open(log_path, "ab", buffering=0)
+        log = _open_log_for_append(log_path)
     except OSError:
         log = subprocess.DEVNULL  # type: ignore[assignment]
 
     kwargs: dict = {}
     if os.name == "nt":
-        DETACHED_PROCESS = 0x00000008
-        CREATE_NEW_PROCESS_GROUP = 0x00000200
-        CREATE_NO_WINDOW = 0x08000000
-        kwargs["creationflags"] = (
-            DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-        )
+        kwargs["creationflags"] = WORKER_CREATIONFLAGS
     else:
         kwargs["start_new_session"] = True
 
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--venv", str(venv_dir)]
+    if reconcile:
+        cmd.insert(2, "--reconcile")
     try:
         subprocess.Popen(
-            [sys.executable, str(Path(__file__).resolve()),
-             "--reconcile", "--venv", str(venv_dir)],
+            cmd,
             stdout=log,
             stderr=log,
             stdin=subprocess.DEVNULL,
@@ -891,7 +977,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--background",
         action="store_true",
-        help="spawn a detached worker and return immediately (used by the hook)",
+        help="spawn a detached worker and return immediately (used by the hook and the MCP "
+        "launcher); the worker reconciles only when --reconcile is passed too",
     )
     parser.add_argument(
         "--check",
@@ -932,7 +1019,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[bootstrap] Target venv: {venv_dir}", flush=True)
 
     if args.background:
-        return spawn_background(venv_dir)
+        return spawn_background(venv_dir, reconcile=args.reconcile)
     # The detached worker (spawned by --background) and the default/manual path are both
     # foreground here — the worker is just this same foreground provision, re-invoked
     # detached with --reconcile, so there is no separate worker-only entrypoint flag.

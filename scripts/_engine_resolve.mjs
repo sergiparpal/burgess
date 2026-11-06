@@ -17,6 +17,9 @@ import { delimiter, isAbsolute, join, resolve, sep } from "node:path";
 // Filenames bootstrap.py writes into the venv dir (kept identical to bootstrap's PTR_NAME / STAMP_NAME).
 export const PTR_NAME = "engine-python.txt"; // cross-platform interpreter pointer
 export const STAMP_NAME = "install.stamp"; // content hash of pyproject (readiness gate)
+// ...and BESIDE it: the background worker's log (bootstrap's LOG_NAME), named in the launcher's
+// still-provisioning message so the user knows where to watch the build.
+export const PROVISION_LOG_NAME = "provision.log";
 
 // Drop empty / whitespace / unsubstituted ${...} / bare-sentinel env values so an unset var never
 // sends us to a bogus path. (Mirror of kg_engine.envconfig.clean.)
