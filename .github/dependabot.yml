@@ -11,11 +11,19 @@ updates:
       # `from mcp.server.fastmcp import FastMCP` raises ModuleNotFoundError at startup and every
       # kg_* tool disappears for the session. Adopting it needs a real port of the tool surface +
       # `readiness_lifespan`, not a version edit — so the `mcp>=1.2,<2` cap in pyproject.toml is
-      # load-bearing and a major-bump PR here would only ever be closed. Scoped to MAJOR only, NOT
+      # load-bearing and a major-bump PR here would only ever be closed. Scoped to 2.x and later, NOT
       # the whole dependency: 1.x minor/patch releases (security fixes included) must keep flowing.
       # Delete this entry as part of the port, not before it.
+      #
+      # It is a `versions` RANGE on purpose. The original `update-types: ["version-update:semver-major"]`
+      # was a silent no-op here and let #44 (2.1.1), #49 (2.2.0) and #57 (2.3.0) straight through.
+      # Dependabot resolves update-types against the dependency's CURRENT version, and its pip parser
+      # records one only for an exact `==`/`===` pin; `mcp>=1.2,<2` is a range and uv.lock is
+      # gitignored, so mcp has no current version, "major" has nothing to be relative to, and the rule
+      # expands to zero ignored versions (dependabot-core: IgnoreCondition#versions_by_type returns []
+      # on a nil version). A `versions` range is applied as written, so it holds without one.
       - dependency-name: "mcp"
-        update-types: ["version-update:semver-major"]
+        versions: [">=2"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
