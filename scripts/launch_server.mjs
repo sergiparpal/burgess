@@ -7,8 +7,19 @@
 //    races the SessionStart venv build: on a cold first session that path may not exist yet, the spawn
 //    fails, and Claude Code caches the server as "needs-auth" — dropping all kg_* tools for the whole
 //    session. Going through Node (always present) means the MCP spawn ALWAYS succeeds; this launcher
-//    then self-heals the venv (foreground catch-up via bootstrap.py — uv OR stdlib venv+pip) before
-//    launching the real server. Warm sessions skip straight to launch.
+//    then makes sure a venv build is under way and waits for it before launching the real server.
+//    Warm sessions skip straight to launch.
+//
+//    The build never runs in THIS process (0.4.3). Claude Code gives a server MCP_TIMEOUT ms (30 000
+//    by default) to answer `initialize`, then abandons it and kills it, and on Windows the processes it
+//    started directly die with it (Node's and the `py` launcher's job objects). The launcher used to run
+//    the build itself, in the foreground, and a cold Windows build takes minutes, so the kill landed
+//    mid-install: a provision lock held by a dead pid, a half-built venv, and still no engine for the
+//    session. Now the build goes to bootstrap's DETACHED worker (`--background`), which that kill does
+//    not reach (checked with `taskkill /F /T` mid-wait), and the launcher only waits — while an engine
+//    launched at the end of the wait could still answer in time (CONNECT). If the venv is not ready by
+//    then, it says so and exits; the build carries on, and the user reconnects from /mcp once it is done
+//    (Claude Code never retries a failed stdio server by itself).
 //
 // 2. SUPERVISION (the resilience pass). The Node process is a PERSISTENT PARENT that spawns the Python
 //    engine as a child and supervises it, with capped exponential backoff, a crash-loop guard, and full
@@ -34,10 +45,12 @@
 //
 // Venv/interpreter resolution lives in ./_engine_resolve.mjs (shared with the other launchers).
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { venvDir, systemPython, enginePython, withPythonpath, clean, PROBE_TIMEOUT_MS, STAMP_NAME } from "./_engine_resolve.mjs";
+import {
+  venvDir, systemPython, enginePython, withPythonpath, clean, PROBE_TIMEOUT_MS, STAMP_NAME, PROVISION_LOG_NAME,
+} from "./_engine_resolve.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url)); // <repo>/scripts
 const ROOT = process.env.CLAUDE_PLUGIN_ROOT || dirname(SCRIPT_DIR);
@@ -45,16 +58,52 @@ const SCRIPTS = join(ROOT, "scripts");
 const BOOTSTRAP = join(SCRIPTS, "bootstrap.py");
 const VENV_DIR = venvDir(ROOT);  // the resolved engine venv (review-r5: was `dir`)
 
-// Synchronous foreground-catch-up ceilings. The INITIAL cold/stale catch-up (main(), BEFORE the signal
-// handlers are installed) uses the generous ceiling so it never aborts a slow-but-progressing cold build
-// — a SIGINT there falls through to Node's default terminate. The HEAL retry runs from inside onChildExit
-// AFTER the handlers are installed, where a synchronous spawnSync blocks the loop so SIGINT/SIGTERM
-// (markShutdown) can't fire until it returns — a session teardown could hang for the whole ceiling
-// (review-low). Cap the heal far tighter: an interactive Ctrl-C already lands on the child (same
-// foreground group) and unblocks promptly, and a longer rebuild is covered by the DETACHED background
-// worker; on timeout we fall through to the message + the server's early-failure relaunch.
-const FOREGROUND_CATCHUP_TIMEOUT_MS = 40 * 60 * 1000; // > bootstrap's ~31-min lock wait + build margin
-const HEAL_CATCHUP_TIMEOUT_MS = 5 * 60 * 1000;        // teardown-responsiveness backstop for the heal path
+// The connect window. Claude Code abandons a stdio MCP server that has not answered `initialize` within
+// MCP_TIMEOUT ms (30 000 when unset; .mcp.json has no per-server startup timeout), marks it failed for the
+// session and never retries it by itself. So a venv that is not ready yet is waited for only while an
+// engine launched at the end of the wait could still answer in time. ENGINE_START_RESERVE_MS is what the
+// engine gets to import and serve `initialize`: measured on Windows at 2.7 s right after a build and
+// ~1.6 s warm, with room left for a cold disk or an antivirus scan. Waiting past that cannot produce a
+// connection; it only turns this launcher's explicit message into the client's bare timeout.
+// (Replaces the 40-minute foreground catch-up ceiling, which assumed a client that waits for the build.)
+export const CONNECT = {
+  DEFAULT_TIMEOUT_MS: 30_000,
+  ENGINE_START_RESERVE_MS: 10_000,
+  POLL_MS: 1_000,
+};
+
+// The client's connect timeout, read the way Claude Code reads MCP_TIMEOUT: an integer of milliseconds,
+// anything else (or a non-positive value) meaning the default. Claude Code passes its whole environment to
+// the servers it spawns, so a user who raised MCP_TIMEOUT to let a first session wait out its build is
+// seen here, and the launcher waits that much longer.
+export function connectTimeoutMs(env = process.env, C = CONNECT) {
+  const n = Number.parseInt(clean(env.MCP_TIMEOUT), 10);
+  return Number.isFinite(n) && n > 0 ? n : C.DEFAULT_TIMEOUT_MS;
+}
+
+// The wall-clock time by which the venv must be ready for this launch to still connect. Counted from the
+// launcher's own start, the closest observable point to when the client started its timer.
+export function provisionDeadline(startedAtMs, env = process.env, C = CONNECT) {
+  return startedAtMs + Math.max(0, connectTimeoutMs(env, C) - C.ENGINE_START_RESERVE_MS);
+}
+
+// Block until isReady() holds or the deadline passes; true means ready. Synchronous on purpose, like the
+// rest of the cold path: nothing needs the event loop before the engine is spawned (the client's
+// `initialize` waits in the pipe for the engine to read it), and the heal path it replaces blocked the same
+// way for up to five minutes, not for a share of the connect window. isReady() runs once more after the
+// last sleep, so a build that lands right at the deadline still counts. Injectable for a fake-clock test.
+export function waitUntilReady({ isReady, deadline, now = Date.now, sleep = sleepSync, pollMs = CONNECT.POLL_MS }) {
+  for (;;) {
+    if (isReady()) return true;
+    const left = deadline - now();
+    if (left <= 0) return false;
+    sleep(Math.min(pollMs, left));
+  }
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 // A server that exits within this window of starting WITHOUT having written its readiness marker is
 // treated as a startup failure (an import error against a half-built / just-updated venv) and triggers
@@ -210,15 +259,16 @@ function serverLog(msg) {
   }
 }
 
-// Run a foreground catch-up build. CRITICAL: bootstrap.py prints [bootstrap]… and the inherited
-// uv/pip output to ITS stdout; the MCP server (below) owns this process's stdout for JSON-RPC, so we
-// route the child's stdout OFF that channel. stdio = [ignore, 2, inherit] sends child stdout -> our
-// fd 2 (stderr) and child stderr -> our stderr, so the server's first frame is never preceded by noise.
-function foregroundCatchUp(sysPy, force, timeoutMs = FOREGROUND_CATCHUP_TIMEOUT_MS) {
-  // `force` removes the install.stamp first so bootstrap's is_ready() fast-path cannot short-circuit:
-  // needed for the self-heal retry below, where the stamp MATCHES but the deps are actually broken
-  // (a stamp-fresh venv that still fails to import) — without this, provision would do nothing and the
-  // retry would relaunch the identical broken server.
+// Get a build going without running it here: `bootstrap.py --background` spawns the detached worker and
+// returns in milliseconds. The worker serializes on the provision lock, so when the SessionStart hook's
+// worker is already building, this one waits for it and leaves as soon as the venv is current — and if
+// that build failed, this one takes the lock and builds. No `--reconcile`: the per-session sweep (§1.8) is
+// the hook's, and the old foreground catch-up never ran it either. stdio is ignored because bootstrap
+// prints [bootstrap]… lines to stdout, which this process is about to hand to JSON-RPC.
+// `force` drops install.stamp first so the worker cannot take bootstrap's ready fast path: the heal case,
+// where the stamp MATCHES but the engine still fails to import — without it the worker would do nothing
+// and the retry would relaunch the identical broken server.
+function startBackgroundBuild(sysPy, force = false) {
   if (force) {
     try {
       rmSync(join(VENV_DIR, STAMP_NAME), { force: true });
@@ -226,28 +276,42 @@ function foregroundCatchUp(sysPy, force, timeoutMs = FOREGROUND_CATCHUP_TIMEOUT_
       /* best-effort */
     }
   }
-  // Hard ceiling on the SYNCHRONOUS catch-up so a wedged install (a hung `uv sync`/`pip` behind a
-  // stalled network, or an interpreter that never returns) can't block the launcher — and thus the MCP
-  // client's startup — indefinitely (review-r8-23). Bootstrap self-bounds its LOCK wait to ~1860s (the
-  // long default lets ONE foreground run wait out AND steal a stale lock, so we deliberately do NOT
-  // shorten --wait), but the install subprocess itself is otherwise unbounded. The ceiling is generous
-  // (well above a cold wheel-download build and the full lock wait) so it never aborts a legitimately
-  // slow-but-progressing build; on timeout spawnSync sets r.error and we fall through to the message +
-  // the server's early-failure self-heal, while the DETACHED background worker keeps building unbounded.
-  const r = spawnSync(sysPy, [BOOTSTRAP, "--venv", VENV_DIR],
-    { stdio: ["ignore", 2, "inherit"], timeout: timeoutMs });
-  // Surface a spawn failure (ENOENT) or a non-zero bootstrap exit (bootstrap.py names these:
-  // EXIT_STILL_PROVISIONING=2 past the wait deadline; EXIT_BUILD_FAILED=1; EXIT_PY_TOO_OLD=3)
-  // instead of silently launching against a possibly-unready venv. The server's early-failure
-  // self-heal is still the net.
-  if (r.error || (typeof r.status === "number" && r.status !== 0)) {
-    process.stderr.write(
-      "[burgess] engine provisioning did not complete" +
-        (r.error ? ` (${r.error.code || r.error.message})` : ` (bootstrap exit ${r.status})`) +
-        "; the background worker may still be building — retry shortly if tools are missing.\n"
-    );
+  const r = spawnSync(sysPy, [BOOTSTRAP, "--background", "--venv", VENV_DIR],
+    { stdio: "ignore", timeout: PROBE_TIMEOUT_MS });
+  if (r.error || r.status !== 0) {
+    const why = r.error ? r.error.code || r.error.message : `exit ${r.status}`;
+    process.stderr.write(`[burgess] could not start the background engine build (${why}).\n`);
+    serverLog(`background build did not start (${why})`);
   }
-  return r;
+}
+
+// Ready means `bootstrap.py --check` passes. The stamp is the last thing a build writes, so while it is
+// absent most polls cost one stat instead of two interpreter spawns (--check also asks the venv's own
+// python for its ABI identity).
+function venvReady(sysPy) {
+  return existsSync(join(VENV_DIR, STAMP_NAME)) && stampFresh(sysPy);
+}
+
+// Start or join a background build and wait for it inside the connect window. True = ready to launch.
+function catchUp(sysPy, deadline, force = false) {
+  startBackgroundBuild(sysPy, force);
+  return waitUntilReady({ isReady: () => venvReady(sysPy), deadline });
+}
+
+// The launcher is giving up on this connection, not on the build: say so where the user will look.
+// Claude Code shows a failed server's stderr under /mcp, and server.log keeps a line for later.
+function reportStillProvisioning() {
+  const timeout = connectTimeoutMs();
+  const log = join(dirname(VENV_DIR), PROVISION_LOG_NAME);
+  process.stderr.write(
+    "[burgess] The engine's Python environment is still being set up in the background. That is " +
+      "normal on the first session after an install or an update, and can take a few minutes. Claude " +
+      `Code gives an MCP server ${Math.round(timeout / 1000)}s to start (MCP_TIMEOUT), so this launch stops ` +
+      "here; the setup keeps going. Once it has finished, reconnect the burgess server from /mcp, or start " +
+      `a new session. Progress: ${log}. To make a first session wait for the setup instead, start Claude ` +
+      "Code with MCP_TIMEOUT=600000.\n"
+  );
+  serverLog(`venv not ready inside the connect window (MCP_TIMEOUT=${timeout}ms); exiting, the background build continues`);
 }
 
 // The venv is fresh only when bootstrap.py --check exits 0 (interpreter present AND install.stamp
@@ -259,7 +323,8 @@ function stampFresh(sysPy) {
     stdio: ["ignore", "ignore", "ignore"],
     timeout: PROBE_TIMEOUT_MS,
   });
-  // A timed-out (r.error) or non-zero --check is "not fresh" -> run the foreground catch-up (review-low).
+  // A timed-out (r.error) or non-zero --check is "not fresh" -> start or join a build and wait (catchUp)
+  // (review-low).
   return !r.error && r.status === 0;
 }
 
@@ -268,7 +333,9 @@ function stampFresh(sysPy) {
 // cleanly) without spawning a real engine or killing the test process. main() binds the production deps.
 //   spawnEngine() -> a child-process-like EventEmitter emitting "error"(err) and "exit"(code, signal)
 //   exit(code)    -> terminate the supervisor (default process.exit)
-//   heal()        -> force a venv rebuild + re-resolve the interpreter (early-import-failure recovery)
+//   heal()        -> force a venv rebuild + re-resolve the interpreter (early-import-failure recovery);
+//                    returning `false` means the rebuild cannot finish while this connection can still be
+//                    served, and the supervisor exits instead of relaunching (any other value: relaunch)
 //   now()         -> monotonic-ish ms clock; schedule(fn, ms) -> deferred relaunch (default setTimeout)
 export function createSupervisor({
   spawnEngine,
@@ -354,7 +421,14 @@ export function createSupervisor({
 
     if (decision.action === "heal") {
       triedHeal = true;
-      heal(); // FORCE a rebuild so a stamp-fresh-but-broken venv is reinstalled, then re-resolve python
+      // FORCE a rebuild so a stamp-fresh-but-broken venv is reinstalled, then re-resolve python. When the
+      // rebuild is still running at the connect deadline, exit rather than relaunch: the worker may be
+      // rewriting the venv in place, and the client is about to give up on this connection anyway.
+      if (heal() === false) {
+        log("early-failure heal did not finish inside the connect window -> exit");
+        exit(1);
+        return;
+      }
       log("relaunching after early-failure heal");
       spawnOnce();
       return;
@@ -387,15 +461,19 @@ export function createSupervisor({
 }
 
 function main() {
+  const deadline = provisionDeadline(Date.now());
   const sysPy = systemPython();
   let py = enginePython(VENV_DIR);
 
-  // Cold (no interpreter) OR stale (interpreter present but stamp out of date): run the foreground
-  // catch-up so the server starts against a current venv. bootstrap.py is idempotent and lock-serialized
-  // against the SessionStart background worker.
+  // Cold (no interpreter) OR stale (interpreter present but stamp out of date): get a background build
+  // going and wait for it inside the connect window. A stale venv is NOT launched in the meantime: the build
+  // upgrades it in place, so its packages can be half-swapped at any moment.
   if (!py || !stampFresh(sysPy)) {
     if (sysPy) {
-      foregroundCatchUp(sysPy);
+      if (!catchUp(sysPy, deadline)) {
+        reportStillProvisioning();
+        process.exit(1);
+      }
       py = enginePython(VENV_DIR);
     }
   }
@@ -417,13 +495,17 @@ function main() {
     // open across restarts, so the OS-level connection is never torn down when the engine relaunches.
     spawnEngine: () => spawn(py, ["-m", "kg_engine.server"], { stdio: "inherit", env }),
     heal: () => {
-      if (sysPy) {
-        // Tighter ceiling than the initial catch-up: this runs after the signal handlers are installed,
-        // so a synchronous spawnSync here blocks shutdown until it returns (review-low).
-        foregroundCatchUp(sysPy, true, HEAL_CATCHUP_TIMEOUT_MS);
-        const fixed = enginePython(VENV_DIR);
-        if (fixed) py = fixed;
+      if (!sysPy) return true; // nothing to rebuild with: relaunch as is, as before
+      // Same connect window as the initial wait, so the heal can only use what the startup left of it.
+      // The wait blocks the loop (and so markShutdown) for at most that remainder, where the foreground
+      // heal it replaces could block teardown for five minutes (review-low).
+      if (!catchUp(sysPy, deadline, true)) {
+        reportStillProvisioning();
+        return false;
       }
+      const fixed = enginePython(VENV_DIR);
+      if (fixed) py = fixed;
+      return true;
     },
   });
   sup.installSignalHandlers();

@@ -26,7 +26,9 @@ trust and query. Burgess handles both halves of that job — and connects them.
 **2. Let it warm up once.** The first time it loads, Burgess quietly sets up a small local
 workspace for itself and downloads a lightweight "similarity" model (about 120 MB, one time, cached
 afterward). This all runs **on your own machine** — nothing about your ideas or documents is sent
-anywhere for this part. Give it a minute the first time.
+anywhere for this part. Give it a minute the first time. If Claude Code says the `burgess` server
+failed to connect, the setup simply hasn't finished yet: wait a minute or two, then reconnect it from
+`/mcp` (or open a new session).
 
 **3. Know where your work lives.** Everything Burgess creates is saved in a hidden folder called
 `.kg/` inside whatever project folder you're working in. That folder *is* your knowledge — it's
