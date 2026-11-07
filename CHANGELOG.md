@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.4.4 — 2026-11-07
+
+Patch release for `/kg-build` over a source whose path holds spaces, and for what the command says about
+`$1`. Found on the same Windows install as 0.4.3, on the first build after that update: the source folder
+sat under `Documents\Proyectos personales\`, and most of its file names hold spaces and accents. Only the
+`/kg-build` command and the docs change; the engine, the MCP tool surface and grounding do not.
+
+### Fixed
+
+- **Step 0b split every source path at its spaces.** The enumeration script ran `ls -1 $SOURCE` unquoted,
+  there to expand a glob, so a single-file source whose path held a space resolved to nothing ("no .md/.txt
+  source found"). It then looped with `for f in $FILES`, so every file of a directory source was cut into
+  fragments before its sections were counted (`grep: personales/prueba: No such file or directory`). Paths
+  like `Proyectos personales` or `OneDrive - Org` are ordinary on Windows. The script now keeps one path per
+  line end to end: a file is taken whole, a glob is expanded as one pattern (`compgen -G`, with a Windows
+  pattern's `\` turned into `/` first so its separators are not read as glob escapes), and the loop reads
+  lines. Checked under Linux bash and under Git Bash on the reporting machine, the shell Claude Code runs
+  there: the old script failed for a directory, a single file and a glob on both, and the new one lists
+  every file and its sections.
+- **A directory source skipped `.MD` and `.TXT` files that the engine counts.** The listing matched
+  extensions case-sensitively and the engine's SourceSet does not. It now uses `-iname`, so a plain
+  directory build enumerates exactly what `kg_status().source.files` lists.
+- **The command presented `$1` as an override of the configured source.** `kg_write` verifies every span
+  against the files of the configured `source_path` (the engine's SourceSet, keyed by basename), never
+  against `$1`, so building a path outside it would have every edge REJECTED `span-not-in-source`; the STOP
+  advice for a missing source suggested exactly that. `$1` is now documented as a subset of the configured
+  source, and Step 0b checks every enumerated file against `source.files`, stopping before it launches an
+  extractor for a file the engine does not list.
+
+### Changed
+
+- **The command and the docs say how to change `source_path` after install:** `claude plugin configure
+  burgess@sergiparpal --values-stdin` with a JSON object on stdin (Claude Code 2.1.285 or later), or
+  `/plugin` → *Configure options*, and then a restart, because the MCP server reads the value only when it
+  starts. The subcommand was checked against the CLI on the reporting machine, and the README's PowerShell
+  example was run end to end against a throwaway config there. Windows PowerShell 5.1 pipes text as ASCII,
+  so an accented path (`C:/Users/José/Documentos/Información`) was saved as `Jos?`/`Informaci?n`, and the
+  CLI still reported success. It was saved intact once `$OutputEncoding` was set to UTF-8 first, and the
+  README and the command now say to do that. The TUTORIAL no longer suggests pointing `/kg-build` at an
+  arbitrary document, and says that a file added to a configured folder is picked up without a restart
+  (the engine re-resolves the source on every call, keyed on its files' signature).
+
+### Tests
+
+- `tests/test_fix_kg_build_paths.py` (9 tests) runs the command's actual Step 0b block, extracted from
+  `commands/kg-build.md`, over a directory whose own path holds a space and whose files hold spaces, accents
+  and an upper-case extension. It covers a directory, a single file, a glob, a quoted path, and a missing
+  path that must still fail loud, and pins the directory listing against the engine's own SourceSet, the
+  absence of the two splitting constructs from the code, and the `$1` and `source_path` wording. On Windows
+  it runs under Git Bash, the shell Claude Code uses there; the `bash` on a Windows runner's PATH is the WSL
+  stub, which is why `test_waves.py`'s bash checks skip there. Verified as real pins: 8 of the 9 **fail**
+  against the 0.4.3 command, on Linux and on the reporting Windows machine; the ninth, the missing path,
+  must behave the same before and after. 1352 → 1361 passed, 3 skipped.
+
 ## 0.4.3 — 2026-11-06
 
 Patch release for the first session after an install or an update on Windows, where the Burgess MCP server
