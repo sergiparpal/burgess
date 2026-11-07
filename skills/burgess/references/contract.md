@@ -227,7 +227,7 @@ information** (§1.7), never pruned, surfaced by `kg_context` as `falsification_
 |------|-----------|------|---------------|--------------------|
 | **text claim** | `span-present` | **required**, verbatim | extractor / grounder via `kg_write` | full §5 span-present enforcement |
 | **text claim** | `inferred` | **required**, verbatim | extractor via `kg_write` | full §5 span-present enforcement |
-| **proposal** | `hypothesized` | **none** (ignored, stored empty) | a discovery mechanism via `kg_propose` | no span check; failure-collapse quarantine |
+| **proposal** | `hypothesized` | **none** (ignored, stored empty) | a discovery mechanism via `kg_propose` only | no span check; failure-collapse quarantine |
 
 A `hypothesized` item is a **proposal from a discovery mechanism** (a structural/embedding adjacency), never
 a text claim. The boundary accepts it **without a span**: any `span` supplied is ignored and stored empty (the
@@ -250,6 +250,14 @@ that keeps the lanes legible at the call site: it forces every item to `provenan
 that arrives **explicitly** claiming `span-present`/`inferred` is REFUSED with reason `propose-lane-text-claim`
 (text claims belong on `kg_write`). The accepted items then transit the SAME `validate_payload`, so the rules
 above apply uniformly. The return adds `{propose_lane: true, refused_text_claims: N}` to the `kg_write` shape.
+
+The refusal runs both ways (0.5.1). `kg_write` is the text-claim lane, and it REJECTS any item that arrives
+claiming `provenance=hypothesized`, with reason `write-lane-hypothesis` (`retryable: false`). Its return then
+adds `refused_hypotheses: N`. Without that door, an extractor that marked an edge `hypothesized` had its span
+dropped and never checked, and the edge was still ACCEPTED: the one way past the span invariant through
+`kg_write`. A relation inferred across sentences is `inferred`, with a verbatim span that verifies;
+`validate_payload` itself stays lane-agnostic, so `kg_propose` reaches it through kg_write's internal
+`lane="proposal"`.
 **Generate offensively; judge defensively (PLAN §1.2):** `kg_propose` never gates on a quality metric — every
 candidate is written `hypothesized/unverified`; the grounding loop is the post-hoc filter.
 

@@ -236,3 +236,25 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     checked end to end instead: a real `/kg-build` of the demo with Claude Code 2.1.316 in auto mode, headless,
     ran no Bash and no file read, was denied no permission, and accepted all 34 items.
 - **Pinned in:** `tests/test_kg_build_plan.py`; `tests/test_fix_kg_build_paths.py` and `tests/test_fix_kg_build_source.py`, rewritten from Step 0b's Bash to the engine; `tests/test_waves.py`; `tests/test_fix_command_arguments.py`; and the 29-tool count in `tests/fusion/test_diverge_surface.py`.
+
+## kg_write refuses the hypothesized lane (2026-11-07)
+
+- **Decision:** `kg_write`, the text-claim lane, REJECTS every item that claims `provenance=hypothesized`, with reason `write-lane-hypothesis` (`retryable: false`), and writes the rest of the payload (`KGEngine._split_write_lane`).
+  - `validate_payload` stays lane-agnostic.
+  - `kg_propose` reaches it through `kg_write(lane="proposal")`, the only caller of that lane.
+  - The extractor's contract says `inferred`, never `hypothesized`, for a relation inferred across sentences.
+- **Bug it fixes:** the validator handles a hypothesized item as a discovery-mechanism proposal: it stores it with an empty span and checks nothing (§5a). That is right for `kg_propose`, and it was also what `kg_write` did.
+  - The extractor's contract told it to use `hypothesized` for an inferred relation "that still needs a span". In the 0.4.6 field build, two edges were therefore ACCEPTED with their spans silently dropped.
+  - On 0.5.0, an edge marked `hypothesized` was accepted even with a span that is nowhere in the source: the one way past the span invariant through `kg_write`, with no REJECTED or QUARANTINED signal.
+- **Why refuse, not re-lane:** re-laning a hypothesized item to `inferred` after verifying its span would have the boundary choose a provenance the caller did not claim, and the boundary never moves provenance (`inferred` is not auto-promoted to `span-present` either). A refusal names the mistake, and the extractor's retry policy says how to fix it.
+- **Why nodes too:** the lane is `kg_propose`'s for both kinds. A node extracted from the text is `span-present` or `inferred`. Labeled `hypothesized`, it would also meet `kg_ground`'s promotion gate, which asks a hypothesized item for support it was never meant to need.
+- **Why at `kg_write`, not in `validate_payload`:** `kg_propose`, `kg_operate` and pin materialization all go through the validator, and its hypothesized-lane rules (span ignored, failure-collapse quarantine, deterministic authorship preserved) are right for them. As with `kg_propose`, the tool that receives an item decides which lanes it accepts.
+- **Rejected alternatives:**
+  - (a) *Quarantine instead of reject:* a QUARANTINED item persists, and a span-less text claim should not.
+  - (b) *Keep accepting, but verify the span when one is supplied:* `hypothesized` would then mean two things, depending on which tool was called.
+  - (c) *Fix only the extractor's text:* the guarantee would still rest on every caller's prompt.
+  - (d) *Drop hypothesized items inside `validate_payload`:* that breaks the propose lane.
+- **Accepted trade-offs:**
+  - A caller that wrote `hypothesized` through `kg_write` on purpose must now call `kg_propose`. No caller in the repo did.
+  - An existing span-less hypothesized edge stays in a canon until `/kg-ground` rejects it or real support grounds it.
+- **Pinned in:** `tests/test_fix_write_lane_hypothesis.py`. Run against the 0.5.0 engine, 8 of its 10 tests fail; the other two pin that `inferred` is accepted and verified, and that `kg_propose` still writes the hypothesized lane.
