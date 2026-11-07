@@ -1485,7 +1485,9 @@ class KGEngine:
 
         UNLIKE kg_merge's `_rewrite_dedup_edges`, self-loops are NOT dropped: a rename that yields
         `new→new` (from a pre-rename `old→old` self-relation, or an `old→new`/`new→old` edge) is a
-        legitimate distinct edge, not the merge artifact of collapsing two nodes into one."""
+        distinct edge, not the merge artifact of collapsing two nodes into one. A rename only carries what
+        the canon already holds; since 0.5.2 the write boundary refuses to create a self-loop (`self-loop`),
+        so one here comes from an older canon, a hand edit, or kg_merge's preserved failure memory."""
         survivors: "dict[str, Edge]" = {}
         for e in edges:
             prev = survivors.get(e.id)

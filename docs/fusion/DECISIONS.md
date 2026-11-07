@@ -258,3 +258,28 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - A caller that wrote `hypothesized` through `kg_write` on purpose must now call `kg_propose`. No caller in the repo did.
   - An existing span-less hypothesized edge stays in a canon until `/kg-ground` rejects it or real support grounds it.
 - **Pinned in:** `tests/test_fix_write_lane_hypothesis.py`. Run against the 0.5.0 engine, 8 of its 10 tests fail; the other two pin that `inferred` is accepted and verified, and that `kg_propose` still writes the hypothesized lane.
+
+## The write boundary refuses a self-loop (2026-11-07)
+
+- **Decision:** `_validate_edge` REJECTS an edge whose `source` and `target` slug to one node, with reason `self-loop` (`retryable: false`), in every lane.
+  - The rule sits next to the degenerate-endpoint checks (`empty-source`/`empty-relation`/`empty-target`), before span verification.
+  - The extractor's contract also says it: an edge joins two different nodes.
+- **Bug it fixes:** in the first full build on 0.5.1, an extractor wrote `h1-comprobadores-retiran-mas-revision survives h1-comprobadores-retiran-mas-revision` as a placeholder, at confidence 0.2. Its span verified, so the boundary ACCEPTED it: the one self-loop in a 225-edge canon.
+- **Why reject:** none of the pack's relations states a claim about a concept and itself, so such an edge is an extraction slip, not a claim the text makes. The engine already treats self-loops that way elsewhere:
+  - `kg_merge` drops the unverified self-loops its rewrite creates;
+  - the projector leaves them out of degree.
+- **Why every lane:** a generator has no business proposing one either, and one rule is easier to state than two.
+- **Why slugs:** endpoints are node ids since 0.4.6, and a label-form endpoint (`Meta RADAR`) names the node its slug keys (`meta-radar`), so the comparison uses the key the canon itself uses.
+- **Unchanged:**
+  - `kg_merge` keeps a failed/rejected self-loop its rewrite creates, as failure memory (§1.7).
+  - `kg_rename` carries an existing self-loop over; its docstring now says where one can still come from.
+  - Neither passes through `validate_payload`.
+- **Rejected alternatives:**
+  - (a) *Quarantine:* a QUARANTINED item persists, and a self-loop carries no claim worth keeping.
+  - (b) *Drop it silently:* the extractor and the report would never learn about the slip.
+  - (c) *Fix only the extractor's text:* the boundary would still accept the next one.
+  - (d) *Text-claim lane only:* a self-loop proposal is just as empty.
+- **Accepted trade-offs:**
+  - A self-loop already in a canon stays until `/kg-ground` rejects it.
+  - A future pack relation that is reflexive by nature would need this rule revisited.
+- **Pinned in:** `tests/test_fix_self_loops_and_write_args.py`. Run against the 0.5.1 engine, 6 of its 7 tests fail; the other pins the unchanged refusal of `source` without `construction`.

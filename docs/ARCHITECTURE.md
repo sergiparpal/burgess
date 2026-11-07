@@ -126,7 +126,8 @@ exception is pinned too, so nobody "consistently" widens it.
   in `FAILURE_STATES` — failure memory binds re-extraction), `collapses-into-known-verdict`.
 - **REJECTED** — not written: `no-supporting-span`, `span-not-in-source` (fabrication),
   `span-not-in-named-source` (mis-attributed `source_file`), `span-too-short` (< 4 non-space
-  chars), `empty-source`/`empty-relation`/`empty-target`, `rate-limited-flood` (per-payload
+  chars), `empty-source`/`empty-relation`/`empty-target`, `self-loop` (both endpoints slug to one
+  node, 0.5.2), `write-lane-hypothesis` (`kg_write` only, 0.5.1), `rate-limited-flood` (per-payload
   budget `max(64, kb·20)`), `truncated-payload` (`complete=false`), `schema-invalid`.
 
 Only `truncated-payload` and `schema-invalid` are `retryable=true` (transport); everything else is

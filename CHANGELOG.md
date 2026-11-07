@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.5.2 — 2026-11-07
+
+Patch release from the first full `/kg-build` on 0.5.1: all 8 files of the reporting install's source, 84
+sections and 819 items ACCEPTED in 14 waves, with no shell command and no permission prompt. Its report named
+one engine gap and three gaps in the extractor's contract. The MCP tool surface and grounding do not change.
+
+### Fixed
+
+- **The write boundary accepted a self-loop.** One extractor wrote
+  `h1-comprobadores-retiran-mas-revision survives h1-comprobadores-retiran-mas-revision` as a placeholder, at
+  confidence 0.2. Its span verified, so nothing stopped it; it was the only self-loop among the build's 225
+  edges.
+  - The boundary now REJECTS an edge whose two endpoints slug to one node, with reason `self-loop`
+    (`retryable: false`), in every lane.
+  - `kg_merge`'s handling of the self-loops its own rewrite creates is unchanged.
+- **Extractors passed `source` to `kg_write`.** Two calls were refused ("`source` is only valid together with
+  `construction`") and had to be re-sent.
+  - The refusal stays: it protects a caller who thinks it re-points the primary source.
+  - The extractor's contract and `/kg-build`'s launch template now say to call `kg_write` with the payload
+    alone.
+- **The extractor's contract now carries the rules the build's orchestrator had to add to every launch
+  prompt:**
+  - Name ids in the source's own words and language, in lowercase ASCII with accents dropped, and never a
+    translation. Wave 1 mixed `census-ai-adoption-rate` with `practica-mediana-eeuu`, and two spellings of one
+    concept make two nodes. Every id of the reporting canon already follows that form (555 of 555).
+  - An edge joins two different nodes.
+  - An edge must read in the direction its span says, and a doubtful relation is left out rather than
+    approximated.
+
+### Tests
+
+- **`tests/test_fix_self_loops_and_write_args.py` (7 tests)** covers:
+  - the reported self-loop, rejected, and the rest of its payload still written;
+  - endpoints compared as slugs (`Meta RADAR` → `meta-radar`);
+  - the propose lane refusing a self-loop too;
+  - the unchanged refusal of `source` without `construction`;
+  - the extractor's and the command's texts.
+- **Verified as real pins.** Run against the 0.5.1 engine, with `PYTHONPATH` at a worktree of `main`, 6 of
+  the 7 fail. The other one pins the refusal that must not change. 1501 → 1508 passed, 3 skipped.
+
+### In the reporting canon
+
+The self-loop stays until `/kg-ground` rejects it, and so does the reversed
+`criticas-de-terceros attacked_by evidencia-de-los-autores`. The near-duplicate ids that the report lists can
+be joined with `kg_merge`.
+
 ## 0.5.1 — 2026-11-07
 
 Patch release for a hole in the build's span guarantee, which the last `/kg-build` on 0.4.6 surfaced:

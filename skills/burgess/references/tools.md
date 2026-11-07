@@ -92,6 +92,10 @@ item that claims `provenance: "hypothesized"` is REJECTED with reason `write-lan
 across sentences is `inferred`, still with its verbatim span; a proposal goes to `kg_propose`. (Before 0.5.1
 the boundary accepted such an item with its span dropped and unchecked.)
 
+An edge whose `source` and `target` slug to one node is REJECTED `self-loop` (0.5.2), in every lane. Call it
+with the payload alone: `source` without `construction` raises a `ValueError` before anything is written,
+which the transport envelope returns as `{ok: false, error, error_kind: "ValueError"}`.
+
 `construction` (optional) routes this SAME key-free, span-verified write to a separately-named **second
 construction**'s alternate canon under `<project>/.kg/constructions/<slug>/` instead of the primary canon —
 the in-session second construction `/kg-perturb` cross-generates against (§9/§15, `kg_generate`'s
