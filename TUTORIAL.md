@@ -160,18 +160,23 @@ note in its body recording that it came from this brainstorm. Two things to expe
 
 #### Phase 3 — Turn a document into a graph (`/kg-build`)
 
-Now the convergence side. Point Burgess at your source material:
+Now the convergence side. Burgess builds from the source you gave it at install, `source_path`: one
+document, a **whole folder**, or a **pattern**. On its own, the command builds all of it:
 
 ```text
-/kg-build path/to/your-document.md
+/kg-build
 ```
 
-You can also pass a **whole folder** or a **pattern** to build from many documents at once:
+To build only part of it, name a file, folder or pattern **inside** that source:
 
 ```text
-/kg-build research/            (every .md/.txt file in that folder)
-/kg-build notes/*.md           (a matching set of files)
+/kg-build research/chapter-1.md     (one document of a source folder)
+/kg-build research/*.md             (a matching set of its files)
 ```
+
+That source is also what every snippet is checked against, so a path outside it cannot work: every
+relationship extracted from it would be rejected. To build from somewhere else, change `source_path`
+(`claude plugin configure`, see the README's configuration reference) and restart Claude Code.
 
 Burgess reads your document **section by section**, and for each section it pulls out the concepts
 and the relationships between them, writing them into your graph. Every relationship it extracts is
@@ -180,10 +185,11 @@ from your text that it's based on. If a snippet doesn't actually appear in your 
 rejects it — this is the anti-fabrication guarantee. At this stage everything is written as
 **unverified** (dashed lines): extracted, but not yet checked.
 
-**You can build incrementally.** The graph is additive: run `/kg-build` again later with a different
-document (in the same project folder) and it *adds* to the same graph rather than wiping it. Shared
-concepts across documents naturally merge into one node. So a perfectly normal pattern is: build one
-document, then another, then another, growing one graph over time.
+**You can build incrementally.** The graph is additive: run `/kg-build` again later and it *adds* to the
+same graph rather than wiping it. Shared concepts across documents naturally merge into one node. The easy
+way to grow it is to make `source_path` a **folder**: drop a new document into it (Burgess notices new
+files without a restart) and build just that one with `/kg-build <folder>/<new-document>.md`. So a
+perfectly normal pattern is: build one document, then another, then another, growing one graph over time.
 
 ---
 

@@ -16,8 +16,12 @@ You do **not** call `kg_write` yourself, and you **never** assert a verdict — 
 
 ## Inputs
 
-- `$1` — an **optional** explicit source override: a single **file**, or a **directory / glob** of
-  `.md`/`.txt` files (R4 — multi-document). **When omitted, the source is the user's configured
+- `$1` — an **optional subset** of the configured source: a single **file**, or a **directory / glob** of
+  `.md`/`.txt` files (R4 — multi-document), that lies **inside** the configured `source_path`. It narrows
+  what gets built; it cannot replace the configured source. `kg_write` verifies every span against the
+  files of the configured `source_path` (the engine's SourceSet, keyed by basename), never against `$1`,
+  so a file outside it would have every edge REJECTED `span-not-in-source`; Step 0b checks this before
+  any extractor runs. **When omitted, the source is the user's configured
   `source_path`, which you read from the ENGINE in Step 0a (`kg_status().source.path`) — NOT from a
   shell env var.** `CLAUDE_PLUGIN_OPTION_SOURCE_PATH` / `KG_SOURCE_PATH` are **not visible to this
   command's Bash shell** (the host injects userConfig options only into the MCP server process), so
@@ -43,17 +47,33 @@ Call `mcp__plugin_burgess_burgess__kg_status()` and read its **`source`** block 
 `source.path` is the engine-resolved `source_path` (the server has `KG_SOURCE_PATH`, already dequoted): the
 single source of truth. Decide the source, in this order:
 
-- **`$1` given** → the source is **`$1`** (explicit override wins).
+- **`$1` given** → the source is **`$1`**, narrowed to what the engine can verify: Step 0b checks that every
+  file it enumerates is listed in `source.files`.
 - **else `source.path` is set** → the source is **`source.path`**.
-- **else** (no `$1` and `source.path` is `null`) → **STOP.** No `source_path` is configured and none was
-  passed. Do **not** silently build the demo corpus — tell the user to set the plugin's `source_path`
-  userConfig or pass the path as `$1`. (`source_path` is `required` in `plugin.json`; a missing value is a
-  configuration error, not a cue to build `examples/source.md`.)
+- **else** (no `$1` and `source.path` is `null`) → **STOP.** No `source_path` is configured. Do **not**
+  silently build the demo corpus — tell the user to set the plugin's `source_path` (see *Changing
+  `source_path`* below). Passing `$1` cannot stand in for it: spans verify against the configured source
+  only. (`source_path` is `required` in `plugin.json`; a missing value is a configuration error, not a cue
+  to build `examples/source.md`.)
 
 If `source.path` is set but **`source.exists` is `false`** (configured but resolving to zero readable
-`.md`/`.txt` files), **STOP** and report that unreadable path — never fall through to the demo. This is the
-FALLO 3 fix: the command reads the path the engine actually resolved instead of an env var that is empty in
-the tool shell, so a configured `source_path` can never be silently ignored.
+`.md`/`.txt` files), **STOP** and report that unreadable path — never fall through to the demo, and do not
+work around it with `$1`, for the same reason. This is the FALLO 3 fix: the command reads the path the
+engine actually resolved instead of an env var that is empty in the tool shell, so a configured
+`source_path` can never be silently ignored.
+
+**Changing `source_path`.** Give the user the value the engine reported, then the fix. From a terminal,
+pipe a JSON object to `claude plugin configure burgess@<marketplace> --values-stdin` (Claude Code 2.1.285
+or later; `burgess@sergiparpal` for this repo's own marketplace), for example in PowerShell:
+`'{"source_path": "C:/docs/notes"}' | claude plugin configure burgess@sergiparpal --values-stdin`. Forward
+slashes spare the JSON its backslash escapes. Windows PowerShell 5.1 pipes text as ASCII, so a path with
+accents would be saved with `?` in their place, and no error: for such a path, have the user run
+`$OutputEncoding = [System.Text.UTF8Encoding]::new($false)` first in the same window (PowerShell 7 already
+sends UTF-8). `claude plugin configure burgess@<marketplace> --json` shows the saved values, under `inputs`.
+Inside a session, the documented path is `/plugin` → *Installed* → **burgess** → *Configure options*. The
+value is a bare path, without quotes: a file, a folder, or a glob of `.md`/`.txt` files. The MCP server
+reads it only when it starts, so **Claude Code must be restarted** afterwards; a `/mcp` reconnect is not
+documented to pick up a new value.
 
 > In the plugin **dev repo**, an unconfigured run resolves to the bundled demo (`examples/source.md` exists
 > under the project) and builds the five-section theory-of-grounding corpus — that path is a legitimate
@@ -63,8 +83,9 @@ the tool shell, so a configured `source_path` can never be silently ignored.
 
 With the source chosen in 0a, build the file list and enumerate each file's sections. A single file is the
 common case; a directory or glob builds from **every** `.md`/`.txt` member. **Substitute the chosen path for
-`SRC` below** — pass `$1` verbatim if the user gave one, else the `source.path` string from 0a. Never
-hard-code `examples/source.md` here; Step 0a already decided (or stopped).
+`SRC` below** — pass `$1` verbatim if the user gave one, else the `source.path` string from 0a — inside
+the double quotes, as one string, even when it holds spaces. Never hard-code `examples/source.md` here;
+Step 0a already decided (or stopped).
 
 ```bash
 SOURCE="$SRC"   # $1 if the user passed one, else the source.path value from kg_status() (Step 0a)
@@ -88,11 +109,17 @@ case "$WAVE_RAW" in (''|*[!0-9]*) WAVE_SIZE=6 ;; (*) WAVE_SIZE=$WAVE_RAW ;; esac
 [ "$WAVE_SIZE" -lt 1 ] 2>/dev/null && WAVE_SIZE=6      # below range -> default
 [ "$WAVE_SIZE" -gt 10 ] 2>/dev/null && WAVE_SIZE=10    # above range -> clamp to max
 echo "extraction wave size: $WAVE_SIZE"
-# Build the list of source FILES (a single file, every .md/.txt in a directory, or a glob).
+# Build the list of source FILES, ONE PATH PER LINE: a single file, every .md/.txt in a directory, or a glob.
+# Never let the shell word-split a path. Windows paths routinely hold spaces ("Proyectos personales",
+# "OneDrive - Org"), and an unquoted $SOURCE or `for f in $FILES` cuts them into pieces that name nothing.
 if [ -d "$SOURCE" ]; then
-  FILES=$(find "$SOURCE" -maxdepth 1 -type f \( -name '*.md' -o -name '*.txt' \) ! -name '.*' | sort)
+  FILES=$(find "$SOURCE" -maxdepth 1 -type f \( -iname '*.md' -o -iname '*.txt' \) ! -name '.*' | sort)
+elif [ -f "$SOURCE" ]; then
+  FILES="$SOURCE"   # one file, taken whole
 else
-  FILES=$(ls -1 $SOURCE 2>/dev/null | sort)   # a single file or a shell glob
+  # A glob, expanded as ONE pattern, so its spaces stay literal. `\` becomes `/` first, so the separators of
+  # a Windows pattern (C:\docs\*.md) are not read as glob escapes. Same .md/.txt filter as the engine.
+  FILES=$(compgen -G "${SOURCE//\\//}" | grep -iE '\.(md|txt)$' | sort)
 fi
 [ -n "$FILES" ] || { echo "no .md/.txt source found at: $SOURCE"; exit 1; }
 echo "building from:"; echo "$FILES"
@@ -101,7 +128,7 @@ echo "building from:"; echo "$FILES"
 # is split at `### ` instead — otherwise the whole file collapses into ONE section, breaking the
 # per-section span-isolation the extractor relies on (see the span-isolation note in Step 2). Warn when a
 # file yields 0-1 sections at level 2 so a mis-levelled document is never silently built as one blob.
-for f in $FILES; do
+while IFS= read -r f; do
   echo "== $f =="
   H2=$(grep -cE '^## '  "$f"); H2=${H2:-0}
   H3=$(grep -cE '^### ' "$f"); H3=${H3:-0}
@@ -112,8 +139,15 @@ for f in $FILES; do
     [ "$H2" -le 1 ] && echo "WARNING: only $H2 level-2 '## ' section(s) here — the whole file is one section; verify the heading level before launching one extractor over the entire file"
     grep -nE '^## ' "$f"
   fi
-done
+done <<< "$FILES"
 ```
+
+**Check the enumerated files against the engine before launching anything.** Every basename printed under
+`building from:` must appear in `source.files` from Step 0a. A file the engine does not list can never
+verify a span (each of its edges would be REJECTED `span-not-in-source`), so **STOP** and name it instead of
+launching extractors for it, and tell the user to move it into the configured source or change
+`source_path`. With no `$1` the two lists should match; report any file `source.files` lists that Step 0b
+did not find.
 
 The demo corpus (`examples/source.md`) is the five-section "theory of grounded conceptual knowledge":
 **§1 Compression and the cost of generality**, **§2 Provenance and the span**, **§3 Bridges and betweenness**,
@@ -177,7 +211,7 @@ Task(
   prompt: """
 You are extracting ONE section of the source document into the canon via mcp__plugin_burgess_burgess__kg_write.
 
-source_file: source.md          # basename of $SOURCE — used as edge.source_file
+source_file: source.md          # basename of THIS section's file, as in source.files — used as edge.source_file
 section: "## 1. Compression and the cost of generality"
 
 SECTION TEXT (verbatim — copy spans EXACTLY from this; never paraphrase):

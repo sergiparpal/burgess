@@ -112,7 +112,27 @@ One sentence resolves every design dispute in the codebase: **embeddings measure
 
 ## Configuration reference
 
-Installing Burgess asks for **four settings**. Only `source_path` is required; the other three ship with working defaults. Claude Code stores them per installation. To change one, reconfigure the plugin from the `/plugin` interface and start a new session so the MCP server reads the new value.
+Installing Burgess asks for **four settings**. Only `source_path` is required; the other three ship with working defaults. Claude Code stores them per installation. To change one, reconfigure the plugin from the `/plugin` interface, or from a terminal with `claude plugin configure` (Claude Code 2.1.285 or later), which reads a JSON object on stdin and keeps the options you leave out. Then start a new session so the MCP server reads the new value.
+
+In PowerShell (forward slashes work on Windows too, and spare the JSON its backslash escapes):
+
+```powershell
+'{"source_path": "C:/docs/notes"}' | claude plugin configure burgess@sergiparpal --values-stdin
+```
+
+Windows PowerShell 5.1, the `powershell` that ships with Windows, pipes text to programs as ASCII: each accented letter of the path arrives as `?` and is saved that way, with no error. For a path such as `C:/Users/José/Documentos`, run this first in the same window (PowerShell 7 already sends UTF-8):
+
+```powershell
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+```
+
+`claude plugin configure burgess@sergiparpal --json` shows the saved values, under `inputs`.
+
+In bash:
+
+```bash
+echo '{"source_path": "/home/me/notes"}' | claude plugin configure burgess@sergiparpal --values-stdin
+```
 
 | Setting | Required | Values | Default | What it controls |
 | --- | --- | --- | --- | --- |
@@ -196,7 +216,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 
 | Command | What it does | The detail in brackets |
 | --- | --- | --- |
-| `/kg-build [source_path] [wave_size]` | Extract a span-anchored graph from the configured source, one section per extractor | *Optional:* an orchestration path that should match the running server's configured source; concurrent sections per wave |
+| `/kg-build [source_path] [wave_size]` | Extract a span-anchored graph from the configured source, one section per extractor | *Optional:* a file, folder or glob inside the configured source, to build only that part; concurrent sections per wave |
 | `/kg-ground [query-or-node-filter]` | Drain the grounding queue, challenge hubs, and assign verdicts through the sole verdict path | *Optional:* limit the run to one topic or node area |
 | `/kg-query <question>` | Answer from the grounded graph, with provenance and falsification counters attached | **Required:** your question |
 | `/kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
@@ -234,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1352 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1361 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:
