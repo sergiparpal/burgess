@@ -1,6 +1,6 @@
 ---
 description: Build the grounded knowledge graph from a source document — extract section-by-section into the canon (bounded parallel waves), then project.
-argument-hint: "[source_path] [wave_size]"
+argument-hint: "[subset] [wave_size]"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_scrub, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_status, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph
 ---
 
@@ -16,12 +16,31 @@ You do **not** call `kg_write` yourself, and you **never** assert a verdict — 
 
 ## Inputs
 
-- `$1` — an **optional subset** of the configured source: a single **file**, or a **directory / glob** of
+**Arguments, as typed:** `$ARGUMENTS`
+
+Read the arguments from that line and nowhere else. Claude Code puts there the text typed after the
+command, in every version. Its numbered placeholders are not used here: Claude Code counts them from 0, so
+the one that looks like the first argument is the second, and what it does with one that has no argument
+behind it differs between versions. Split the line into arguments like this:
+
+1. A quoted part (`"…"` or `'…'`) is one argument, without its quotes; the rest splits at spaces. An empty
+   line means no arguments.
+2. **One argument** is the **subset**.
+3. **Two or more, the last a whole number:** the last is the **wave size**, and the rest, rejoined with
+   single spaces, is the subset. An unquoted name with spaces therefore still works
+   (`/kg-build Fábricas de software.md 4`).
+4. **Two or more, the last not a whole number:** the whole line, rejoined, is the subset, which is an
+   unquoted name with spaces. Two separately quoted paths are not supported: STOP and ask for one file,
+   folder or glob.
+
+Quote a name that ends in a number (`"capítulo 3"`), or rule 3 reads the number as the wave size.
+
+- **subset** — an **optional subset** of the configured source: a single **file**, or a **directory / glob** of
   `.md`/`.txt` files (R4 — multi-document), that lies **inside** the configured `source_path`. It narrows
   what gets built; it cannot replace the configured source. `kg_write` verifies every span against the
-  files of the configured `source_path` (the engine's SourceSet, keyed by basename), never against `$1`,
-  so a file outside it would have every edge REJECTED `span-not-in-source`; Step 0b checks this before
-  any extractor runs. **When omitted, the source is the user's configured
+  files of the configured `source_path` (the engine's SourceSet, keyed by basename), never against the
+  subset, so a file outside it would have every edge REJECTED `span-not-in-source`; Step 0b checks this
+  before any extractor runs. **When omitted, the source is the user's configured
   `source_path`, which you read from the ENGINE in Step 0a (`kg_status().source.path`) — NOT from a
   shell env var.** `CLAUDE_PLUGIN_OPTION_SOURCE_PATH` / `KG_SOURCE_PATH` are **not visible to this
   command's Bash shell** (the host injects userConfig options only into the MCP server process), so
@@ -30,12 +49,16 @@ You do **not** call `kg_write` yourself, and you **never** assert a verdict — 
   `examples/source.md` when a `source_path` is configured (FALLO 3). `source_path` is `required` in
   `plugin.json`, so a configured value must be honored.
 
-- `$2` — **optional inline wave size**: how many section-extractor subagents to launch CONCURRENTLY per
-  wave (bounded parallelism). **Precedence: explicit `$2` > user_config > default.** When `$2` is omitted
-  it falls back to `${CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE}`, then to `6`. The value is parsed to an
-  integer and **clamped to 1–10** (unset / non-numeric / `< 1` → `6`; `> 10` → `10`). One section is still
-  one subagent (the span-isolation property, below); the wave size only controls how many of those run at
-  once. Resolved deterministically in Step 0.
+- **wave size** — **optional**: how many section-extractor subagents to launch CONCURRENTLY per wave
+  (bounded parallelism). **Precedence: the wave size in the arguments > the `extract_wave_size` option >
+  default.** The option reaches this command through its own text, not through the shell. When the command
+  loads, Claude Code writes the configured value into the `WAVE_CFG` line of Step 0b (it fills
+  `${user_config.KEY}` placeholders in command text), and leaves the placeholder as it is when the option is
+  unset. The `CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE` env var that hooks and the MCP server receive is
+  **not** set in this command's Bash shell. The value is parsed to an integer and **clamped to 1–10**
+  (unset / non-numeric / `< 1` → `6`; `> 10` → `10`). One section is still one subagent (the
+  span-isolation property, below); the wave size only controls how many of those run at once. Resolved
+  deterministically in Step 0b.
 
 ## Procedure
 
@@ -47,18 +70,18 @@ Call `mcp__plugin_burgess_burgess__kg_status()` and read its **`source`** block 
 `source.path` is the engine-resolved `source_path` (the server has `KG_SOURCE_PATH`, already dequoted): the
 single source of truth. Decide the source, in this order:
 
-- **`$1` given** → the source is **`$1`**, narrowed to what the engine can verify: Step 0b checks that every
-  file it enumerates is listed in `source.files`.
+- **A subset given** → the source is **the subset**, narrowed to what the engine can verify: Step 0b checks
+  that every file it enumerates is listed in `source.files`.
 - **else `source.path` is set** → the source is **`source.path`**.
-- **else** (no `$1` and `source.path` is `null`) → **STOP.** No `source_path` is configured. Do **not**
+- **else** (no subset and `source.path` is `null`) → **STOP.** No `source_path` is configured. Do **not**
   silently build the demo corpus — tell the user to set the plugin's `source_path` (see *Changing
-  `source_path`* below). Passing `$1` cannot stand in for it: spans verify against the configured source
+  `source_path`* below). Naming a subset cannot stand in for it: spans verify against the configured source
   only. (`source_path` is `required` in `plugin.json`; a missing value is a configuration error, not a cue
   to build `examples/source.md`.)
 
 If `source.path` is set but **`source.exists` is `false`** (configured but resolving to zero readable
 `.md`/`.txt` files), **STOP** and report that unreadable path — never fall through to the demo, and do not
-work around it with `$1`, for the same reason. This is the FALLO 3 fix: the command reads the path the
+work around it with a subset, for the same reason. This is the FALLO 3 fix: the command reads the path the
 engine actually resolved instead of an env var that is empty in the tool shell, so a configured
 `source_path` can never be silently ignored.
 
@@ -83,12 +106,13 @@ documented to pick up a new value.
 
 With the source chosen in 0a, build the file list and enumerate each file's sections. A single file is the
 common case; a directory or glob builds from **every** `.md`/`.txt` member. **Substitute the chosen path for
-`SRC` below** — pass `$1` verbatim if the user gave one, else the `source.path` string from 0a — inside
-the double quotes, as one string, even when it holds spaces. Never hard-code `examples/source.md` here;
-Step 0a already decided (or stopped).
+`SRC` below** — the subset verbatim if the user gave one, else the `source.path` string from 0a — inside
+the double quotes, as one string, even when it holds spaces. Put the wave size from the arguments, if
+there is one, between the empty quotes of `WAVE_ARG`. Never hard-code `examples/source.md` here; Step 0a
+already decided (or stopped).
 
 ```bash
-SOURCE="$SRC"   # $1 if the user passed one, else the source.path value from kg_status() (Step 0a)
+SOURCE="$SRC"   # the subset if the user named one, else the source.path value from kg_status() (Step 0a)
 # Dequote defensively: a path a user wrapped in quotes — or a host that handed back a JSON-quoted value —
 # must not carry literal quotes into the ls/find below. Peel matched surrounding pairs REPEATEDLY (a
 # double-wrapped ""path"" collapses to the bare path), mirroring kg_engine.envconfig.clean.
@@ -99,12 +123,15 @@ while :; do
     *) break ;;
   esac
 done
-[ -n "$SOURCE" ] || { echo "no source resolved — see Step 0a (configure source_path or pass \$1)"; exit 1; }
-# Resolve the extraction WAVE SIZE: inline override ($2) > user_config > default 6; integer; clamp 1..10.
-# (This pure-Bash resolution mirrors kg_engine.waves.resolve_wave_size, the unit-tested reference — no
-# venv/PYTHONPATH dependency here. A present-but-invalid value falls straight to the default 6, not the
-# next level down.)
-WAVE_RAW="${2:-${CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE:-6}}"
+[ -n "$SOURCE" ] || { echo "no source resolved — see Step 0a (configure source_path)"; exit 1; }
+# Resolve the extraction WAVE SIZE: the arguments' wave size > the extract_wave_size option > default 6;
+# integer; clamp 1..10. (This pure-Bash resolution mirrors kg_engine.waves.resolve_wave_size, the
+# unit-tested reference — no venv/PYTHONPATH dependency here. A present-but-invalid value falls straight to
+# the default 6, not the next level down.) The option arrives in the WAVE_CFG line, written there by Claude
+# Code when the command loads; unset, that line keeps its placeholder, which is not a number, so -> 6.
+WAVE_ARG=""                                   # the wave size from the arguments, if any; else leave empty
+WAVE_CFG='${user_config.extract_wave_size}'   # the extract_wave_size option, filled in by Claude Code
+WAVE_RAW="${WAVE_ARG:-$WAVE_CFG}"
 case "$WAVE_RAW" in (''|*[!0-9]*) WAVE_SIZE=6 ;; (*) WAVE_SIZE=$WAVE_RAW ;; esac   # unset/non-numeric -> 6
 [ "$WAVE_SIZE" -lt 1 ] 2>/dev/null && WAVE_SIZE=6      # below range -> default
 [ "$WAVE_SIZE" -gt 10 ] 2>/dev/null && WAVE_SIZE=10    # above range -> clamp to max
@@ -146,7 +173,7 @@ done <<< "$FILES"
 `building from:` must appear in `source.files` from Step 0a. A file the engine does not list can never
 verify a span (each of its edges would be REJECTED `span-not-in-source`), so **STOP** and name it instead of
 launching extractors for it, and tell the user to move it into the configured source or change
-`source_path`. With no `$1` the two lists should match; report any file `source.files` lists that Step 0b
+`source_path`. With no subset the two lists should match; report any file `source.files` lists that Step 0b
 did not find.
 
 The demo corpus (`examples/source.md`) is the five-section "theory of grounded conceptual knowledge":

@@ -4,8 +4,8 @@ Covers the deterministic Python reference (resolve_wave_size + the `python -m kg
 drift-guard that runs the command's ACTUAL pure-Bash mirror (extracted from commands/kg-build.md) over the
 same matrix, so the two implementations can never diverge on a realistic input.
 
-Contract: precedence inline-arg > user_config(env) > default(6); parse to int; unset/non-numeric/<1 ->
-default; >10 -> clamp to 10; always in [1, 10].
+Contract: precedence inline-arg > user_config (the extract_wave_size option) > default(6); parse to int;
+unset/non-numeric/<1 -> default; >10 -> clamp to 10; always in [1, 10].
 """
 from __future__ import annotations
 
@@ -123,29 +123,41 @@ def test_cli_clamps_and_reads_env(capsys, monkeypatch):
 
 
 # ---- drift guard: the command's pure-Bash mirror must agree with the resolver ----
+# The two ways a value reaches those lines at runtime, reproduced as they happen (0.4.5): the orchestrator
+# writes the wave size it parsed out of the arguments between WAVE_ARG's empty quotes, and Claude Code fills
+# the `${user_config.extract_wave_size}` placeholder when the option is set, leaving it as it is when the
+# option is unset. The Bash tool's environment carries no CLAUDE_PLUGIN_OPTION_* variable, and neither does
+# this run. (Before 0.4.5 the mirror read `${2:-$WAVE_ENV}`, and this guard fed it both as bash's own `$2`
+# and environment, two channels the real command never had, so it passed while every build used 6.)
+_ARG_LINE = 'WAVE_ARG=""'
+_CFG_PLACEHOLDER = "${user_config.extract_wave_size}"
+
+
 def _extract_command_bash() -> str:
-    """Pull the four wave-size resolution lines out of commands/kg-build.md so the test exercises the
+    """Pull the six wave-size resolution lines out of commands/kg-build.md so the test exercises the
     REAL snippet (not a copy), then append an `echo` so we can read the resolved value."""
     text = (ROOT / "commands" / "kg-build.md").read_text(encoding="utf-8")
-    prefixes = ('WAVE_RAW=', 'case "$WAVE_RAW"', '[ "$WAVE_SIZE" -lt', '[ "$WAVE_SIZE" -gt')
+    prefixes = ('WAVE_ARG=', 'WAVE_CFG=', 'WAVE_RAW=', 'case "$WAVE_RAW"', '[ "$WAVE_SIZE" -lt',
+                '[ "$WAVE_SIZE" -gt')
     lines = [ln for ln in text.splitlines() if ln.strip().startswith(prefixes)]
-    assert len(lines) == 4, f"expected 4 resolution lines in kg-build.md, found {len(lines)}: {lines}"
+    assert len(lines) == 6, f"expected 6 resolution lines in kg-build.md, found {len(lines)}: {lines}"
     return "\n".join(lines) + '\necho "$WAVE_SIZE"\n'
 
 
-def _run_bash(script: str, arg, env_val):
+def _run_bash(script: str, arg, cfg):
+    if arg is not None:                       # the orchestrator's substitution
+        assert _ARG_LINE in script
+        script = script.replace(_ARG_LINE, f'WAVE_ARG="{arg}"', 1)
+    if cfg is not None:                       # Claude Code's, for a set option
+        assert _CFG_PLACEHOLDER in script
+        script = script.replace(_CFG_PLACEHOLDER, cfg)
     env = {"PATH": __import__("os").environ.get("PATH", "")}
-    if env_val is not None:
-        env[WAVE_ENV] = env_val
-    argv = ["bash", "-c", script, "bash", "SRC"]
-    if arg is not None:
-        argv.append(arg)
-    out = subprocess.run(argv, capture_output=True, text=True, env=env, check=True)
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=True)
     return out.stdout.strip()
 
 
 @pytest.mark.skipif(not _bash_available(), reason="no working bash (e.g. Windows WSL-stub runner)")
-@pytest.mark.parametrize("arg,env_val", [
+@pytest.mark.parametrize("arg,cfg", [
     ("1", None), ("5", None), ("6", None), ("10", None), ("7", None),
     ("11", None), ("100", None), ("0", None), ("-1", None), ("-3", None),
     ("abc", None), ("3x", None),
@@ -156,10 +168,10 @@ def _run_bash(script: str, arg, env_val):
     ("+5", None), ("  4  ", None), (" 4", None), ("4 ", None),
     ("   ", "8"), ("07", None), ("007", None), ("010", None),
 ])
-def test_command_bash_mirror_matches_resolver(arg, env_val):
+def test_command_bash_mirror_matches_resolver(arg, cfg):
     script = _extract_command_bash()
-    bash_result = int(_run_bash(script, arg, env_val))
-    assert bash_result == resolve_wave_size(arg, env_val), (
-        f"bash and resolver disagree for arg={arg!r} env={env_val!r}: "
-        f"bash={bash_result} resolver={resolve_wave_size(arg, env_val)}")
+    bash_result = int(_run_bash(script, arg, cfg))
+    assert bash_result == resolve_wave_size(arg, cfg), (
+        f"bash and resolver disagree for arg={arg!r} option={cfg!r}: "
+        f"bash={bash_result} resolver={resolve_wave_size(arg, cfg)}")
     assert MIN_WAVE_SIZE <= bash_result <= MAX_WAVE_SIZE

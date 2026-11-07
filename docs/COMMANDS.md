@@ -33,15 +33,20 @@ The everyday flow is **diverge → build → ground → generate → query → v
 **Notation.** `<angle brackets>` mark a **required** argument. `[square brackets]` mark an
 **optional** one, which falls back to a documented default.
 
-**Two argument styles.** Burgess commands read their arguments in one of two ways, and the
-difference matters when you type them:
+**How a command reads what you type.** Every command receives everything you type after its name as
+one line of text, and reads its arguments from that line. None of them relies on Claude Code's
+numbered argument slots, whose numbering differs between Claude Code versions.
 
-*Positional.* `/kg-build`, `/kg-generate`, `/kg-perturb`, `/kg-view` and `/kg-eval` read
-whitespace-separated positional slots (`$1`, `$2`). **To pass the second argument you must also pass
-the first** — there is no way to skip a slot. If a positional argument contains spaces, quote it.
+*Two arguments, in order.* `/kg-build` and `/kg-generate`. Quote an argument that contains spaces,
+or let the command's own rule sort it out: `/kg-build` reads a trailing whole number as the wave size
+and everything before it as the path, and `/kg-generate` reads a whole number as `k` and the other
+word as the mechanism set.
+
+*One path.* `/kg-perturb`, `/kg-eval` and `/kg-experiment` take a single path, and the whole line is
+that path, so a path with spaces works with or without quotes. `/kg-view` takes one word.
 
 *Whole-string.* `/kg-query`, `/kg-ground` and `/kg-diverge` consume everything you type as one
-string (`$ARGUMENTS`). For `/kg-query` that string is your question; for `/kg-ground` it is a focus
+string. For `/kg-query` that string is your question; for `/kg-ground` it is a focus
 filter; for `/kg-diverge` it is your brief, and the optional `domain-template` and `reach` are
 *recognized within* that string rather than parsed out of fixed slots — so `wild` at the end of the
 brief and "go wild with this" both work.
@@ -199,7 +204,7 @@ in the lane until you add one.
 ## `/kg-build`
 
 ```
-/kg-build [source_path] [wave_size]
+/kg-build [subset] [wave_size]
 ```
 
 **What it does.** Reads your source document section by section, launching one extractor subagent
@@ -208,23 +213,33 @@ Every non-deterministic edge must carry a **verbatim span** copied from your sou
 boundary rejects it as fabrication.
 
 **Everything it writes lands `unverified`.** `/kg-build` never asserts a verdict. It is **additive**:
-run it again with another document and the same graph grows.
+run it again on another document of your source and the same graph grows.
 
 ### Arguments
 
 | Argument | Required | Accepted values | Default |
 | --- | --- | --- | --- |
-| `source_path` | No | A file, a directory, or a glob of `.md` / `.txt` files | your configured `source_path` |
-| `wave_size` | No | Integer `1`–`10` | `6` |
+| `subset` | No | A file, a directory, or a glob of `.md` / `.txt` files **inside your configured `source_path`** | the whole configured source |
+| `wave_size` | No | Integer `1`–`10` | the `extract_wave_size` option, else `6` |
 
-### `source_path` — what each form does
+### `subset` — what each form does
 
 | Form | Purpose |
 | --- | --- |
-| *(omitted)* | Uses the `source_path` you configured when installing the plugin, resolved through the engine. If none is configured, the command **stops and tells you** — it will never silently build the bundled demo instead. |
-| A single file | Build from that one document. The common case. |
-| A directory | Build from **every** `.md`/`.txt` file directly inside it (not recursive). |
-| A glob | Build from every matching file. Quote it so your shell doesn't expand it first. |
+| *(omitted)* | Builds the whole `source_path` you configured when installing the plugin, resolved through the engine. If none is configured, the command **stops and tells you** — it will never silently build the bundled demo instead. |
+| A single file | Build only that document. The common case once the source is a folder. |
+| A directory | Build **every** `.md`/`.txt` file directly inside it (not recursive). |
+| A glob | Build every matching file. |
+
+The subset only narrows the build. Every span is verified against the configured `source_path`, so a
+file outside it would have every relationship rejected; the command checks each file against the
+engine's own list and stops before launching anything for one it does not know. To build from
+somewhere else, change `source_path` (see the README's configuration reference) and restart Claude
+Code.
+
+A name with spaces can go in quotes or not: a trailing whole number is read as the wave size and the
+rest as the path, so `/kg-build research/Notas de campo.md 4` works. Quote a name that itself ends in
+a number (`"research/capítulo 3"`), or that number is read as the wave size.
 
 Spans are verified per file: an edge attributed to the wrong source file is rejected. Sections are
 split at each file's **dominant heading level** — usually `##`, but a file whose only `##` is its
@@ -242,44 +257,47 @@ controls how many of those run at once.
 - Lower it (`1`–`2`) if you are rate-limited or want to watch the build step by step. Raise it
   (`8`–`10`) for a long document you want built quickly.
 
-Because arguments are positional, **passing `wave_size` requires passing `source_path` too.**
+A lone number is read as the subset, never as the wave size, so **passing `wave_size` requires a
+subset too**. To change it for every build, set the `extract_wave_size` option instead.
 
 ### Examples
 
-Build from your configured `source_path`:
+They assume your configured `source_path` is the folder `research/`.
+
+Build all of it:
 
 ```text
 /kg-build
 ```
 
-Build from one document:
+Build one document:
 
 ```text
-/kg-build notes/theory-of-change.md
+/kg-build research/theory-of-change.md
 ```
 
-Build from every `.md`/`.txt` in a folder:
+Build a matching set of its documents:
 
 ```text
-/kg-build research/papers/
-```
-
-Build from a glob (quoted):
-
-```text
-/kg-build "research/**/*.md"
+/kg-build "research/chapter-*.md"
 ```
 
 Build one document with a small wave, to watch it land section by section:
 
 ```text
-/kg-build notes/theory-of-change.md 2
+/kg-build research/theory-of-change.md 2
 ```
 
-Build a folder at maximum parallelism:
+Build one document whose name holds spaces:
 
 ```text
-/kg-build research/papers/ 10
+/kg-build research/Notas de campo.md
+```
+
+Build all of it at maximum parallelism:
+
+```text
+/kg-build research/ 10
 ```
 
 ### Reading the report
@@ -431,8 +449,8 @@ The seven mechanisms, and what each one hunts:
 ### `k` — what the number does
 
 How many ranked candidates to return. Raise it when a mechanism surfaces nothing, or when you want a
-wider slate to pin from. Because arguments are positional, **passing `k` requires passing
-`mechanism-set` too.**
+wider slate to pin from. A whole number is read as `k` on its own, so `/kg-generate 20` asks the
+default set for twenty candidates.
 
 ### Examples
 

@@ -18,9 +18,10 @@ its limit (the ensemble caveat): a second construction does not eliminate the bl
 it. You trade your construction's blind spots for a different set, and the bridges that survive both are the
 ones worth grounding.
 
-`$ARGUMENTS` (optional `$1`): a path to a **second source document** to build into a second construction, or
-a path to an already-built **`graph.json`** to cross against. If omitted, perturb the current construction
-in place (a re-partition), which degrades to `regroup`.
+Arguments, as typed (optional): `$ARGUMENTS`. The whole line is one path, without any surrounding quotes:
+a **second source document** to build into a second construction, or an already-built **`graph.json`** to
+cross against. If omitted, perturb the current construction in place (a re-partition), which degrades to
+`regroup`.
 
 ## Step 0 — confirm a primary graph exists
 
@@ -34,10 +35,13 @@ The second construction is built **in-session by a `kg-extractor` subagent** thr
 `<project>/.kg/constructions/<slug>/`. **No `ANTHROPIC_API_KEY` and no `backend` extra are needed** — the
 session does the language work, the engine only validates + stores (§2.2, the "LLM is the session" model).
 
-Classify `$1` (a tiny Bash step — no runner/venv needed):
+Classify that path (a tiny Bash step — no runner/venv needed). Write it in place of `__SECOND__`, inside the
+double quotes, or leave the quotes empty when no argument was given. A placeholder left as it is stops the
+step, so a forgotten substitution can never pass for "no second source":
 
 ```bash
-SECOND="$1"
+SECOND="__SECOND__"   # the path from the arguments, without quotes; "" when there is none
+case "$SECOND" in (__*__) echo "the path from the arguments was not filled in above (or leave the quotes empty)"; exit 1 ;; esac
 if [ -z "$SECOND" ]; then
   echo "MODE=degrade"                       # no second source → ensemble degrades to regroup
 elif [ "${SECOND##*.}" = "json" ]; then
@@ -59,7 +63,7 @@ fi
   `second_construction="$CONSTRUCTION"`. The extractor writes the second source's nodes/edges via
   `kg_write(..., construction="$CONSTRUCTION", source="$SECOND_SOURCE")` — spans verified against the SECOND
   source, landing in that construction's own canon, key-free.
-- **`MODE=degrade`** (`$1` omitted) → skip the second construction; `kg_generate` **degrades to `regroup`**
+- **`MODE=degrade`** (no argument) → skip the second construction; `kg_generate` **degrades to `regroup`**
   (a re-partition of the current construction). Surface this as a one-line note and continue — never block.
 
 Exact Task invocation for `MODE=source` (substitute `$CONSTRUCTION` and `$SECOND_SOURCE`):
