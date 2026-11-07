@@ -48,7 +48,7 @@ Generation is **offensive**; grounding is the **defensive filter** (the inversio
 always emits candidates into a separate `hypothesized` lane, and the *same* grounding loop filters them
 afterward. The portico moved from the door of imagination to after generation.
 
-1. **`/kg-build [source_path] [wave_size]`** — extract candidate nodes/edges from prose and write them
+1. **`/kg-build [subset] [wave_size]`** — extract candidate nodes/edges from prose and write them
    through the boundary. Orchestrates **kg-extractor** (one per `##` section, Sonnet by default, launched
    in bounded parallel waves of `wave_size`; emits a `kg_write` payload). Output edges land `unverified`.
 2. **`/kg-ground [node_or_query]`** — adjudicate `unverified` **edges AND nodes** (a materialized

@@ -18,7 +18,8 @@ up to 3 passes) then records the **best** result and proceeds (§4, "logged and 
   sample → Krippendorff's α (`harness agreement`, reliable `>= 0.67`); then the specificity bridge-metric
   gate verdict (`harness specificity`).
 
-`GRAPH = $1` if given, else `${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}/derived/graph.json`. If it does
+`GRAPH` = the path in the arguments, `$ARGUMENTS` (the whole line is one path; drop any surrounding quotes),
+if given, else `${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}/derived/graph.json`. If it does
 not exist, tell the user to run `/kg-build` first (the projector writes `<data_dir>/derived/graph.json`,
 where `data_dir = ${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}`; runtime: under `${CLAUDE_PLUGIN_DATA}/derived`)
 and stop.

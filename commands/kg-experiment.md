@@ -38,8 +38,9 @@ The headline question the verdict answers:
 > (the harness allows `graph.unsupported_rate <= control.unsupported_rate + 0.05` slack — beating control by
 > hallucinating more is not a win.)
 
-`$ARGUMENTS` (optional `$1`): a path to a JSON or newline-delimited file of custom ideation prompts. If
-omitted, the 12 default prompts below are used.
+Arguments, as typed (optional): `$ARGUMENTS`. The whole line is one path, without any surrounding quotes,
+to a JSON or newline-delimited file of custom ideation prompts. If omitted, the 12 default prompts below are
+used.
 
 ---
 
@@ -96,9 +97,10 @@ Ask the user exactly once, then proceed with the default if they don't redirect:
 
 > **Use the 12 default prompts, or supply your own? [default/custom]** (default: `default`)
 
-- `default` (or no answer / `$1` empty) → use the **12 default ideation prompts** below.
-- `custom` → read prompts from `$1` (one prompt per line, or a JSON array). If `$1` is missing while the
-  user said `custom`, ask for the path; otherwise fall back to default rather than blocking.
+- `default` (or no answer and no path in the arguments) → use the **12 default ideation prompts** below.
+- `custom` → read prompts from the path in the arguments (one prompt per line, or a JSON array). If there
+  is none while the user said `custom`, ask for the path; otherwise fall back to default rather than
+  blocking.
 
 This is a **non-blocking checkpoint** (§4): a reply is invited but not required to make progress.
 
@@ -241,7 +243,7 @@ PROGRESS="${CLAUDE_PROJECT_DIR:-.}/PROGRESS.md"
 [ -f "$PROGRESS" ] || printf '# Experiment log\n\n' > "$PROGRESS"
 {
   printf '\n## kg-experiment (Stage 8) — %s\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  printf 'Prompts: %s (%s)\n\n' "$N_PROMPTS" "$PROMPT_SOURCE"   # e.g. "12 (default)" or "8 (custom: $1)"
+  printf 'Prompts: %s (%s)\n\n' "$N_PROMPTS" "$PROMPT_SOURCE"   # e.g. "12 (default)" or "8 (custom: <path>)"
   printf '| condition | n | diversity | novelty | utility | unsupported_rate |\n'
   printf '|-----------|---|-----------|---------|---------|------------------|\n'
   # one row per condition, values pulled from the harness JSON above

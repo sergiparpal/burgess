@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.4.5 — 2026-11-07
+
+Patch release for how commands receive what you type after them, and for the `extract_wave_size` option,
+which never reached `/kg-build`. Found right after 0.4.4, while checking how a file name with spaces would
+reach `/kg-build`. Only the commands and their docs change, plus the wave-size test that mirrors
+`/kg-build`'s Bash; the engine, the MCP tool surface and grounding do not.
+
+### Fixed
+
+- **Six commands read their arguments from the wrong placeholders.** `/kg-build`, `/kg-view`, `/kg-eval`,
+  `/kg-generate`, `/kg-perturb` and `/kg-experiment` used `$1` and `$2` for their first and second
+  arguments, but Claude Code counts those from 0, so `$1` is the second argument. This was read from its
+  binary and confirmed with real runs on 2.1.316; 2.1.319 has the same code and 2.1.202 counts the same
+  way. One argument worked by accident on current versions: an unfilled `$1` stays in the text, and Claude
+  Code then appends the typed text. With two, every `$1` became the second argument: `/kg-build notes.md 4`
+  asked for a source named `4`, and the path vanished from the prompt. Every command now reads
+  `$ARGUMENTS`, the raw typed text, which means the same in every version, and says how to split it.
+- **`/kg-build` takes a file name with spaces, quoted or not.** Quoted text is one argument. Unquoted, a
+  trailing whole number is the wave size and the rest is the path, so `/kg-build Fábricas de software.md 4`
+  works. A name that itself ends in a number must be quoted.
+- **The `extract_wave_size` option never reached the build, and neither did a wave size typed after the
+  path.** Step 0b resolved `${2:-${CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE:-6}}`, and none of its three
+  levels could ever be set. Claude Code does not fill `${2}`, and bash's own `$2` is empty in the Bash tool.
+  Claude Code passes the `CLAUDE_PLUGIN_OPTION_*` variables to hooks and MCP servers only. So every build
+  ran in waves of 6, unless the orchestrator rewrote the line by hand. The option now reaches Step 0b as
+  `${user_config.extract_wave_size}`, which Claude Code fills in when the command loads. This was checked
+  with a real plugin command: a set option becomes its value, and an unset one stays as written, which
+  resolves to 6. The typed wave size goes into a `WAVE_ARG` slot that the orchestrator fills.
+- **`/kg-perturb` could silently degrade to `regroup`.** Its classification block began with
+  `SECOND="$1"`, which is empty in the Bash tool. A second source that the orchestrator did not copy in by
+  hand was therefore read as no second source. The block now starts from a `__SECOND__` slot, and stops if
+  the slot is left unfilled.
+
+### Changed
+
+- **`docs/COMMANDS.md` explains how each command reads what you type.** Its `/kg-build` section now gives
+  the 0.4.4 meaning of the argument: a subset inside the configured `source_path`, not any source. All its
+  examples now work against one configured folder. The recursive-glob example is gone, because Step 0b does
+  not recurse and the engine does not list subfolder files of a folder source.
+- **The argument hint is now `[subset] [wave_size]`,** in the command, the README and the skill.
+- **`/kg-generate` takes `k` on its own** (`/kg-generate 20`).
+- **The decision and where the values come from are written down.** `docs/fusion/DECISIONS.md` records
+  the decision, with its rejected alternatives. `docs/ARCHITECTURE.md`, `CLAUDE.md` and
+  `kg_engine/waves.py` now say where the option and the arguments come from.
+
+### Tests
+
+- **`tests/test_fix_command_arguments.py` (76 cases).**
+  - A model of Claude Code's substitution, pinned to the five expansions recorded from real runs.
+  - Static pins: no command or skill text holds a numbered placeholder, and every command with an argument
+    hint reads `$ARGUMENTS`.
+  - Whatever is typed, only `$ARGUMENTS` changes in each command.
+  - Step 0b and `/kg-perturb`'s block run as the orchestrator would, on Windows under Git Bash.
+- **The drift guard in `tests/test_waves.py` now feeds the wave size through the two channels the command
+  really has.** Before, it supplied bash's `$2` and the environment, which the real command never had, so
+  it passed while every build used 6.
+- **Verified as real pins.** Against the 0.4.4 commands, 34 of the 76 new cases fail, and so do all 28 of
+  the drift guard's. The rest pin what was already right: the three commands that only ever read
+  `$ARGUMENTS`, the skill texts, the recorded expansions, one-argument calls, and the default for an unset
+  option. 1361 → 1437 passed, 3 skipped.
+
 ## 0.4.4 — 2026-11-07
 
 Patch release for `/kg-build` over a source whose path holds spaces, and for what the command says about

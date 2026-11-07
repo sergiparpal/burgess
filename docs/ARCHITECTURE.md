@@ -377,7 +377,7 @@ divergence templates ship as pack fragments under `pack/domains/`.
 
 - **Commands** (9): `/kg-build` (wave-parallel extraction), `/kg-ground` (the grounding loop),
   `/kg-generate`, `/kg-perturb`, `/kg-query`, `/kg-eval`, `/kg-experiment`, `/kg-view`,
-  `/kg-diverge`.
+  `/kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
 - **Subagents** (6): `kg-extractor` (one per `##` section; emits `kg_write` payloads),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
   `attacked_by` edges + `failed` verdicts), `kg-generator` (phrases structural candidates —
@@ -467,10 +467,17 @@ divergence templates ship as pack fragments under `pack/domains/`.
 | `KG_DIVERGE_EMBEDDER` / `KG_DIVERGE_HOME` / `KG_DIVERGE_DEBUG` | Divergence embedder provider / state-dir override / tracebacks |
 | `KG_LIGHTRAG` (+ `KG_LIGHTRAG_QUERY_MODE`, `OPENAI_API_KEY`) | Opt-in LightRAG experiment arm |
 | `KG_BACKEND_MODEL` / `KG_BACKEND_MAX_TOKENS` | Headless backend knobs |
-| `CLAUDE_PLUGIN_OPTION_*` | userConfig reads: `SOURCE_PATH`, `SENSITIVITY` (default `medium`), `METRICS_MODE` (default `structure_only`), `EXTRACT_WAVE_SIZE` (default 6) |
+| `CLAUDE_PLUGIN_OPTION_*` | userConfig reads: `SOURCE_PATH`, `SENSITIVITY` (default `medium`), `METRICS_MODE` (default `structure_only`); `EXTRACT_WAVE_SIZE` (default 6) only through `python -m kg_engine.waves` |
 
 All env reads pass through one cleaner that drops empty values, unsubstituted `${…}` placeholders,
 and bare `/.venv` sentinels.
+
+Claude Code sets the `CLAUDE_PLUGIN_OPTION_*` variables for hooks and MCP servers only. A command's
+Bash shell never has them, so `/kg-build` takes `extract_wave_size` from its own text: Claude Code
+fills the `${user_config.…}` placeholder there when the command loads, and leaves it unfilled when
+the option is unset. Commands read their arguments from `$ARGUMENTS`, the raw typed text, and never
+from the numbered placeholders: Claude Code counts those from 0 (2.1.202 and 2.1.316 alike), and
+empties (2.1.202) or leaves unfilled (2.1.316) one with no argument behind it.
 
 ### On-disk map
 

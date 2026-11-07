@@ -31,7 +31,8 @@ It is a *proposal from a discovery mechanism*, never a text claim — stored in 
 mistaken for grounded content. Promotion to `grounded` happens ONLY through `kg_ground`, and only when a
 grounder supplies a span or citation (which *upgrades* its provenance) — see `/kg-query`/`/kg-ground`.
 
-`$ARGUMENTS` (optional): a mechanism set (`default` | `all` | a single mechanism name) and an integer `k`.
+Arguments, as typed (optional): `$ARGUMENTS`. They hold a mechanism set (`default` | `all` | a single
+mechanism name) and an integer `k`, split at spaces; a whole number is `k`, the other word is the set.
 
 ## Step 0 — confirm a graph exists
 
@@ -46,13 +47,13 @@ Ask the user exactly once, then proceed with the default if they don't redirect:
 
 > **Run the default mechanism set `{bridge, seed, compression}` or all seven? [default/all]** (default: `default`)
 
-- `default` (or no answer, or `$1` empty) → the three default mechanisms.
+- `default` (or no answer and no set in the arguments) → the three default mechanisms.
 - `all` → all seven (`bridge, seed, compression, regroup, transplant, ensemble, periphery`). `periphery` (§5)
   sources candidates from the graph's **low-degree** nodes — the periphery the hub-seeking mechanisms ignore.
 - a single mechanism name → just that one.
 
 This is a **non-blocking checkpoint**: invite a reply, but never make progress conditional on it. Default
-`k=10` unless `$2` gives an integer.
+`k=10` unless the arguments give an integer.
 
 ## Step 2 — generate the structural candidates (read-only)
 

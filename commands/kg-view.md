@@ -16,8 +16,9 @@ view, not a source of truth (the canon is the source of truth).
 
 ## Procedure
 
-1. Call `mcp__plugin_burgess_burgess__kg_export(kind="$1")` — `$1 ∈ {html, report, all}`,
-   default **`all`**. It returns `{ok, kind, html_path, report_path}`.
+1. Read the kind from the arguments, `$ARGUMENTS`, trimmed and without quotes: `html`, `report` or `all`,
+   and **`all`** when the line is empty. Call `mcp__plugin_burgess_burgess__kg_export(kind=<that kind>)`. It
+   returns `{ok, kind, html_path, report_path}`.
 2. Report the two artifact paths to the user:
    - **`graph.html`** — a self-contained, fully-offline force-directed viz (open it in any browser; no network,
      no dependencies). The **three orthogonal axes** are on **independent visual channels** — never one
