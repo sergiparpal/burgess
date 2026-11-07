@@ -165,6 +165,11 @@ assert {cat for cat, _ in _PATTERNS} <= ALL_CATEGORIES, \
 _PLACEHOLDER_RE = re.compile(r"⟦([A-Z]+):(\d+)⟧")
 
 
+def placeholders_in(text: str) -> set[str]:
+    """The distinct ⟦CAT:N⟧-shaped placeholders `text` holds, whoever minted them."""
+    return {m.group(0) for m in _PLACEHOLDER_RE.finditer(text or "")}
+
+
 @dataclass
 class Scrubber:
     sensitivity: str = "medium"

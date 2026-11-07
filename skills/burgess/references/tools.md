@@ -65,7 +65,11 @@ local canon.
 ```
 
 - `scrubbed` — the text the subagent should see (original where nothing matched).
-- `redactions` — count of distinct placeholders introduced.
+- `redactions` — count of distinct redacted values `scrubbed` holds, whether this call minted their
+  placeholders or an earlier one did (placeholders are consistent across the session, so a later
+  section reuses `⟦SECRET:1⟧`). It is 0 exactly when `scrubbed` equals the input. A literal `⟦CAT:N⟧`
+  already present in the prose is protected, not redacted, and is not counted. (Before 0.4.6 only the
+  placeholders minted by this call counted, so a reused one reported 0.)
 - `sensitivity` — the engine's configured sensitivity (`kg_ping().sensitivity`); gates which PII categories
   are redacted (secrets are always redacted).
 - `categories` — sorted distinct redaction categories present (e.g. `["EMAIL", "SECRET"]`), `[]` when none.
@@ -565,7 +569,10 @@ build** after a transport hiccup without grepping the filesystem. No args.
 - `coverage` — which source files / `##` sections already have at least one ANCHORED (span-present) edge:
   `files[]` (`{file, covered, sections, covered_sections}`) and per-section `sections[]`
   (`{file, title, covered}`). A section with no covered span hasn't been extracted yet — the **resume**
-  signal. If the source can't be read it degrades to
+  signal. A span counts toward a file the way the boundary verified it: toward the file its edge's
+  `source_file` names when that is a declared source, and toward any file when the edge names none or
+  an unknown one. (Before 0.4.6 every span counted toward every file, so a short span shared by two
+  documents marked a section of the other one covered.) If the source can't be read it degrades to
   `{"files": [], "sections": [], "note": "source unavailable (…)"}`.
 - `derived_present` — a path-existence check on the derived db only (no db open).
 - `projection_degraded` — echoes the last reprojection failure (a read sets it, never this probe); `null` when

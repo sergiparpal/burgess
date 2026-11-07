@@ -195,7 +195,10 @@ def test_edge_attaches_to_slugged_source_not_phantom_node():
     assert "Free Energy Principle" not in nodes          # no phantom raw-label node
     assert len(nodes) == 1                                 # exactly the one slug node, no collision pair
     fe = nodes[slug("Free Energy Principle")]
-    assert [e.source for e in fe.edges] == ["Free Energy Principle"]  # edge attached to the slug node
+    # edge attached to the slug node; since 0.4.6 its stored source is that node's id rather than the label
+    # (tests/test_fix_engine_field_report.py), and its id is the one edge_id built from the label
+    assert [e.source for e in fe.edges] == [slug("Free Energy Principle")]
+    assert [e.id for e in fe.edges] == [edge_id("Free Energy Principle", "relates_to", "active-inference")]
 
 
 def test_placeholder_source_node_id_matches_its_filename_slug():

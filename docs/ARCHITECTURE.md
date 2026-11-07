@@ -76,7 +76,10 @@ verdict path.
 Frontmatter key order is fixed (load-bearing for byte-identical canon): `id`, `label`,
 `node_type`, `file_type`, the three axes, `created_at`/`updated_at`, `edges:`. Edge ids are
 deterministic — `e_{slug(source)}__{slug(relation)}__{slug(target)}` — always recomputed, never
-trusted from disk. Node timestamps are excluded from the content hash so metadata churn doesn't
+trusted from disk. An edge's `source` and `target` are node ids: the write boundary stores them as
+the slugs its node ids and edge ids already use, so an endpoint an extractor wrote as a label
+(`Meta RADAR`) lands as `meta-radar`. The projection resolves the label-form endpoints an older
+canon or a hand edit still holds (§3.5). Node timestamps are excluded from the content hash so metadata churn doesn't
 force reprojection. The parser tolerates a leading BOM, skips malformed edge entries rather than
 dropping the note, and coerces unknown enum values to safe defaults.
 
@@ -202,7 +205,12 @@ re-queues anything (re-grounding stays a `kg_ground` decision):
 Staleness (`is_stale()`) is content-driven, independent of git state: a cheap canon-dir
 `(count, newest-mtime)` pre-gate, then an authoritative per-file content-hash comparison that is
 stat-gated (only files whose size/mtime moved are re-parsed). A schema-outdated db (missing the
-generative-rank or `owner` columns) heals via full rebuild. Reads call `_ensure_projected()`
+generative-rank or `owner` columns) heals via full rebuild, and so does one built under other
+`PROJECTION_RULES` (a value recorded in its meta, bumped when a change to how rows are derived must
+reach every index). That second trigger exists because a stat-unchanged note is rebuilt from its
+index rows rather than re-read, so without it an upgrade would never reach those rows. The rules
+currently include endpoint resolution: an edge endpoint that is not a node id but whose slug is one
+names that node, never a phantom node of its own. Reads call `_ensure_projected()`
 first; a reprojection failure degrades gracefully (`projection_degraded` flag, empty-schema
 fallback) — writes never pass through that seam.
 
@@ -213,7 +221,12 @@ high-entropy fallbacks) plus **PII per sensitivity** (`low` = secrets only; `med
 EMAIL/PHONE/SSN/CC/IP/CREDURL; `high` adds PERSON/ADDRESS) with **consistent placeholders**
 (`⟦CATEGORY:N⟧`) so relational structure survives — one placeholder namespace across the whole
 session. `kg_write` **restores** placeholders to the original text before span verification and
-persisting: the scrub protects egress; the canon stores the original.
+persisting: the scrub protects egress; the canon stores the original. `redactions` counts the
+distinct redacted values the returned text holds, including values an earlier call already minted,
+so it is 0 exactly when `scrubbed` equals the input; an identity entry (a literal `⟦CAT:N⟧` already in
+the prose) is not a redaction. The high-entropy fallbacks over-redact on purpose: a URL path segment
+such as `practical_mutation_testing_tse_2021` can come back as a `SECRET`, which costs nothing because
+`kg_write` restores it, while a URL can carry a real token.
 
 ## 4. The generative layer
 
@@ -253,7 +266,8 @@ renormalized (`fertile | absorbed | isolated`).
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
 - **Read/query (12):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
-  status + section coverage + the engine-resolved `source` — the build-resume probe and
+  status + section coverage, where a span counts toward the file its edge's `source_file` names, as
+  span verification does, + the engine-resolved `source` — the build-resume probe and
   `/kg-build`'s source-of-truth for the configured `source_path`), `query_graph`, `get_node`, `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
   (grounded-edges-only chain + advisory `leap`; capped at

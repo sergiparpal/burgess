@@ -545,8 +545,13 @@ def merge_results_into_nodes(results: list[ValidationResult]) -> dict[str, Node]
     for r in results:
         if r.kind == "edge" and r.written:
             src = slug(r.item.source)
-            edges_by_node.setdefault(src, {})[r.item.id] = r.item
             labels.setdefault(src, r.item.source)  # a readable label for an auto-created placeholder
+            # Store the endpoints in that same canonical key. Kept as given, an endpoint written as a label
+            # ('Meta RADAR' for meta-radar, 3 of 39 edges in one field build on 0.4.5) named no node: the
+            # projection hung the edge on a phantom node, so get_neighbors, degree and bridges missed it.
+            # slug() is idempotent, so the id edge_id already built from these endpoints is unchanged.
+            r.item.source, r.item.target = src, slug(r.item.target)
+            edges_by_node.setdefault(src, {})[r.item.id] = r.item
     for src, ebyid in edges_by_node.items():
         if src not in nodes:
             nodes[src] = Node(id=src, label=labels.get(src, src))  # id == slug, matching its filename

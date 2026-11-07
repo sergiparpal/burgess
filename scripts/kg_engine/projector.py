@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -27,7 +28,7 @@ from .graphio import node_link_data
 from .harness import idf_seeds, node_specificity
 from .harness import specificity as _specificity_gate
 from .model import (Edge, EpistemicState, FAILURE_STATE_VALUES, NON_LIVE_STATE_VALUES, Node, Provenance,
-                    node_content_hash, normalize_text)
+                    node_content_hash, normalize_text, slug)
 from .sources import section_corpus
 
 if TYPE_CHECKING:  # type-only; the projector duck-types .verifies/.concat at runtime
@@ -49,6 +50,13 @@ _NEW_NODE_COLUMNS = {"betweenness", "spec_betweenness", "specificity", "gate_on"
 # was added after the original 11 edge columns — see _EDGE_COLUMNS for why it exists. A pre-owner
 # index.sqlite must full-rebuild exactly like a pre-Stage-2 one.
 _NEW_EDGE_COLUMNS = {"owner"}
+# The rules that DERIVE the projection from the canon, as opposed to the index schema above. Bump it when a
+# change to those rules must reach every existing index: a stored value that differs, or none at all, makes
+# _index_outdated() force one full rebuild, after which _save_meta records the new value. Without it an
+# upgrade would leave every stat-unchanged note's rows as the old rules built them, because the incremental
+# parse rebuilds those notes from the index instead of re-reading them.
+#   "2" (0.4.6): edge endpoints resolve to node ids (_resolve_endpoints).
+PROJECTION_RULES = "2"
 # The `nodes` table column order, in DDL order — the single source of truth for the positional
 # persistence contract. `_NODES_DDL`, the INSERT placeholder string, `_node_row`, and the
 # incremental rank-refresh all derive from this tuple, so a column add/reorder is one edit here
@@ -331,6 +339,39 @@ class Projector:
         foreign owners tie-break by lexicographically-smallest id. Lower tuple wins."""
         return (0 if owner == edge.source else 1, owner)
 
+    @staticmethod
+    def _resolve_endpoints(nodes) -> list:
+        """`nodes` with every edge endpoint naming a node id. An endpoint that is not a node id but whose
+        slug is one's is replaced by that id: a label written as an endpoint ('Meta RADAR' for
+        `meta-radar`, which the write boundary slugs since 0.4.6 but an older canon or a hand edit still
+        holds), or the slug of a legacy raw id (`fep` for a node stored as `FEP`). Anything else, a
+        target no node has yet included, is left as it is. Before this, such an endpoint became a phantom
+        node of its own: the edge was missing from get_neighbors, degree and bridges, and a natural edge
+        was ranked as foreign by _owner_rank (field report on 0.4.5).
+
+        Resolution never changes an edge's id, which edge_id already builds from the slugs. The parsed
+        nodes are not mutated (they may be the parse cache is_stale shared, and their content hashes
+        stand for the canon as written): a node with an edge to resolve is copied, the rest are returned
+        as they are, so a canon that needs nothing yields the identical list."""
+        ids = {n.id for n in nodes}
+        by_slug: dict[str, str] = {}
+        for n in nodes:
+            by_slug.setdefault(slug(n.id), n.id)  # note_paths order, so a (forbidden) clash is deterministic
+
+        def resolve(x: str) -> str:
+            return x if x in ids else by_slug.get(slug(x), x)
+
+        out = []
+        for n in nodes:
+            if all(e.source in ids and e.target in ids for e in n.edges):
+                out.append(n)
+                continue
+            edges = [e if (resolve(e.source), resolve(e.target)) == (e.source, e.target)
+                     else dataclasses.replace(e, source=resolve(e.source), target=resolve(e.target))
+                     for e in n.edges]
+            out.append(dataclasses.replace(n, edges=edges))
+        return out
+
     @classmethod
     def _canonical_edges(cls, nodes) -> list:
         """The deduplicated ``(edge, owner)`` list realizing single-canonical-edge (§1.4) DETERMINISTICALLY.
@@ -554,6 +595,9 @@ class Projector:
             nodes, cur_hashes, cur_stats = cache.nodes, cache.hashes, cache.stats
         else:
             nodes, cur_hashes, cur_stats = self._parse_canon(prior)
+        # Everything derived below sees endpoints that name node ids; the hashes were taken first, so
+        # they keep standing for the canon as written.
+        nodes = self._resolve_endpoints(nodes)
         head = self._head()
         prior_hashes = prior.get("file_hashes", {})
         # R3: the stale-verdict advisory is keyed on a hash of the SOURCE payload (SourceSet concat),
@@ -562,7 +606,7 @@ class Projector:
         cur_source_hash = self._source_hash()
 
         do_full = (not incremental) or (not self.db_path.exists()) or (not prior_hashes) \
-            or (not self.graph_path.exists()) or self._schema_outdated()
+            or (not self.graph_path.exists()) or self._index_outdated()
         report = ProjectReport(full_rebuild=do_full, built_from_commit=head)
 
         # Up-to-date requires the canon AND the source unchanged: a source edit alone (canon byte-
@@ -773,20 +817,42 @@ class Projector:
     def _schema_outdated(self) -> bool:
         """True if an index.sqlite exists but its `nodes` table predates the Stage-2 columns, or its
         `edges` table predates the `owner` column — forces a full rebuild so the late-added columns get
-        populated for every row, not just the ones an incremental pass happens to touch."""
+        populated for every row, not just the ones an incremental pass happens to touch. COLUMNS only:
+        this is also the contention branch's heal test, and that branch can fix columns but never rows
+        (see _index_outdated for the rules half)."""
+        state = self._index_state()
+        return state is not None and not state[0]
+
+    def _index_outdated(self) -> bool:
+        """True if an existing index.sqlite must be rebuilt in full before it can be updated
+        incrementally: its columns are outdated (_schema_outdated), or it was built under other
+        PROJECTION_RULES, which is the same problem for how rows are derived rather than which columns
+        exist. One connection for both halves: is_stale calls this on every read."""
+        state = self._index_state()
+        return state is not None and not (state[0] and state[1])
+
+    def _index_state(self) -> "tuple[bool, bool] | None":
+        """(columns current, rules current) for the existing index.sqlite, or None when there is none
+        (do_full is then already True via the exists() check). An unreadable index counts as outdated
+        on both halves."""
         if not self.db_path.exists():
-            return False  # no db -> do_full is already True via the exists() check
+            return None
         try:
             con = sqlite3.connect(self.db_path)
             con.execute("PRAGMA busy_timeout=5000")  # another session's schema-heal DDL is exclusive
             try:
                 cols = {r[1] for r in con.execute("PRAGMA table_info(nodes)")}
                 ecols = {r[1] for r in con.execute("PRAGMA table_info(edges)")}
+                try:
+                    rules = con.execute("SELECT value FROM meta WHERE key='projection_rules'").fetchone()
+                except sqlite3.Error:
+                    rules = None  # no meta table yet: never saved, so built under no recorded rules
             finally:
                 con.close()
         except sqlite3.Error:
-            return True
-        return not (_NEW_NODE_COLUMNS <= cols and _NEW_EDGE_COLUMNS <= ecols)
+            return (False, False)
+        return (_NEW_NODE_COLUMNS <= cols and _NEW_EDGE_COLUMNS <= ecols,
+                (rules[0] if rules else None) == PROJECTION_RULES)
 
     def _node_row(self, n, ranks: Ranks) -> dict:
         """One node's persisted column values as a dict keyed by `_NODE_COLUMN_NAMES`, so callers read
@@ -1190,6 +1256,8 @@ class Projector:
                     (json.dumps(reexaminable_verdicts or []),))
         con.execute("INSERT OR REPLACE INTO meta VALUES ('source_file_sigs', ?)",
                     (json.dumps(source_file_sigs or {}, sort_keys=True),))
+        # the derivation rules these rows were built under; a mismatch forces one full rebuild.
+        con.execute("INSERT OR REPLACE INTO meta VALUES ('projection_rules', ?)", (PROJECTION_RULES,))
 
     def _read_meta(self) -> dict:
         try:
@@ -1316,7 +1384,7 @@ class Projector:
             entries.append((p, st.st_size, st.st_mtime_ns))
         prior_stats = prior.get("file_stats") or {}
         prior_hashes = prior.get("file_hashes") or {}
-        if prior_stats and prior_hashes and self.db_path.exists() and not self._schema_outdated():
+        if prior_stats and prior_hashes and self.db_path.exists() and not self._index_outdated():
             out = self._parse_canon_incremental(entries, prior_stats, prior_hashes)
             if out is not None:
                 return out
@@ -1415,9 +1483,11 @@ class Projector:
         # (betweenness/spec_betweenness/specificity/gate_on) must reproject EVEN when the canon is
         # unchanged — else the cheap-sig short-circuit below returns False forever on a read-only vault
         # after a plugin upgrade, and every read tool crashes with `no such column: betweenness` (the
-        # read path's _ro() has no schema-heal). _schema_outdated() is a single O(1) PRAGMA, cheap
-        # enough to front every read; a True here forces a full reproject that heals the schema.
-        if self._schema_outdated():
+        # read path's _ro() has no schema-heal). The check is O(1) (two PRAGMAs and one meta lookup on a
+        # single connection), cheap enough to front every read; a True here forces a full reproject that
+        # heals the schema. It also covers PROJECTION_RULES, so an upgrade that changes how rows are
+        # derived reaches a read-only vault the same way.
+        if self._index_outdated():
             return True
         prior = self._read_meta()
         # source pre-gate (review: source-blind staleness): a source-only edit leaves the canon

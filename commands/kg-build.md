@@ -196,7 +196,10 @@ flow as **Step 0** of each section:
    `scrubbed` source. This redacts secrets (always) and PII (per sensitivity) into **consistent placeholders**
    (`⟦SECRET:1⟧`, `⟦EMAIL:1⟧`, …) before any text crosses the egress to a subagent. It returns
    `{scrubbed, redactions, sensitivity, categories}`. For the no-PII demo source (`examples/source.md`),
-   `kg_scrub` is a **no-op** — `redactions: 0` and the scrubbed text equals the original.
+   `kg_scrub` is a **no-op** — `redactions: 0` and the scrubbed text equals the original. `redactions`
+   counts every redacted value the returned text holds, including the ones an earlier section already
+   turned into a placeholder, so it is 0 exactly when nothing was changed. Still hand on `scrubbed`
+   itself, never the original.
 2. **Hand the SCRUBBED text to `kg-extractor`.** The subagent only ever sees the scrubbed (placeholder) form, so
    it emits spans in **scrubbed form** when a redaction fell inside a span.
 3. **`kg_write` RESTORES the spans to the original for the canon.** The boundary maps each placeholder span back
