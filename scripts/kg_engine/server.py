@@ -47,7 +47,7 @@ from .model import (
 )
 from .projector import Projector
 from .reconciler import GROUND_AUDIT, Reconciler
-from .buildplan import parse_arguments, resolve_subset
+from .buildplan import parse_arguments, related_nodes, resolve_subset
 from .scrub import Scrubber, placeholders_in
 from .sources import SourceSet, plan_sections, split_sections
 from .waves import explain_wave_size
@@ -1879,10 +1879,34 @@ class KGEngine:
                     "source_file": name, "of": len(secs)}
         s = secs[idx - 1]
         scrubbed = self.kg_scrub(s.text)
-        return {"ok": True, "source_file": name, "section": idx, "of": len(secs), "heading_level": level,
-                "title": self.kg_scrub(s.title)["scrubbed"] if s.title else "(whole file)",
-                "text": scrubbed["scrubbed"], "redactions": scrubbed["redactions"],
-                "categories": scrubbed["categories"], "sensitivity": scrubbed["sensitivity"]}
+        out = {"ok": True, "source_file": name, "section": idx, "of": len(secs), "heading_level": level,
+               "title": self.kg_scrub(s.title)["scrubbed"] if s.title else "(whole file)",
+               "text": scrubbed["scrubbed"], "redactions": scrubbed["redactions"],
+               "categories": scrubbed["categories"], "sensitivity": scrubbed["sensitivity"]}
+        out.update(self._known_nodes(s.text))
+        return out
+
+    def _known_nodes(self, text: str) -> dict:
+        """``{known_nodes, known_nodes_more}`` for kg_section (0.6.0): the canon nodes whose name `text`
+        mentions (``buildplan.related_nodes``), as ``{id, label, node_type}``, so the extractor can reuse
+        an id instead of coining a near-duplicate of a concept another section already wrote.
+        ``known_nodes_more`` counts the named nodes past the cap. Read from the kg_write baseline cache
+        (one canon parse per change, not per section); labels leave through the egress scrub like every
+        other read. Never fatal: a canon that cannot be read yields an empty list, and the section is
+        still served."""
+        try:
+            nodes = list(self._canon_baseline().values())
+        except Exception as e:  # noqa: BLE001 — the hint is optional; the section text is what matters
+            logger.debug("known_nodes skipped: canon unreadable (%s)", e)
+            return {"known_nodes": [], "known_nodes_more": 0}
+        degree: "Counter[str]" = Counter()
+        for n in nodes:
+            for e in n.edges:
+                degree[slug(e.source)] += 1
+                degree[slug(e.target)] += 1
+        shown, total = related_nodes(text, nodes, degree=degree)
+        listed = [{"id": n.id, "label": n.label, "node_type": n.node_type} for n in shown]
+        return {"known_nodes": self._scrub_egress(listed), "known_nodes_more": total - len(shown)}
 
     def _failure_ids(self, G=None) -> set:
         """Forward edge ids in failure memory (rejected/failed). The generators also check the reverse,

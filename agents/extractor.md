@@ -40,6 +40,22 @@ extract from it and nothing else. If its `title` is not the one in your prompt, 
 guess the text. (A caller may still hand you a section's verbatim text inline instead; then that inline text
 is the section, and you skip `kg_section`.)
 
+**`kg_section` also returns `known_nodes`** (0.6.0). These are up to 60 nodes already in the canon whose name
+your section mentions, most specifically named first, each as `{id, label, node_type}`; `known_nodes_more`
+counts the ones past the cap. They are how your section joins what other sections wrote:
+
+- **The same concept → its id.** When your section speaks of the same thing as a known node, use that id
+  exactly instead of coining your own. That holds in the singular or the plural, and under a shorter or
+  longer name (`radar` for `meta-radar`).
+- **Never for a broader, narrower or merely related concept.** Create your own node, and connect the two
+  only if your text states the relation, with its span.
+- **When in doubt, create a new node.** A duplicate can be merged later with `kg_merge`, while a wrong reuse
+  silently joins two concepts.
+- **Do not redeclare a known node in `nodes[]`.** Name its id in your edges: a redeclared node's label,
+  node_type and body replace the ones already in the canon.
+- **What the list does not show, you create.** A concept missing from it may exist under another name or past
+  the cap, and you cannot look it up.
+
 Either way, cite spans **only** from your section's text — never `Read` the file off disk to pull in,
 or "recall", a sibling section's prose. This is the span-isolation non-negotiable the orchestrator relies
 on: because the boundary verifies a span against the whole `source_file`, a span lifted from a *different*

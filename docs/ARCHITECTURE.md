@@ -53,7 +53,7 @@ verdict path.
 | `advisory_geometry.py` | Advisory hybrid-descriptor DPP ordering over `kg_generate` candidates (behind `divergence.dpp`, default off) |
 | `pathing.py` | The grounded-only path algorithm behind `kg_explain_path` |
 | `waves.py` | Deterministic resolver for `/kg-build`'s extraction wave size |
-| `buildplan.py` | `/kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step) |
+| `buildplan.py` | `/kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), and the canon nodes a section names, for `kg_section` |
 | `export.py` (+ `templates/graph_html.py`) | Render `graph.html` + `GRAPH_REPORT.md` from the derived layer |
 | `harness.py` | Deterministic measurement: agreement, specificity, ideation, convergence |
 | `backend.py` | Headless API-key extraction for CI (same boundary as the interactive flow) |
@@ -282,7 +282,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/kg-build` plan:
   files, sections at each file's heading level, per-section coverage, the wave size; it reads the
   typed arguments and the option text it is handed, so the command needs no shell), `kg_section`
-  (one planned section, cut and egress-scrubbed for the extractor that asks for it), `query_graph`, `get_node`, `get_neighbors`,
+  (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
+  nodes the section names, so the extractor can reuse their ids), `query_graph`, `get_node`, `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
   (grounded-edges-only chain + advisory `leap`; capped at
   `pathing.MAX_EXPLAIN_NODES` distinct nodes — its closure is quadratic in that count, so an uncapped
