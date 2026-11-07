@@ -344,6 +344,14 @@ adversarial grounder loose on the graph's hubs to construct the strongest counte
 What survives becomes `grounded`. What fails becomes **permanent negative memory** — never pruned,
 never re-proposed, surfaced forever in the falsification counters.
 
+**It runs no shell commands.** The engine plans the pass (`kg_ground_plan`): the queue, split into
+batches, one grounder per batch, several at once (the `extract_wave_size` option). After any pins and
+proposals, the claims the extractor marked weak go first, so a pass you stop early has judged them. Each grounder
+fetches the evidence for its items itself (`kg_ground_item`): the claim, whether its quoted text is
+still in your source, and the paragraph around it. Through 0.6.1 the orchestrator pulled the whole
+queue at once, and on a large graph read it back with scripts, which in auto mode stopped on
+permission prompts.
+
 Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.
 
 ### Arguments
@@ -356,7 +364,7 @@ Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.
 
 | Form | Purpose |
 | --- | --- |
-| *(omitted)* | Drain the entire queue: every `unverified` edge **and** every `unverified` node, then attack the hubs. |
+| *(omitted)* | Drain the entire queue: every `unverified` relationship, and every `unverified` *proposed* node (a `/kg-diverge` pin or a generated idea), then attack the hubs. The nodes `/kg-build` extracts are not queued: the claims about them are their relationships. |
 | A topic or node name | Focus the pass on that area of the graph, and use it to pick which hubs to attack. Useful when the backlog is large and you care about one region, or when you want a second adversarial pass over a concept you don't trust. |
 
 The filter is an **ordering and scoping** device only. It never changes the evidence bar: verdict
@@ -902,7 +910,7 @@ a `graph`-wins verdict.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **29 MCP tools** exposed by the `burgess`
+The nine slash commands are a thin language layer over **31 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 

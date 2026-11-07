@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-two graph tools (§1), then the seven divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-four graph tools (§1), then the seven divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,12 +17,13 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-two** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-four** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
-the `/kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20).
-The seven **divergence-surface** tools (§1B) complete the server's **twenty-nine**.
+the `/kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), and the `/kg-ground` pair
+`kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22).
+The seven **divergence-surface** tools (§1B) complete the server's **thirty-one**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/kg-build`, …) that *orchestrate* these tools.
 
@@ -689,6 +690,69 @@ launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `
 `ok: false` with `error` for a file that is not a configured source file (`files[]` lists the configured
 basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of
 extractors asking at once keeps one placeholder per value.
+
+### 1.21 `mcp__plugin_burgess_burgess__kg_ground_plan(focus="", configured_wave_size="", batch_size=None)`
+
+The `/kg-ground` plan (0.7.0): what the grounding loop verdicts, in batches for parallel grounders. It
+replaces listing the queue through `query_graph`, which on a real canon came back as 300 000 characters,
+was saved to a file, and was read with scripts that auto mode stopped on permission prompts.
+**Read-only and projection-free.**
+
+- **The queue:** every `unverified` edge (any lane) and every `unverified` HYPOTHESIZED node (a `/kg-diverge`
+  pin or a generated proposal). The extractor's own unverified nodes are not queued: each names a concept the
+  text uses, and the claims about it are its edges. They are counted in `queue.extractor_nodes_not_queued`.
+- **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
+  extractor marked weak (`confidence: AMBIGUOUS`, or a `confidence_score` under 0.5; counted in
+  `queue.weak_edges`), then the other text edges. Inside each group the order is the source's (file, then the
+  section that holds the span), so one batch covers contiguous text.
+- **An item is `{id, kind}`:** an edge id already names its endpoints and relation
+  (`e_<source>__<relation>__<target>`); the grounder fetches the rest with `kg_ground_item`.
+- `focus` — the command's typed `$ARGUMENTS`: keeps the items that touch a node it names (every content word
+  of the focus among the node's id or label words, singular or plural, accents ignored). Empty = everything.
+- `configured_wave_size` — the `extract_wave_size` option as the command text carries it, the same channel as
+  `kg_build_plan`: how many grounders run at once (default 6, clamped 1–10).
+- `batch_size` — items per grounder, 1–20 (the grounder's per-run cap), default 12.
+
+```json
+{"ok": true, "focus": null,
+ "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "extractor_nodes_not_queued": 399},
+ "batch_size": 12, "wave_size": 6, "wave_size_from": "default",
+ "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
+ "waves": 3,
+ "hubs": [{"id": "radar-meta", "label": "RADAR de Meta", "degree": 9}],
+ "source": {"path": "C:/docs/fuente", "exists": true, "files": ["Fábricas de software.md"]}}
+```
+
+- `hubs` — up to 5 nodes of degree 3 or more (within the focus), the adversarial grounder's candidates.
+- `source` — the configured source, as in `kg_status`, for the adversarial grounder's searches.
+- An item leaves the plan once it carries a verdict, so calling it again between waves is the progress probe.
+
+### 1.22 `mcp__plugin_burgess_burgess__kg_ground_item(target_id, kind="edge")`
+
+One queued item's evidence, so a grounder verdicts it without reading a file (0.7.0). **Read-only.**
+
+```json
+{"ok": true, "kind": "edge",
+ "edge": {"id": "e_meta-radar__approximates__riesgo", "source": "meta-radar", "relation": "approximates",
+          "target": "riesgo", "provenance": "span-present", "authored_by": "agent",
+          "epistemic_state": "unverified", "confidence": "INFERRED", "confidence_score": 0.5,
+          "source_file": "doc.md", "span": "El RADAR de Meta mide el riesgo de cada cambio", "notes": ""},
+ "span_in_source": true,
+ "source_node": {"id": "meta-radar", "label": "Meta RADAR", "node_type": "metric", "body": "…"},
+ "target_node": {"id": "riesgo", "label": "riesgo", "node_type": "failure", "body": "…"},
+ "context": {"source_file": "doc.md", "section": 1, "title": "Riesgo", "excerpt": "…"}}
+```
+
+- `span_in_source` — the engine's own check, now: does the span still verify against its file? `false` is a
+  stale or broken span; `null` for a span-less (hypothesized) edge.
+- `context` — the excerpt of the source section that holds the span (`groundplan.span_excerpt`), or `null`.
+  It is the paragraph and its neighbours, at most 3000 characters, and for a long table the rows around the
+  span.
+- For `kind="node"`: `{node, edges}`, the node with its body (where a `[diverge]` marker shows) and up to 20
+  incident edges.
+- All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
+  placeholders included, restores and verifies.
+- `ok: false` for an unknown id, or a `kind` other than `edge`/`node`.
 
 ---
 

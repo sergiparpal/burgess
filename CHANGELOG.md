@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.7.0 — 2026-11-07
+
+`/kg-ground` no longer runs a shell command, so auto mode no longer stops it on permission prompts. Reported
+from the Windows install after 0.6.1, on the canon of its 8-file corpus (168 unverified edges, 399 nodes): it
+asked for permission over and over, as `/kg-build` did before 0.5.0. Two new engine tools plan the pass and
+hand each grounder its evidence, and the grounders run in parallel waves. The write boundary, the verdict
+rules and the canon format do not change.
+
+### Why it asked
+
+- **The queue came back as 300 000 characters.** The command listed it with `query_graph`, and the
+  orchestrator asked for all of it (`limit=1000`). The answer held every edge and every node with its full
+  text, and Claude Code saved it to a file.
+- **The orchestrator read that file with Bash.** It wrote Python scripts to parse it. It then read the
+  plugin's own agent files and engine source through Bash, to learn how `kg_ground` works; that read waited
+  39 seconds for the user.
+- **Auto mode sends every Bash command to its classifier.** It ignores a command's Bash permission (see
+  0.5.0).
+
+### Fixed
+
+- **One grounder for the whole queue.** Stage 1 launched a single grounder to drain every item, although
+  the grounder's contract caps a run at 20.
+- **The grounder checked spans against the demo.** Its prompt named `examples/source.md` and told it to read
+  the source whole: for the reporting corpus, 8 files and about 450 KB.
+
+### Added
+
+- **`kg_ground_plan(focus, configured_wave_size, batch_size)`**, the pass's Stage 0 in the engine. It returns
+  the queue as `{id, kind}` items in batches, one batch per grounder, with the wave size, the hubs for the
+  adversarial grounder and the configured source.
+  - **The queue:** every `unverified` edge and every `unverified` hypothesized node.
+  - **The order:**
+    - `[diverge]` pins first;
+    - then the other hypotheses;
+    - then the edges their extractor marked weak (`AMBIGUOUS`, or a `confidence_score` under 0.5);
+    - then the rest.
+
+    Each group is in source order, so a batch covers contiguous text.
+  - **`focus`** (the typed arguments) keeps the items that touch a node it names.
+  - **On the reporting canon:** 16 602 characters, 14 batches of 12 in 3 waves, with its 7 weak edges first.
+- **`kg_ground_item(target_id, kind)`**, one item's evidence, with no file read. The grounder gets:
+  - the edge;
+  - `span_in_source`, the engine's own check of whether its span still verifies;
+  - its two nodes;
+  - the excerpt of the source around the span.
+
+  The excerpt is the paragraph and its neighbours, at most 3000 characters, or the rows around the span in a
+  long table. Text goes through the session scrub, so a support span copied back from it restores and
+  verifies. On the reporting canon, all 168 spans verified and had an excerpt, at about 4000 characters an
+  item.
+- **`kg_engine/groundplan.py`:** the deterministic parts: the batch and focus rules, the weak mark and the
+  excerpt.
+- The MCP surface goes from 29 to 31 tools.
+
+### Changed
+
+- **`/kg-ground` declares no Bash and runs no shell.** Its `allowed-tools` are `Task` and five engine tools.
+  It says it needs no shell and no file access, and never to pull the queue through `query_graph`.
+- **Grounders run in parallel waves:** one per batch, `wave_size` at a time. The `extract_wave_size` option
+  now bounds both `/kg-build`'s extractors and `/kg-ground`'s grounders, and its description says so.
+- **The grounder's contract.** It takes its batch's ids from the prompt and fetches each item with
+  `kg_ground_item`. It judges from that evidence, and checks that a span states the relation in its
+  direction, not its opposite. It reads the source only to relocate a stale span (Stage 0b).
+- **The adversarial grounder** reads each attacked edge through `kg_ground_item`. It searches the configured
+  source files its prompt lists, never `examples/source.md` outside the demo or the plugin's own files.
+- **The extractor's own nodes are no longer queued.** Each names a concept the text uses, and the claims
+  about it are its edges, which are queued. The plan counts them: 399 on the reporting canon.
+
+### Tests
+
+- **`tests/test_kg_ground_plan.py` (21 tests)** covers:
+  - the excerpt: the paragraph and its neighbours, the cap, a span across paragraphs, a long table;
+  - the batch, focus and order rules: pins, hypotheses, weak edges, then source order;
+  - a verdicted item leaving the queue, and the waves and the option;
+  - each item's evidence, a stale span, the session scrub round trip, and the refusals;
+  - both tools through a real FastMCP;
+  - the command and agent texts that wire it together.
+- The tool-count pin goes to 31. 1533 → 1554 passed, 3 skipped.
+- **The new tests cannot fail informatively on 0.6.1:** there, the file stops at import, because
+  `kg_engine.groundplan` does not exist. The fix was checked end to end instead.
+  - **Headless, in auto mode,** with Claude Code 2.1.316 and the plugin loaded from this tree, on
+    `examples/source.md`: a `/kg-build`, then a `/kg-ground`. The grounder fetched all 10 items with
+    `kg_ground_item` and grounded them, with no Bash, `Read` or `Grep` in the whole pass.
+  - **A second pass, with one weak edge added so that `claim` became a hub.** The grounder rejected the edge
+    (`wrong-relation`). The adversarial grounder attacked `claim` and wrote two counter-edges. Its one file
+    read was the source, inside the project folder.
+  - **Neither pass ran a shell command or was denied a permission.** The two passes cost $0.55 and $0.53.
+  - **The plan and the evidence, on a copy of the reporting canon:** the queue and its 168 excerpts came back
+    as described above, and the canon was left untouched.
+
 ## 0.6.1 — 2026-11-07
 
 Patch release from the full `/kg-build` on 0.6.0 of the reporting install's 8-file corpus. The build ended with

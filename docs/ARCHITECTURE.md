@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (29 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (31 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -273,17 +273,21 @@ clean band separation. Candidates route through `kg_propose`; the four endo oper
 scores, per node grounded from a hypothesis, how long it stayed perturbing before the graph
 renormalized (`fertile | absorbed | isolated`).
 
-## 5. The MCP tool surface (29 tools)
+## 5. The MCP tool surface (31 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
-- **Read/query (14):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
+- **Read/query (16):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
   status + section coverage, where a span counts toward the file its edge's `source_file` names, as
   span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/kg-build` plan:
   files, sections at each file's heading level, per-section coverage, the wave size; it reads the
   typed arguments and the option text it is handed, so the command needs no shell), `kg_section`
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
-  nodes the section names, so the extractor can reuse their ids), `query_graph`, `get_node`, `get_neighbors`,
+  nodes the section names, so the extractor can reuse their ids), `kg_ground_plan` (the `/kg-ground`
+  queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
+  grounders, plus hubs and the wave size), `kg_ground_item` (one queued item's evidence: the edge,
+  whether its span still verifies, its nodes and the excerpt of the source around the span, so a
+  grounder reads no file), `query_graph`, `get_node`, `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
   (grounded-edges-only chain + advisory `leap`; capped at
   `pathing.MAX_EXPLAIN_NODES` distinct nodes — its closure is quadratic in that count, so an uncapped

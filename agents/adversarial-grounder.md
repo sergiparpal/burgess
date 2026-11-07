@@ -1,7 +1,7 @@
 ---
 name: kg-adversarial-grounder
 description: Use to red-team the graph's HUB nodes — generate the strongest counter-edges (typed attacked_by) and, where a claim is genuinely falsified, set the attacked edge to failed via kg_ground so the failure becomes never-pruned negative information (§1.7).
-tools: Read, Grep, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph, mcp__plugin_burgess_burgess__get_neighbors, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_ground
+tools: Read, Grep, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph, mcp__plugin_burgess_burgess__get_neighbors, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_ground
 model: opus
 ---
 
@@ -37,8 +37,12 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
 - `mcp__plugin_burgess_burgess__get_neighbors(node_id, relation=None)` → the incident edges of a hub: these are the
   load-bearing claims you must try to refute. Look especially for `grounds`, `bridges`, `approximates`,
   `reconciles_with` edges into/out of the hub.
-- `Read` / `Grep` over the source document (`examples/source.md` in the demo; the path the run was built from)
-  to find the VERBATIM span that licenses a counter-claim. **Every non-deterministic edge needs a real span.**
+- `mcp__plugin_burgess_burgess__kg_ground_item(target_id=<edge id>)` → one incident edge with its span, whether
+  that span still verifies, its two nodes, and the excerpt of the source around it (0.7.0). Read this before
+  you attack the edge: the excerpt often holds the qualification that defeats it.
+- `Read` / `Grep` over the configured source files your prompt lists (`kg_ground_plan`'s `source.files`, in
+  `source.path`; `examples/source.md` in the demo) to find the VERBATIM span that licenses a counter-claim.
+  Search them; do not read the plugin's own files. **Every non-deterministic edge needs a real span.**
 
 ## The contract you must honor (read this twice)
 1. **span-present (§1.5).** A counter-edge is still a non-deterministic edge. It MUST carry a `span` that is a

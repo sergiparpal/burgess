@@ -322,3 +322,35 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Why the exception is safe:** a placeholder has nothing to lose: no type, no body, and a label that is only its id. The canon merge that makes redeclaring a typed node dangerous (its label, node_type and body are replaced) is exactly what fills a placeholder in.
 - **Not covered:** a node declared with an off-pack type is QUARANTINED and never written, so an untyped node in the canon is a placeholder or a hand edit.
 - **Pinned in:** `tests/test_fix_untyped_placeholders.py`. Run against the 0.6.0 engine, 3 of its 6 tests fail: the two new signals and the contract text. The other three pin that the signals do not misfire, and that declaring a placeholder fills it in.
+
+## /kg-ground plans its queue and hands out evidence in the engine, and runs no shell (2026-11-07)
+
+- **Decision:** `/kg-ground` declares `Task` and five engine tools, and no `Bash`. Two new MCP tools do what its orchestrator and its grounders did by hand:
+  - `kg_ground_plan(focus, configured_wave_size, batch_size)` returns the queue as `{id, kind}` items in batches (one per grounder, `wave_size` grounders at a time), plus the hubs for the adversarial grounder and the configured source.
+  - `kg_ground_item(target_id, kind)` returns one item's evidence: the edge, `span_in_source` (the engine's own check, now), its two nodes, and the excerpt of the source section that holds the span (`groundplan.span_excerpt`). Free text goes through the session scrub.
+  - The grounder judges from that evidence and reads no file. The exception is relocating a stale span (Stage 0b), whose text is gone.
+- **Bug it fixes:** in auto mode, `/kg-ground` asked for permission over and over (field report on 0.6.1, the failure `/kg-build` had before 0.5.0).
+  - Its orchestrator listed the queue with `query_graph(epistemic_state="unverified", limit=1000)`. On a canon of 168 unverified edges and 399 nodes that came back as 300 000 characters, which Claude Code saved to a file.
+  - The orchestrator then parsed that file with Python scripts, and read the plugin's own engine source to learn `kg_ground`, all through Bash.
+- **Two more flaws, fixed with it:**
+  - One grounder was asked to drain the whole queue; batches now spread it over parallel grounders, within the grounder's 20-item cap.
+  - The grounder's prompt checked spans against `examples/source.md`, the demo, and had it read the source files whole: about 450 KB for the reporting corpus.
+- **The queue's scope, decided with the user:** every `unverified` edge, and only the HYPOTHESIZED nodes (`/kg-diverge` pins, generated proposals). An extractor's node names a concept the text uses, and the claims about it are its edges, which are queued; grounding 399 such nodes one by one would multiply the work for little gain. They are counted (`extractor_nodes_not_queued`), never hidden.
+- **Why an excerpt and not the section:** a grounder judges whether a span states a relation, and in which direction; that takes the sentence and its neighbours. One section of the reporting corpus is 44 000 characters. The excerpt is the paragraph and its neighbours up to 3000 characters, and the rows around the span for a long table.
+- **The order:** `[diverge]` pins first, as FUSION Stage 4 asks, then the other hypotheses, then the text edges their extractor marked weak (`confidence: AMBIGUOUS`, or a `confidence_score` under 0.5; `groundplan.is_weak`), then the rest.
+  - **Weak first:** they are the claims likeliest to be rejected, so a pass cut short has judged them. In the field canon, 7 of the 168 edges are weak.
+  - **Source order inside each group:** a batch then covers contiguous text, so one grounder sees related claims together.
+  - **Not by score alone:** sorting every edge by its score would scatter each batch across the corpus. Most scores sit between 0.5 and 0.7, so the order would add little.
+- **Rejected alternatives:**
+  - (a) *Page `query_graph`:* it does not filter edges by state, and every page still carries full spans and bodies.
+  - (b) *Keep one grounder, raise its cap:* serial, and one context for hundreds of judgments.
+  - (c) *Give grounders the section through `kg_section`:* that needs a section number the edge does not carry, and whole sections are too long.
+  - (d) *A source-search tool for the adversarial grounder:* it still searches the source files with Grep/Read inside the project folder, which needs no shell. Left for when a source lives outside it.
+- **Accepted trade-offs:**
+  - Subagent launches still go through the classifier in auto mode, as in `/kg-build`.
+  - The adversarial grounder still reads source files.
+  - The wave size is the `extract_wave_size` option, now described as bounding both commands.
+- **Pinned in:** `tests/test_kg_ground_plan.py`, and the 31-tool count in `tests/fusion/test_diverge_surface.py`.
+  - Against the 0.6.1 engine the test file stops at import, because `kg_engine.groundplan` does not exist, so it cannot fail informatively there.
+  - **Checked on a copy of the field canon:** the plan is 16 602 characters instead of 300 000: 14 batches of 12 in 3 waves, the 7 weak edges first. All 168 spans verified and had an excerpt.
+  - **Checked end to end:** a headless `/kg-build` and two `/kg-ground` passes of the demo, in auto mode with Claude Code 2.1.316. They ran no shell command and were denied no permission. The adversarial grounder's one file read was the source, inside the project folder.
