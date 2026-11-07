@@ -92,8 +92,10 @@ item that claims `provenance: "hypothesized"` is REJECTED with reason `write-lan
 across sentences is `inferred`, still with its verbatim span; a proposal goes to `kg_propose`. (Before 0.5.1
 the boundary accepted such an item with its span dropped and unchecked.)
 
-An edge whose `source` and `target` slug to one node is REJECTED `self-loop` (0.5.2), in every lane. Call it
-with the payload alone: `source` without `construction` raises a `ValueError` before anything is written,
+An edge whose `source` and `target` slug to one node is REJECTED `self-loop` (0.5.2), in every lane.
+`placeholders` (0.6.1, present only when non-empty) lists the NEW notes this write created untyped. Each is a
+node an edge named that the payload did not declare and the canon did not hold, so it has no node_type and no
+body. Declaring it in a later payload, with the same id, fills it in. Call it with the payload alone: `source` without `construction` raises a `ValueError` before anything is written,
 which the transport envelope returns as `{ok: false, error, error_kind: "ValueError"}`.
 
 `construction` (optional) routes this SAME key-free, span-verified write to a separately-named **second
@@ -680,6 +682,9 @@ launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `
     the extractor's call, and nothing is merged automatically.
   - **Egress:** labels pass the egress scrub.
 - `known_nodes_more` — how many more nodes the section names past the cap.
+- `untyped: true` on a known node (0.6.1) — it has no pack type: a placeholder an edge created without
+  declaring it (an off-pack type is QUARANTINED and never written). The contract lets the section that
+  defines it declare it, the one exception to "never redeclare a known node".
 
 `ok: false` with `error` for a file that is not a configured source file (`files[]` lists the configured
 basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of

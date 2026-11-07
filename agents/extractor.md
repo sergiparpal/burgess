@@ -53,6 +53,9 @@ counts the ones past the cap. They are how your section joins what other section
   silently joins two concepts.
 - **Do not redeclare a known node in `nodes[]`.** Name its id in your edges: a redeclared node's label,
   node_type and body replace the ones already in the canon.
+- **Except an `untyped: true` one.** It has no pack type: a placeholder another section created by naming it in
+  an edge without declaring it. If your section defines it, declare it with the same id and its pack
+  node_type, label and body, which fills it in. Link to it like any known node either way.
 - **What the list does not show, you create.** A concept missing from it may exist under another name or past
   the cap, and you cannot look it up.
 
@@ -151,9 +154,12 @@ Field rules:
 - `id` is **optional** on a node — if absent the boundary slugs it from `label`. Prefer to set it explicitly
   to a **stable slug** (lowercase, hyphenated: `generality-confound`, `specificity-weighted-betweenness`) so the
   same concept gets the same id every run and across sections.
-- `source`/`target` on an edge are **node ids (slugs)**, not labels. The boundary auto-creates a placeholder
-  node for an edge's `source` if it is missing from `nodes[]`; a `target` may reference a node you have not
-  created yet (e.g. it appears in a later section). You do **not** need to redeclare a node you already wrote.
+- `source`/`target` on an edge are **node ids (slugs)**, not labels. **Declare in `nodes[]` every node your
+  edges name**, with its pack `node_type`, a `label` in the text's words and a short `body` from your section,
+  unless it is a known node (above) or already in your payload. You do **not** need to redeclare a node you
+  already wrote. An undeclared endpoint is still written, but as an untyped placeholder with no type and no
+  body. `kg_write` lists it under `placeholders`, and later sections see it as `untyped` and hesitate to link
+  to it (0.6.1).
 - **Name ids in the source's own words and language.** An id is the term as the text writes it, in lowercase
   ASCII kebab-case with accents dropped (`cuello de botella` → `cuello-de-botella`, `revisión humana` →
   `revision-humana`), never a translation of it (`bottleneck`). Keep the accents in the `label`. Other
@@ -233,6 +239,9 @@ prose edges `deterministic`.
    - `retryable=false` + `write-lane-hypothesis` → you marked the item `hypothesized`. Re-emit it as
      `inferred` (or `span-present`) with the verbatim span that anchors it, or drop it if no span does.
    - `retryable=false` + `self-loop` → the edge joined a node to itself. There is no claim to repair: drop it.
+   - `placeholders` in the result → your edges named a node you did not declare, and it was written untyped.
+     Re-send the same payload with that node declared (same id, its node_type, label and body); everything
+     else in it dedups.
    - Any other `retryable=false` **semantic** rejection is **FINAL** — do not loop. Drop the item and report it.
    - DEMOTED items were written (with an axis corrected) — leave them; just report what was stripped.
    - QUARANTINED items used an undeclared type — fix the type to a pack type if the text supports it, else report

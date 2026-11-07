@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.1 — 2026-11-07
+
+Patch release from the full `/kg-build` on 0.6.0 of the reporting install's 8-file corpus. The build ended with
+399 nodes, 168 edges and about 8 duplicate groups, down from 19, but one node, `camel`, was an untyped
+placeholder that two later sections refused to link to. The write boundary, grounding and the canon format do
+not change.
+
+### Fixed
+
+- **An undeclared endpoint became an untyped node silently.** An extractor named `camel` in an edge without
+  declaring it. The boundary wrote it, as documented, as a placeholder with no node_type and no body, and
+  reported nothing. Later sections saw it in their `known_nodes` as an undeclared-type node, and two of them
+  refused to link to it, because their contract said never to redeclare a known node.
+  - `kg_write` now returns `placeholders`: the new notes it created untyped.
+  - `kg_section` marks such a known node `untyped: true`.
+  - The extractor's contract asks it to declare every node its edges name. When `placeholders` comes back, it
+    re-sends its payload with the node declared.
+  - A section that defines an `untyped` known node declares it with the same id, which fills in its type,
+    label and body: the one exception to "never redeclare a known node".
+  - `/kg-build`'s launch template and failure modes say the same.
+
+### Tests
+
+- **`tests/test_fix_untyped_placeholders.py` (6 tests)** covers:
+  - the placeholder reported;
+  - no report when the node is declared or already known;
+  - the `untyped` mark in the next section, and declaring the node to fill it in and clear the mark, with its
+    edge kept;
+  - no mark on a typed node;
+  - the contract's and the command's texts.
+- **Verified against 0.6.0.** Run against the 0.6.0 engine, 3 of the 6 fail: the two new signals and the
+  contract text. The other three pin that the signals do not misfire, and that declaring a placeholder fills
+  it in. 1527 → 1533 passed, 3 skipped.
+
 ## 0.6.0 — 2026-11-07
 
 `kg_section` now shows each extractor the nodes already in the canon that its section names, so later

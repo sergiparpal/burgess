@@ -310,3 +310,15 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Synonyms and translations still slip through to `kg_merge`.
   - The match is for scripts with word boundaries (`[^\W_]+`), which fits this corpus but not, say, unsegmented CJK.
 - **Pinned in:** `tests/test_known_nodes.py`. Checked end to end on the demo in waves of 2: the second wave was shown the first wave's nodes and reused `generality-confound` and `claim`, without redeclaring either.
+
+## An untyped placeholder is reported, and the section that defines it declares it (2026-11-07)
+
+- **Decision:**
+  - `kg_write` returns `placeholders`: the NEW notes it created untyped, each a node an edge named that the payload did not declare and the canon did not hold.
+  - `kg_section` marks such a known node `untyped: true`.
+  - The extractor's contract asks it to declare every node its edges name, to re-send its payload with the node declared when `placeholders` comes back, and to declare an `untyped` known node when its section defines it. That is the one exception to "never redeclare a known node".
+- **Problem it addresses:** in a full build on 0.6.0, one extractor named `camel` in an edge without declaring it. The boundary wrote it as a placeholder, with no node_type and no body, and said nothing. Later sections saw an undeclared-type node in their `known_nodes`, and two of them refused to link to it.
+- **Why not reject the undeclared endpoint:** the edge itself is span-verified, and the placeholder rule is documented and relied upon. Rejecting it would throw away a verified claim over a missing declaration that a later write can supply. Reporting it keeps the claim and names the fix.
+- **Why the exception is safe:** a placeholder has nothing to lose: no type, no body, and a label that is only its id. The canon merge that makes redeclaring a typed node dangerous (its label, node_type and body are replaced) is exactly what fills a placeholder in.
+- **Not covered:** a node declared with an off-pack type is QUARANTINED and never written, so an untyped node in the canon is a placeholder or a hand edit.
+- **Pinned in:** `tests/test_fix_untyped_placeholders.py`. Run against the 0.6.0 engine, 3 of its 6 tests fail: the two new signals and the contract text. The other three pin that the signals do not misfire, and that declaring a placeholder fills it in.

@@ -158,7 +158,8 @@ Get the section's text with mcp__plugin_burgess_burgess__kg_section(source_file:
 and extract from that text only. It is the engine's verbatim, egress-scrubbed cut of the section: copy every
 span EXACTLY from it, ⟦CAT:N⟧ placeholders included. If the title it returns is not the one above, say so in
 your report. Its known_nodes are nodes other sections already wrote that your section names: reuse a known
-node's id only for the same concept, and never redeclare it in nodes[].
+node's id only for the same concept, and never redeclare it in nodes[] unless it is marked untyped and your
+section defines it. Declare in nodes[] every other node your edges name.
 
 Follow your system contract: declared node_types (compression, primitive, claim, metric, operation, failure)
 and edge_types (grounds, attacked_by, reconciles_with, bridges, collapses_into, confounded_by, approximates,
@@ -272,6 +273,9 @@ spaces to hyphens — e.g. `e_generality-confound__attacked-by__specificity` (th
   range) → the source changed since the plan. Call `kg_build_plan` again, and launch from its new numbering.
 - **REJECTED `self-loop`** → the extractor wrote an edge from a node to itself. Nothing to retry: there was no
   claim. Report it with the other rejections.
+- **`placeholders` in a kg_write result** → the extractor named a node without declaring it, and the node landed
+  untyped. Its contract has it re-send the payload with the node declared. If one is still untyped at the end,
+  list it in the report: a later section that defines it can declare it, and `/kg-ground` can judge it.
 - **A refused `kg_write` call** (`ok: false`, "`source` is only valid together with `construction`") → the
   extractor passed `source` to kg_write. Nothing was written; it should re-send the payload alone.
 - **REJECTED `write-lane-hypothesis`** → the extractor marked an item `hypothesized`, the proposal lane that

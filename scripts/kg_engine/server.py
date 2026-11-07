@@ -1025,6 +1025,13 @@ class KGEngine:
                                    existing_node_ids={n.id for n in existing_nodes},
                                    restore=restore, max_edges_per_kb=self.max_edges_per_kb)
         nodes = merge_results_into_nodes(results)
+        # The NEW notes this write creates untyped (0.6.1): a node an edge names that the payload does not
+        # declare and the canon does not hold yet becomes a placeholder, with no node_type and no body. It
+        # used to happen silently; in one field build (0.6.0) `camel` landed that way, and two later
+        # extractors refused to link to an untyped node. Reported, the extractor can declare it at once.
+        declared = {r.item.id for r in results if r.kind == "node" and r.written}
+        known_ids = {n.id for n in existing_nodes}
+        placeholders = sorted(nid for nid in nodes if nid not in declared and nid not in known_ids)
         with self._critical_write():
             info = self.canon.write_nodes(list(nodes.values()), message=message) if nodes else None
         rolled_back = bool(info and info.rolled_back)
@@ -1061,6 +1068,8 @@ class KGEngine:
             "error": (self._scrub_error(info.error) if rolled_back else None),
             "receipt": receipt,
         }
+        if placeholders and not rolled_back:
+            out["placeholders"] = placeholders
         if refused:
             # the lane refusals lead the details, and count as REJECTED, exactly as kg_propose folds its own
             out["details"] = refused + out["details"]
@@ -1905,7 +1914,12 @@ class KGEngine:
                 degree[slug(e.source)] += 1
                 degree[slug(e.target)] += 1
         shown, total = related_nodes(text, nodes, degree=degree)
-        listed = [{"id": n.id, "label": n.label, "node_type": n.node_type} for n in shown]
+        # `untyped` (0.6.1) marks a node with no pack type: a placeholder an edge created without declaring
+        # it (a node declared with an off-pack type is QUARANTINED and never reaches the canon, so in practice
+        # nothing else is untyped but a hand edit). The section that defines it may declare it, which is the
+        # one case the contract allows redeclaring a known node.
+        listed = [{"id": n.id, "label": n.label, "node_type": n.node_type,
+                   **({"untyped": True} if n.node_type == UNDECLARED_TYPE else {})} for n in shown]
         return {"known_nodes": self._scrub_egress(listed), "known_nodes_more": total - len(shown)}
 
     def _failure_ids(self, G=None) -> set:
