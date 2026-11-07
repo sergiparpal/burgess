@@ -1895,6 +1895,169 @@ class KGEngine:
         out.update(self._known_nodes(s.text))
         return out
 
+    # ---- the /kg-ground plan (0.7.0) -------------------------------------------------------------------
+    def kg_ground_plan(self, focus: "str | None" = "", configured_wave_size: "str | int | None" = None,
+                       batch_size: "int | str | None" = None) -> dict:
+        """What `/kg-ground` verdicts, in batches for parallel grounders: the grounding loop's Stage 0, which
+        through 0.6.1 the orchestrator assembled from `query_graph`. On a real canon that call returned
+        300 000 characters, which Claude Code saved to a file, and the orchestrator read it with scripts run
+        through Bash, which auto mode stops on permission prompts (field report on 0.6.1).
+
+        The queue holds every `unverified` edge, in any lane, and every `unverified` HYPOTHESIZED node (a
+        /kg-diverge pin or a generated proposal). An extractor's unverified nodes stay out of it: each one
+        names a concept the text uses, and the claims about it are its edges, which are queued. They are
+        counted in `queue.extractor_nodes_not_queued`. `focus` (the command's `$ARGUMENTS`) keeps the items
+        that touch a node it names, with the word rules of `buildplan`. The order is: `[diverge]`-pinned items
+        first (the FUSION Stage 4 preference), then the other hypothesized ones, then the text edges their
+        extractor marked weak (`groundplan.is_weak`, counted in `queue.weak_edges`), then the other text
+        edges. Inside each group the order is the source's (file, then section), so one batch covers
+        contiguous text. Items are `{id, kind}` only: an edge id already names its endpoints and relation
+        (`e_<source>__<relation>__<target>`), and each grounder fetches what it judges with
+        `kg_ground_item`.
+
+        `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
+        channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
+        1–20, default 12. `hubs` are the most connected nodes (degree 3 or more, at most 5), the adversarial
+        grounder's candidates. Read-only; it never projects."""
+        from .groundplan import (DEFAULT_BATCH_SIZE, DIVERGE_MARK, batches as chunk, clamp_batch_size,
+                                 focus_matches, is_weak)
+
+        size = clamp_batch_size(batch_size) if batch_size not in (None, "") else DEFAULT_BATCH_SIZE
+        cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
+        wave, origin = explain_wave_size("", cfg)
+        nodes = list(self._canon_baseline().values())
+        focus = (focus or "").strip()
+        in_focus = {n.id for n in nodes if focus_matches(focus, n.id, n.label)}
+        texts = self.source_set().texts
+        file_rank = {name: i for i, name in enumerate(texts)}
+        sections: "dict[str, list[str]]" = {}
+
+        def position(e) -> "tuple[int, int]":
+            """(file rank, section index) of the section that holds the edge's span; unknown last."""
+            name = SourceSet._key(e.source_file) if e.source_file else ""
+            if name in texts and e.span and e.span.strip():
+                if name not in sections:
+                    sections[name] = [normalize_text(s.text) for s in plan_sections(texts[name])[1]]
+                nspan = normalize_text(e.span)
+                for i, norm in enumerate(sections[name]):
+                    if nspan in norm:
+                        return file_rank[name], i
+                return file_rank[name], len(sections[name])
+            return len(texts), 0
+
+        seen: "set[str]" = set()
+        items: "list[tuple[tuple, str, str]]" = []
+        degree: "Counter[str]" = Counter()
+        weak_edges = 0
+        for n in nodes:
+            for e in n.edges:
+                if e.id in seen:
+                    continue
+                seen.add(e.id)
+                degree[slug(e.source)] += 1
+                degree[slug(e.target)] += 1
+                if e.epistemic_state != EpistemicState.UNVERIFIED:
+                    continue
+                if focus and slug(e.source) not in in_focus and slug(e.target) not in in_focus:
+                    continue
+                pinned = DIVERGE_MARK in (e.notes or "")
+                hypothesized = e.provenance == Provenance.HYPOTHESIZED
+                weak = not hypothesized and is_weak(e.confidence, e.confidence_score)
+                weak_edges += weak
+                items.append(((0 if pinned else 1, 0 if hypothesized else 1, 0 if weak else 1, position(e), e.id),
+                              e.id, "edge"))
+        skipped = 0
+        for n in nodes:
+            if n.epistemic_state != EpistemicState.UNVERIFIED or n.id not in in_focus:
+                continue
+            if n.provenance != Provenance.HYPOTHESIZED:
+                skipped += 1
+                continue
+            pinned = DIVERGE_MARK in (n.body or "")
+            items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
+        items.sort(key=lambda row: row[0])
+        planned = chunk([{"id": i, "kind": k} for _, i, k in items], size)
+        by_id = {n.id: n for n in nodes}
+        hubs = [{"id": nid, "label": by_id[nid].label if nid in by_id else nid, "degree": d}
+                for nid, d in sorted(degree.items(), key=lambda kv: (-kv[1], kv[0]))
+                if d >= 3 and (not focus or nid in in_focus)][:5]
+        return self._scrub_egress({
+            "ok": True, "focus": focus or None,
+            "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
+                      "nodes": sum(1 for _, _, k in items if k == "node"),
+                      "extractor_nodes_not_queued": skipped},
+            "batch_size": size, "wave_size": wave, "wave_size_from": origin,
+            "batches": planned, "waves": -(-len(planned) // wave), "hubs": hubs,
+            # the configured files, for the adversarial grounder that searches them for counter-spans
+            "source": self._source_info()})
+
+    def kg_ground_item(self, target_id: str, kind: str = "edge") -> dict:
+        """Everything a grounder judges ONE queued item by (0.7.0), so it never reads a file.
+
+        For an edge: the edge itself (its span among the fields), `span_in_source`, which says whether the
+        span still verifies against its file now (the engine's own check, so a stale span shows as false),
+        its two endpoint nodes, and `context`, the excerpt of the source section that holds the span
+        (``groundplan.span_excerpt``: the paragraph and its neighbours, at most 3000 characters). For a node:
+        the node and its incident edges. All free text leaves through the SESSION scrub, the same as
+        kg_section, so a support span the grounder copies back to kg_ground, placeholders included, restores
+        and verifies. Read-only."""
+        from .groundplan import span_excerpt
+
+        if kind not in ("edge", "node"):
+            return {"ok": False, "error": "kind must be 'edge' or 'node'", "target_id": target_id}
+        nodes = self._canon_baseline()
+
+        def scrub(text: "str | None") -> "str | None":
+            return self.kg_scrub(text)["scrubbed"] if text else text
+
+        def view(n) -> "dict | None":
+            if n is None:
+                return None
+            return {"id": n.id, "label": scrub(n.label), "node_type": n.node_type,
+                    "provenance": n.provenance.value, "epistemic_state": n.epistemic_state.value,
+                    "body": scrub((n.body or "")[:600])}
+
+        if kind == "node":
+            n = nodes.get(target_id) or nodes.get(slug(target_id or ""))
+            if n is None:
+                return {"ok": False, "error": "node not found", "target_id": target_id}
+            incident = [{"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
+                         "epistemic_state": e.epistemic_state.value}
+                        for m in nodes.values() for e in m.edges
+                        if n.id in (slug(e.source), slug(e.target))][:20]
+            return {"ok": True, "kind": "node", "node": view(n), "edges": incident}
+        try:
+            owner = self._owner_of_edge(target_id)
+        except EdgeOwnerUnreadable as e:
+            return {"ok": False, "error": self._scrub_error(f"node unreadable: {e}"), "target_id": target_id}
+        if owner is None:
+            return {"ok": False, "error": "edge not found", "target_id": target_id}
+        e = next(x for x in owner.edges if x.id == target_id)
+        has_span = bool(e.span and e.span.strip())
+        context = None
+        if has_span:
+            texts = self.source_set().texts
+            name = SourceSet._key(e.source_file) if e.source_file else ""
+            for fname in ([name] if name in texts else list(texts)):
+                for s in plan_sections(texts[fname])[1]:
+                    excerpt = span_excerpt(s.text, e.span)
+                    if excerpt is not None:
+                        context = {"source_file": fname, "section": s.index,
+                                   "title": scrub(s.title) if s.title else "(whole file)",
+                                   "excerpt": scrub(excerpt)}
+                        break
+                if context:
+                    break
+        return {"ok": True, "kind": "edge",
+                "edge": {"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
+                         "provenance": e.provenance.value, "authored_by": e.authored_by.value,
+                         "epistemic_state": e.epistemic_state.value, "confidence": e.confidence,
+                         "confidence_score": e.confidence_score, "source_file": e.source_file,
+                         "span": scrub(e.span), "notes": scrub(e.notes)},
+                "span_in_source": self.source_set().verifies(e.span, e.source_file) if has_span else None,
+                "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
+                "context": context}
+
     def _known_nodes(self, text: str) -> dict:
         """``{known_nodes, known_nodes_more}`` for kg_section (0.6.0): the canon nodes whose name `text`
         mentions (``buildplan.related_nodes``), as ``{id, label, node_type}``, so the extractor can reuse
@@ -2744,6 +2907,26 @@ def _register(mcp, engine: KGEngine) -> None:
         and the `extract_wave_size` option as the command text carries it as `configured_wave_size`.
         `ok: false` means do not build; `error`/`problems` say why. Read-only, projection-free."""
         return engine.kg_build_plan(arguments, configured_wave_size)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_ground_plan(focus: str = "", configured_wave_size: str | int | None = "",
+                       batch_size: int | None = None) -> dict:
+        """Plan a /kg-ground: the grounding queue (every unverified edge, and every unverified
+        HYPOTHESIZED node) as compact `{id, kind}` items in batches of `batch_size` (1-20, default 12), one
+        batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` (most connected nodes) for the
+        adversarial grounder. Order: [diverge] pins, other hypotheses, edges marked weak, the rest. Pass the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node
+        it names) and the `extract_wave_size` option as the command text carries it. Read-only."""
+        return engine.kg_ground_plan(focus, configured_wave_size, batch_size)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_ground_item(target_id: str, kind: str = "edge") -> dict:
+        """Everything needed to judge ONE queued item, so a grounder never reads a file. For an edge: its
+        fields and span, `span_in_source` (does the span still verify now), its two endpoint nodes, and
+        `context`, the excerpt of the source that holds the span. For a node (`kind="node"`): the node and
+        its incident edges. Text is egress-scrubbed with the session's placeholders. Read-only."""
+        return engine.kg_ground_item(target_id, kind)
 
     @mcp.tool()
     @_tool_result

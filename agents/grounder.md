@@ -1,7 +1,7 @@
 ---
 name: kg-grounder
 description: Use to verify the queue of unverified edges against the real source — re-read each cited span, reject vague/unfalsifiable relations (the generality confound §1.6), and stamp grounded/rejected verdicts via kg_ground.
-tools: Read, Grep, mcp__plugin_burgess_burgess__query_graph, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_write
+tools: Read, Grep, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__query_graph, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_write
 model: opus
 ---
 
@@ -113,40 +113,41 @@ Examples grounded in `examples/source.md`:
 - `span-present` ── `grounds` ──▶ `claim`  →  `e_span-present__grounds__claim`
 - `betweenness` ── `confounded_by` ──▶ `generality-confound`  →  `e_betweenness__confounded-by__generality-confound`
 
-Never construct an id by hand and hope. **Read the `id` field off the edge dict** returned by
-`query_graph` / `get_node` and pass it verbatim as `target_id`.
+Never construct an id by hand and hope. **Use each id exactly as your batch lists it** (it comes from
+`kg_ground_plan`; `kg_ground_item` echoes it in its `edge.id`), and pass it verbatim as `target_id`.
 
 ## Inputs
 
-- The queue, from `mcp__plugin_burgess_burgess__query_graph(epistemic_state="unverified", limit=50)`
-  → `{nodes[], edges[]}`. **Note:** `query_graph` applies `epistemic_state` only to the returned `nodes[]`; the
-  `edges[]` are filtered only by `relation`/`limit`, so select the edges whose `epistemic_state == "unverified"`
-  yourself. Each edge carries: `id, source, target, relation, span, provenance, authored_by,
-  epistemic_state, confidence, confidence_score`. The returned **`nodes[]` ARE your node queue** — already
-  filtered to `unverified` — and a materialized `/kg-diverge` pin appears here as a hypothesized node with no
-  incident edge; verdict it with `kind="node"`. Do not treat the response as edges-only.
-- Triage signal, from `mcp__plugin_burgess_burgess__kg_context(budget=2000)` → `items[]`,
-  `falsification_counters.failed_or_rejected_edges` (the running tally of negative information, §1.7),
-  and `advisory` (if `signal == "structural-bridge"`, those `nodes[]` are likely generic hubs — scrutinize
-  their incident edges hardest; a vague hub is the generality confound in action, §1.6).
-- The real source: read `examples/source.md` (demo), or `${CLAUDE_PROJECT_DIR}` for the live corpus. This is
-  the ground truth. The span field on the edge is the *claim* of support; the source file is the *check*.
+- **Your batch.** Under `/kg-ground` your prompt lists the items you verdict: at most 20 ids, each an `edge` or a
+  `node`, from `kg_ground_plan` (0.7.0). Invoked directly, call `mcp__plugin_burgess_burgess__kg_ground_plan()` and
+  take its first batch. The queue holds every `unverified` edge and every `unverified` HYPOTHESIZED node; the
+  extractor's own nodes are not in it, because the claims about them are their edges.
+- **Each item's evidence,** from `mcp__plugin_burgess_burgess__kg_ground_item(target_id=<id>, kind=<edge|node>)`:
+  - For an edge: the edge (`source`, `relation`, `target`, `span`, `provenance`, `confidence`,
+    `source_file`), `span_in_source` (the engine's own check, now: does the span still verify against its file),
+    its two endpoint nodes (label, node_type, body), and `context`, the excerpt of the source section that holds
+    the span (the paragraph and its neighbours, at most 3000 characters).
+  - For a node: the node (with its body, where a `[diverge]` marker shows) and its incident edges.
+- **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
+  `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
+  A support span you copy back from it, placeholders included, is restored and verified by `kg_ground`. The one
+  exception is a stale verdict (Stage 0b of `/kg-ground`), whose span is gone: search the configured source files
+  for where the claim moved.
+- Optional triage signal, from `mcp__plugin_burgess_burgess__kg_context(budget=2000)` → `advisory` (if
+  `signal == "structural-bridge"`, those `nodes[]` are likely generic hubs — scrutinize their edges hardest; a
+  vague hub is the generality confound in action, §1.6).
 
-## Procedure (bounded — at most 20 items per run: edges, then nodes)
+## Procedure (bounded — at most 20 items per run)
 
-1. **Load the queue.** `query_graph(epistemic_state="unverified", limit=50)`. Also call `kg_context(budget=2000)`
-   to read the advisory and the current falsification count. Take the first **20** edges (the per-run cap;
-   leftovers stay `unverified` for the next run — do not exceed it).
-2. **Read the source once.** `Read` `examples/source.md` (or the file named in each edge's context). Keep it
-   in mind for every edge so you are not re-reading per edge.
-3. **For EACH edge, verify in order. Reject on the first failure:**
-   a. **Span is real.** Find the edge's `span` as a verbatim substring of the source (whitespace/case may
-      differ — the engine normalizes, §1.5). If the span is absent or paraphrased → `rejected`,
-      note `"no-support: span not in source"`. (The boundary should have caught fabrication at write time;
-      if you see it here, reject it loudly.)
-   b. **Span actually asserts THIS relation.** The cited sentence must state `source <relation> target`, not
-      merely mention both nodes. A span that names two terms in passing does **not** ground the edge between
-      them → `rejected`, note `"wrong-relation: span mentions both but asserts no <relation>"`.
+1. **For EACH item of your batch, in order:** call `kg_ground_item` and verify. Reject an edge on the first
+   failure:
+   a. **Span is real.** `span_in_source` must be `true`. If it is `false`, the span no longer verifies (or never
+      did) → `rejected`, note `"no-support: span not in source"`.
+   b. **Span actually asserts THIS relation, in this direction.** Read the span inside `context`. It must state
+      `source <relation> target`, not merely mention both nodes, and not its opposite: a sentence such as
+      «counting interventions does not prove safety» refutes `approximates`, it does not support it. A span
+      that names two terms in passing, a bare label, or a table cell that states no relation does **not**
+      ground the edge → `rejected`, note `"wrong-relation: <what the span actually says>"`.
    c. **The relation is SPECIFIC, not generic (the generality confound, §1.6).** Reject an edge that is "true"
       only because it is vague or unfalsifiable — where `source`/`target` is so general that the relation
       could connect it to almost anything, or where the span makes no checkable, defeasible claim. Such edges
@@ -156,17 +157,17 @@ Never construct an id by hand and hope. **Read the `id` field off the edge dict*
       counterexample. If `kg_context.advisory` flagged a node as a `structural-bridge`, weight its edges here.
    d. **Otherwise GROUND it.** The span is present, asserts the relation, and the relation is specific and
       defeasible → `grounded`, note quoting the deciding clause.
-4. **Stamp the verdict** with `kg_ground(target_id=<edge.id>, verdict=..., kind="edge", note=...)`.
-   Confirm `ok:true` and `from == "unverified"`. If `from` was already a verdict, skip — someone else ruled.
-5. **Then the unverified NODES** (`query_graph` `nodes[]`). Do not stop because the edge queue is empty — a
-   materialized `/kg-diverge` pin is a node with no incident edge and is groundable on its own. For each: if
-   the current source verbatim-supports the idea, promote it with `kg_ground(target_id=<node.id>, kind="node",
-   verdict="grounded", support_span="<verbatim run>")` (or `support_note="<external citation>"` if the support
-   is off-source); if the idea is a `[diverge]`-lineage pin with no support yet, **leave it `unverified`**
-   (triage — a novel idea has no in-source span by construction); only for a non-`[diverge]` node with no
-   support do you `rejected`. "No edge → can't be grounded" is false — ground the node.
-6. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation),
-   K skipped, split by kind (edge/node), and how many remain `unverified`. Re-run to drain the rest.
+2. **Stamp the verdict** with `kg_ground(target_id=<id>, verdict=..., kind=..., note=...)`, using the id exactly as
+   your batch lists it. Confirm `ok:true` and `from == "unverified"`. If `from` was already a verdict, skip —
+   someone else ruled.
+3. **A node in your batch** is a hypothesized one (a `/kg-diverge` pin or a generated proposal), groundable on
+   its own even with no incident edge. If the source verbatim-supports the idea, promote it with
+   `kg_ground(target_id=<node.id>, kind="node", verdict="grounded", support_span="<verbatim run>")` (or
+   `support_note="<external citation>"` if the support is off-source); if it is a `[diverge]`-lineage pin with no
+   support yet, **leave it `unverified`** (triage — a novel idea has no in-source span by construction); only a
+   non-`[diverge]` node with no support is `rejected`. "No edge → can't be grounded" is false — ground the node.
+4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation),
+   K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason.
 
 ## Invariants you enforce
 
@@ -182,7 +183,8 @@ Never construct an id by hand and hope. **Read the `id` field off the edge dict*
 
 ## Worked example (against `examples/source.md`)
 
-`query_graph(epistemic_state="unverified")` returns, among others, these three edges:
+Three edges of a batch, as `kg_ground_item` returns them (abridged to the edge fields; each also carries
+`span_in_source: true` and its `context` excerpt from §1 or §2 of the demo source):
 
 ```json
 { "id": "e_generality-confound__attacked-by__specificity",
@@ -201,7 +203,7 @@ Never construct an id by hand and hope. **Read the `id` field off the edge dict*
   "provenance": "span-present", "authored_by": "agent", "epistemic_state": "unverified" }
 ```
 
-I `Read` `examples/source.md`, then rule each:
+I read each `context` excerpt, then rule each:
 
 - **Edge 1** — §1 reads *"Generality is therefore *attacked_by* specificity — a more specific claim, when it
   holds, defeats a vaguer one that merely overlaps it."* The span *"a more specific claim, when it holds,

@@ -1,7 +1,7 @@
 ---
 description: Drain the grounding queue — verdict unverified edges, attack hub candidates, then report verdict counts and falsification memory.
 argument-hint: "[query-or-node-filter]"
-allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph, mcp__plugin_burgess_burgess__kg_agenda, mcp__plugin_burgess_burgess__kg_merge
+allowed-tools: Task, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_agenda, mcp__plugin_burgess_burgess__kg_merge
 ---
 
 # /kg-ground — grounding loop + adversarial grounder + memory of failures (§1.6/§1.7/§1.8, plan Stage 6)
@@ -11,51 +11,60 @@ weak edges are rejected, genuinely falsified ones are remembered as negative inf
 attacked. Verdicts are the canonical grounding state and the ONLY way to set one is `kg_ground` (§1.4/§1.8) —
 this command never forges a verdict; it dispatches the two grounder subagents and then *reports*.
 
-Optional `$ARGUMENTS`: a focus query / node filter (e.g. `betweenness`, `compression`). Empty = whole queue.
+**This command needs no shell and no file access.** Do not run Bash, do not `Read` or `Grep` the canon, the
+source, the plugin's files or saved tool output, and do not write helper scripts: `kg_ground_plan` gives you
+the queue in batches, and each grounder fetches its own evidence. In auto mode Claude Code ignores a command's
+permission to use Bash, so every shell command would wait on its classifier, or on the user. If a step seems
+to need a shell or a file, stop and report it instead of working around it. (Never pull the queue through
+`query_graph`: on a real canon it is hundreds of thousands of characters.)
 
-## Stage 0 — Survey the queue (read-only)
+**Arguments, as typed:** `$ARGUMENTS`
+
+An optional focus: a word or a node id (e.g. `betweenness`, `compression`). Pass the line verbatim as
+`kg_ground_plan`'s `focus`, which keeps the items touching a node it names. Empty = the whole queue.
+
+## Stage 0 — Plan the pass (read-only)
 
 Find what is actually pending before spending any subagent budget.
 
 1. `mcp__plugin_burgess_burgess__kg_metrics()` → record the baseline `edges_by_epistemic_state` map (keys are the
-   `epistemic_state` values: `unverified | grounded | rejected | failed | obsolete`). The count under
-   `unverified` is the grounding queue depth.
-2. `mcp__plugin_burgess_burgess__query_graph(epistemic_state="unverified", limit=50)` → the concrete backlog
-   the first grounder must verdict. This returns BOTH lanes of the queue: the `edges[]` (extractor
-   candidates + hypothesized proposals) **and** the `nodes[]`, which `epistemic_state` filters directly. A
-   materialized `/kg-diverge` pin lands as a hypothesized **node** and, by default, carries **no incident
-   edge at all** — its optional `edges` are extras, not a requirement. Such a bare pin is still fully
-   groundable: the node itself is the target — `kg_ground(target_id=<node_id>, verdict=…, kind="node", …)`.
-   **"No edge → can't be grounded" is false**: grounding operates on nodes, not just edges (a Node has no span
-   field, so its support is restated into the body — §1.4). Never skip a pin because it has no wired edge.
-   Note also that the `unverified` count in `kg_metrics.edges_by_epistemic_state` (Stage 0.1) is EDGES-only,
-   so a queue that is "0 unverified edges" can still have unverified nodes waiting here.
-   If `$ARGUMENTS` is non-empty, also call
-   `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read its `advisory` block —
-   `advisory.signal == "structural-bridge"`, `advisory.note`, `advisory.nodes[]` — to learn which nodes the
-   structural-bridge heuristic flags as bridges (the honest advisory is degree; specificity-weighted
-   betweenness stays GATED until validated, §1.6). Those `advisory.nodes[]` plus any high-degree nodes are
-   the **hub candidates** for Stage 2.
+   `epistemic_state` values: `unverified | grounded | rejected | failed | obsolete`).
+2. Call:
 
-Stop and report "queue empty — nothing to ground" **only if ALL of these hold**: the Stage-0.2
-`query_graph` result has **no** unverified `edges[]`, **no** unverified `nodes[]`, **and** there are no
-hub candidates. Do **not** decide this from the Stage-0.1 `kg_metrics` `unverified` count alone — that
-count is EDGES-only, so a queue whose only pending items are bare materialized `/kg-diverge` pins (which
-land as hypothesized **nodes** with no incident edge) reads as "0 unverified" there while `nodes[]` still
-holds groundable pins. Missing this silently skips the entire node-grounding pass. Otherwise proceed.
+   ```
+   mcp__plugin_burgess_burgess__kg_ground_plan(
+     focus: "<the arguments line above, verbatim; empty if nothing was typed>",
+     configured_wave_size: "${user_config.extract_wave_size}"
+   )
+   ```
+
+   Copy `configured_wave_size` exactly as this text shows it, even if it still reads `${user_config.…}`.
+   The plan holds:
+   - `batches[]`: the queue, as `{id, kind}` items, one batch per grounder (`batch_size` items, 12 by default).
+     It holds every `unverified` edge and every `unverified` HYPOTHESIZED node. A materialized `/kg-diverge`
+     pin is such a node, often with **no incident edge at all**, and it is groundable *as a node*: "no edge →
+     can't be grounded" is false. The order is already decided: pins, then the other hypotheses, then the
+     edges their extractor marked weak, then the rest, each group in source order. Keep it.
+   - `queue`: the counts, including `weak_edges` and `extractor_nodes_not_queued`. The extractor's own nodes
+     are not queued: each names a concept the text uses, and the claims about it are its edges, which are
+     queued.
+   - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
+     and `waves`.
+   - `hubs[]`: the most connected nodes, the candidates for Stage 2.
+   - `source`: the configured source files, for the adversarial grounder.
+3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
+   its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
+   honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to
+   the hub candidates.
+
+Stop and report "queue empty — nothing to ground" **only if** the plan has **no** `batches` **and** there are
+no hub candidates. Otherwise tell the user in a line what this pass covers: items, batches, waves and hubs.
 
 > **Alternative prioritization (optional).** `mcp__plugin_burgess_burgess__kg_agenda()`'s
-> `blocked_on_grounding[]` lane is a read-only structural shortlist of what grounding would unblock —
-> under-grounded hubs and hypothesized-only neighbourhoods, ranked by the honest gate-aware signal. Use it to
-> pick which hubs/edges to drain first; it suggests, never grounds (verdicts still flow only through `kg_ground`).
->
-> **Convergence prior (advisory, §4).** Candidates from `/kg-generate` carry a `convergence` count (how many
-> *distinct* mechanisms independently proposed the same edge). You **may display** it alongside the queue, and
-> **only once the harness gate is ON** (`python -m kg_engine.harness convergence <grounding-history.json>` →
-> `gate_on=true`, i.e. higher convergence has been shown to predict grounding success) you **may** sort the
-> `unverified` queue by `convergence` DESC as a tie-aware prior for *which to ground first*. Until the gate
-> passes the headline ordering stays the honest one. Convergence **never** decides a verdict and **never** lets
-> an edge skip grounding — it only reorders the queue (G5).
+> `blocked_on_grounding[]` lane is a read-only structural shortlist of what grounding would unblock. You may
+> show it beside the plan; it suggests, never grounds. **Convergence** (`/kg-generate` candidates' count of
+> distinct mechanisms that proposed the same edge) may be displayed, and only once the harness gate is ON may
+> it reorder which batch goes first; it **never** decides a verdict or lets an item skip grounding (G5).
 
 ## Stage 0b — Drain stale verdicts (source-staleness advisory, R3)
 
@@ -67,8 +76,9 @@ projector recomputes this off the hot path and surfaces it (read-only — it **n
    `advisory.stale_verdicts[]`. Each entry is `{edge_id, reason: "span-no-longer-in-source"}`: a grounded or
    `failed` edge whose stored span no longer verifies against its source file. (Empty when nothing diverged —
    the common case; if so, skip to Stage 1.)
-2. For each `edge_id`, route it to the `kg-grounder` (same Task as Stage 1) to **re-verify against the current
-   source**:
+2. Route these `edge_id`s to one extra `kg-grounder` launch (the Stage 1 template, with these ids as its batch
+   and a line saying they are stale verdicts) to **re-verify against the current source**. Searching the
+   configured source files for where the claim moved is the one step where the grounder reads a file:
    - if the claim still holds but the span **moved to new text** → the stored span must be relocated, which is
      a canon edit, so re-emit the edge with the new verbatim span via
      `kg_write({"edges": [{"source": ..., "target": ..., "relation": ..., "span": "<the new verbatim span>"}]})`.
@@ -103,65 +113,69 @@ verdicted items on its own, so this is the only place they come back up.
    always a manual `kg_ground` decision. The flag self-clears on the next projection once the item leaves the
    `{failed, rejected}` set.
 
-## Stage 1 — Verdict the unverified queue: edges AND nodes (kg-grounder)
+## Stage 1 — Verdict the queue in waves (kg-grounder)
 
-Launch the `kg-grounder` subagent via the Task tool to drain the `unverified` queue. It walks each pending
-edge, re-checks the `span` is a verbatim substring of `examples/source.md`, confirms the `relation` is
-specific (NOT "true" only because it is generic/unfalsifiable — that is the generality confound, §1.6, whose
-verdict reason is `vague`), and calls `kg_ground(target_id=<edge_id>, verdict=...)` for each. The **same pass
-also grounds unverified NODES** — a materialized `/kg-diverge` pin is a hypothesized node that may have no
-incident edge — via `kg_ground(target_id=<node_id>, kind="node", ...)`; a node's support is restated into its
-body, since a Node has no span field (§1.4). A pin without a wired edge is groundable *as a node*; "no edge"
-never means "cannot ground".
+Launch one `kg-grounder` per batch of the plan, **`wave_size` launches in a single message** (so they run in
+parallel); wait for that whole wave, then launch the next, until every batch is done. Each grounder fetches
+the evidence for its own items with `kg_ground_item` and stamps verdicts with `kg_ground`; `kg_ground` calls
+from parallel grounders serialize in the engine, so nothing is lost. **Never paste evidence into a prompt:**
+give each grounder its item ids and nothing else.
 
 ```
 Task(
   subagent_type: "kg-grounder",
-  description: "Verdict unverified edges",
+  description: "Ground batch 1 of 14",
   prompt: """
-    Drain the grounding queue. For every edge currently in epistemic_state=unverified
-    (focus filter: $ARGUMENTS — empty means the whole queue), decide a verdict and apply it
-    via kg_ground(target_id=<edge_id>, verdict=<grounded|rejected>, note=<one-line reason>):
-      - grounded : the span verifies verbatim against examples/source.md AND the relation is
-                   specific and falsifiable (a more specific claim could have defeated it).
-      - rejected : no supporting span, span not in source (fabrication), OR the edge is "true"
-                   only because it is vague/unfalsifiable (the generality confound, §1.6) —
-                   use note reason `vague` for the latter.
-    ALSO drain the unverified NODES in query_graph's nodes[] — a materialized /kg-diverge pin
-    is a hypothesized NODE and, by default, has NO incident edge (its edges are optional extras).
-    It is groundable AS A NODE — do NOT skip it for lacking an edge ("no edge -> can't ground"
-    is false). Ground a node with kg_ground(target_id=<node_id>, kind="node", verdict=..., ...);
-    a Node has no span field, so promotion support is restated into its body (support_note for an
-    external citation, or support_span for a verbatim source substring; a bare novel pin with no
-    support is correctly LEFT unverified, per the "Materialized pins go first" triage below).
-    Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED);
-    kg_ground is the only verdict channel. Report a per-item table: id, kind (edge|node), verdict, reason.
-  """
+You are grounding ONE batch of the grounding queue (focus: <the focus, or none>).
+
+items:
+- e_generality-confound__attacked-by__specificity (edge)
+- e_span-present__grounds__claim (edge)
+
+For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>", kind: "<edge|node>") and
+judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
+of the source. Do not read files. Then apply ONE verdict with
+mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note), per your contract:
+  - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction, and
+    the relation is specific and falsifiable.
+  - rejected: span_in_source is false, the span does not state the relation (a bare label, a table cell, or
+    its opposite), or the edge is true only by being vague (note reason `vague`).
+  - a hypothesized item is grounded only with support (a support_span copied from the context, placeholders
+    included, or a support_note); a [diverge]-pinned item without support stays unverified.
+Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
+only verdict channel. Report a per-item table: id, kind, verdict, reason.
+"""
 )
 ```
 
 The kg-grounder owns `kg_ground`; this command does not call it. Verdicts persist in the canon and survive a
 full reproject because the reconciler re-attaches them (§1.8).
 
+**Progress probe.** Between waves, or after a hiccup, call `kg_ground_plan` again with the same two arguments:
+an item drops out of it once it has a verdict, so its `batches` are exactly the work left. Re-launch only
+those. An item a grounder deliberately left `unverified` (a `[diverge]` pin with no support) stays in the plan:
+do not re-launch it, report it.
+
 ## Stage 2 — Attack the hubs (kg-adversarial-grounder)
 
-After the first grounder returns, launch the `kg-adversarial-grounder` subagent via the Task tool over the
-hub candidates from Stage 0. For each hub it constructs the strongest counter-edges and falsifying questions,
-emits them as typed `attacked_by` edges (the declared edge type — see `pack/pack.yaml`), and marks any edge
-it genuinely falsifies as `failed`. This is bounded by a per-run cap so a vague hub cannot spawn unbounded
-attacks.
+After the last wave returns, launch the `kg-adversarial-grounder` over the hub candidates (the plan's `hubs[]`
+plus any Stage 0 advisory nodes). For each hub it constructs the strongest counter-edges and falsifying
+questions, emits them as typed `attacked_by` edges (the declared edge type — see `pack/pack.yaml`), and marks
+any edge it genuinely falsifies as `failed`. This is bounded by a per-run cap so a vague hub cannot spawn
+unbounded attacks.
 
 ```
 Task(
   subagent_type: "kg-adversarial-grounder",
   description: "Attack hub candidates",
   prompt: """
-    Hub candidates (from kg_context advisory.nodes[] + high-degree nodes): <list from Stage 0>.
-    For each hub, generate the strongest falsifying counter-edges:
-      1. Write attacked_by counter-edges (relation: attacked_by) via the extraction/kg_write path,
-         each carrying a VERBATIM span from examples/source.md (§1.5 — no span => REJECTED).
-         Example from the source: generality-confound is attacked_by specificity
-         (span: "a more specific claim, when it holds, defeats a vaguer one").
+    Hub candidates: <the plan's hubs[] ids, plus the advisory nodes>.
+    Source files to search for counter-spans: <the plan's source.files>, in <source.path>.
+    For each hub, inspect its incident edges (get_neighbors, then kg_ground_item for one edge's span and
+    excerpt) and generate the strongest falsifying counter-edges:
+      1. Write attacked_by counter-edges (relation: attacked_by) via the extraction/kg_write path, each
+         carrying a VERBATIM span from those source files (§1.5 — no span => REJECTED), with its file's
+         basename as source_file.
       2. For any existing edge your counter genuinely refutes, call
          kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>).
     Respect the per-run attack cap. A `failed` edge is negative information (§1.7): never pruned,
@@ -211,6 +225,8 @@ deliberate node-merge tool: it rewrites + dedups the colliding edges (negative i
 
 ## Invariants this command upholds
 
+- It runs no shell command and reads no file: `kg_ground_plan` plans the pass, each grounder fetches its
+  evidence with `kg_ground_item`, and the verdicts go through `kg_ground`.
 - It NEVER calls `kg_ground` itself and NEVER forges a verdict in a write payload (§1.4/§1.8). Verdicts come
   only from the two grounder subagents via `kg_ground`.
 - It uses only the declared vocabulary: edge type `attacked_by`, `epistemic_state` values
@@ -220,9 +236,8 @@ deliberate node-merge tool: it rewrites + dedups the colliding edges (negative i
 
 ## Materialized pins go first (FUSION Stage 4 — ordering only)
 
-When choosing what to ground next among `unverified` items, prefer edges/nodes whose
-notes/body carry the `[diverge] pinned` lineage marker — the human explicitly selected
-these ideas, so they earn the queue's front. Note the shape: a materialized pin is a
+`kg_ground_plan` puts the edges/nodes whose notes/body carry the `[diverge] pinned` lineage
+marker at the front of the queue — the human explicitly selected these ideas, so they earn it. Note the shape: a materialized pin is a
 hypothesized **node** (`kg_diverge_materialize` writes one node per pin; any `edges` are
 optional extras), so a pin **routinely has no incident edge** — and is nonetheless
 groundable *as a node* via `kg_ground(kind="node")`. **"No edge → can't be grounded" is false.**

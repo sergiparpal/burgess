@@ -139,7 +139,7 @@ echo '{"source_path": "/home/me/notes"}' | claude plugin configure burgess@sergi
 | `source_path` | **Yes** | a file, a directory, or a glob | — | The document(s) the running graph engine verifies against |
 | `sensitivity` | No | `low` · `medium` · `high` | `medium` | How aggressively text is scrubbed before subagent egress |
 | `metrics_mode` | No | `structure_only` · `with_embeddings` | `structure_only` | Which signal the graph's metrics use |
-| `extract_wave_size` | No | `1`–`10` | `6` | How many extractors `/kg-build` runs concurrently |
+| `extract_wave_size` | No | `1`–`10` | `6` | How many extractors `/kg-build`, or grounders `/kg-ground`, runs concurrently |
 
 ### `source_path` — the running verification source *(required)*
 
@@ -189,7 +189,7 @@ Leave this at `structure_only`. It has no bearing on `/kg-diverge`, whose embedd
 
 ### `extract_wave_size` — concurrent section extractors
 
-`/kg-build` launches one extractor subagent per section. This setting changes how many isolated section extractors run concurrently:
+`/kg-build` launches one extractor subagent per section, and `/kg-ground` one grounder per batch of the queue. This setting changes how many of them run concurrently:
 
 | Value | Effect |
 | --- | --- |
@@ -237,7 +237,7 @@ Remember: the status check (`kg_ping`) and the other behind-the-scenes MCP tools
 5. **Session-ephemeral archives** — MAP-Elites archives never persist across sessions; only pins, discards, comparisons and session metadata do (project-local, git-friendly, under `.kg/diverge/`). The knowledge graph is the durable archive.
 6. **Unified negative memory** — human discards and grounding failures live in one semantic store; neither generation path ever re-proposes from it.
 
-The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 29 tools) is the trust boundary; six subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator) do the language work; the engine stays deterministic.
+The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 31 tools) is the trust boundary; six subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator) do the language work; the engine stays deterministic.
 
 Those six are the load-bearing ones; the suite enforces eleven (`I1`–`I11`). The full, self-contained architecture reference — module map, data model, write-boundary contract, tool surface, divergence internals and constants, runtime and environment, and the invariants in full — is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1533 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1554 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:
