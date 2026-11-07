@@ -219,8 +219,8 @@ Summarize the build back to the user:
 - **What was built** — the files and sections from the plan, the wave size and where it came from, and any
   section still uncovered at the end (with its extractor's reason).
 - **Dispositions** — summed across all section launches: ACCEPTED / DEMOTED / QUARANTINED / REJECTED, and for any
-  REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `truncated-payload`,
-  `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are
+  REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `write-lane-hypothesis`,
+  `truncated-payload`, `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are
   extractor errors, not transport; `retryable=true` for TRANSPORT (truncation, schema).
 - **Node / edge counts** — from `kg_metrics()`: `nodes`, `edges`, and the `edges_by_epistemic_state` breakdown.
 - **Span-support** — every ACCEPTED non-deterministic edge carries a verifiable span by construction (the
@@ -263,6 +263,9 @@ spaces to hyphens — e.g. `e_generality-confound__attacked-by__specificity` (th
   once. Do not hand-edit spans yourself.
 - **An extractor reports that `kg_section` refused** (`ok: false`: an unknown file or a section number out of
   range) → the source changed since the plan. Call `kg_build_plan` again, and launch from its new numbering.
+- **REJECTED `write-lane-hypothesis`** → the extractor marked an item `hypothesized`, the proposal lane that
+  carries no span. Its contract tells it to re-emit the item as `inferred` with a verbatim span, or to drop
+  it; if it reported the rejection instead, re-launch that section once.
 - **`rolled_back: true`** on a launch → the whole payload was atomic-rejected (e.g. `truncated-payload`). This is
   `retryable=true`; re-launch the extractor for that section.
 - **High QUARANTINED count** → the extractor used types outside the pack vocabulary (per-item

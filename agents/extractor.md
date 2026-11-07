@@ -139,9 +139,13 @@ Field rules:
   node for an edge's `source` if it is missing from `nodes[]`; a `target` may reference a node you have not
   created yet (e.g. it appears in a later section). You do **not** need to redeclare a node you already wrote.
 - `edge.id` is derived deterministically as `e_{source}__{relation}__{target}` (slugged) — never set it.
-- `provenance` ∈ `span-present | inferred | hypothesized`. Use `span-present` when you have a verbatim span
-  (the normal case). Use `hypothesized` only for a relation you genuinely inferred across sentences — it still
-  needs a span that anchors it, but signals lower confidence.
+- `provenance` ∈ `span-present | inferred`. Use `span-present` when your span states the relation outright
+  (the normal case). Use `inferred` for a relation you genuinely inferred across sentences: it still needs a
+  verbatim span that anchors it, and the boundary verifies that span exactly like a `span-present` one.
+  **Never `hypothesized`.** That is the proposal lane of the discovery mechanisms (`kg_propose`): the
+  boundary keeps a hypothesized item WITHOUT its span and checks nothing, so `kg_write` refuses it
+  (REJECTED `write-lane-hypothesis`, since 0.5.1). Before that, an edge marked `hypothesized` here was
+  accepted with its span silently dropped. If no span supports a relation, leave the relation out.
 - `authored_by` MUST be `agent`. **Never** `human` (the boundary DEMOTES it: `human-claim-stripped`), and never
   `deterministic` (that axis is reserved for the in-process parser, never an LLM — see below).
 - `epistemic_state` MUST be `unverified`. **Never** assert `grounded`/`rejected`/`failed`/`obsolete` — that is
@@ -159,7 +163,9 @@ words, and punctuation are NOT stripped, so:
 
 - **Copy the span EXACTLY from the source.** Do not paraphrase, do not summarize, do not "clean up" the
   asterisks or fix grammar. Open the file, find the sentence, copy the run of characters that states the
-  relation.
+  relation. Markdown escapes stay as written (`\[EX\]`, `\*`): the backslash is part of the text.
+  Characters that only look like ASCII stay as they are too: a `−` minus sign is not a `-` hyphen, and only
+  curly quotes and dashes are folded.
 - A span that is not present in the source is a **fabrication** → REJECTED `span-not-in-source`, `retryable=false`.
 - An edge with no span → REJECTED `no-supporting-span`, `retryable=false`.
 - Nodes do **not** require a span; only edges do.
@@ -197,6 +203,8 @@ prose edges `deterministic`.
    - `retryable=false` + `span-not-in-source` → the span was wrong. **Copy the span exactly from your section's
      text** (call `kg_section` again if you need it), and re-call that one edge. This is the common, fixable case.
    - `retryable=false` + `no-supporting-span` → add the missing verbatim span and re-call.
+   - `retryable=false` + `write-lane-hypothesis` → you marked the item `hypothesized`. Re-emit it as
+     `inferred` (or `span-present`) with the verbatim span that anchors it, or drop it if no span does.
    - Any other `retryable=false` **semantic** rejection is **FINAL** — do not loop. Drop the item and report it.
    - DEMOTED items were written (with an axis corrected) — leave them; just report what was stripped.
    - QUARANTINED items used an undeclared type — fix the type to a pack type if the text supports it, else report

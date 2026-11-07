@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.1 — 2026-11-07
+
+Patch release for a hole in the build's span guarantee, which the last `/kg-build` on 0.4.6 surfaced:
+`kg_write` accepted an edge marked `hypothesized` without checking its span. The propose lane, the MCP tool
+surface and grounding do not change.
+
+### Fixed
+
+- **`kg_write` accepted `hypothesized` edges with their span dropped and unchecked.** The boundary treats
+  `provenance: hypothesized` as the proposal lane of the discovery mechanisms (`kg_propose`): it stores the
+  item with an empty span and runs no span check. `kg_write` sent such an item down that lane as well, and
+  the extractor's own contract invited it: "use `hypothesized` for a relation you genuinely inferred across
+  sentences — it still needs a span".
+  - In the reporting build, the §14 extractor marked both its edges `hypothesized`. Both were ACCEPTED, with
+    no REJECTED or QUARANTINED signal; the only symptom was §14 staying uncovered.
+  - On 0.5.0, an edge marked `hypothesized` was accepted even when its span was not in the source at all.
+  - `kg_write` now REJECTS any item that claims `provenance: hypothesized`, with reason
+    `write-lane-hypothesis` (`retryable: false`). It writes the rest of the payload and reports
+    `refused_hypotheses: N`, the mirror of `kg_propose` refusing text claims (`propose-lane-text-claim`).
+  - `kg_propose`, `kg_operate` and pin materialization are unchanged: they reach the shared validator through
+    `kg_write`'s internal `lane="proposal"`.
+  - The extractor's contract now says to use `inferred` for a relation inferred across sentences, still with
+    a verbatim span, which the boundary verifies like a `span-present` one; never `hypothesized`. On
+    `write-lane-hypothesis` it re-emits the item as `inferred` with its span, or drops it.
+- **The extractor's contract names two span hazards the same build hit.** Markdown escapes such as `\[EX\]`
+  stay as written, and a `−` minus sign is not a hyphen: only curly quotes and dashes are folded.
+
+### Tests
+
+- **`tests/test_fix_write_lane_hypothesis.py` (10 tests)** covers:
+  - the §14 shape, refused and not written;
+  - the rest of the payload still written;
+  - the same claim as `inferred`, accepted and verified;
+  - every edge `kg_write` accepts carrying a verified span;
+  - `kg_propose` unchanged;
+  - the second-construction write, the idempotent replay, and the real MCP tool layer;
+  - the extractor's text.
+- **Verified as real pins.** Run against the 0.5.0 engine, with `PYTHONPATH` at a worktree of `main`, 8 of
+  the 10 fail. The other two pin what must not change: an `inferred` edge accepted and verified, and
+  `kg_propose` writing the hypothesized lane. 1491 → 1501 passed, 3 skipped.
+
+### An existing canon
+
+An edge written this way before 0.5.1 stays in the canon: `hypothesized`, `unverified`, without a span. In
+the reporting build that is one edge, `agent-isolation defends_against agent-credential-exposure`.
+`/kg-ground` can reject it; grounding it would take real support, since `kg_ground` refuses to ground a
+hypothesized edge without a support span or note.
+
 ## 0.5.0 — 2026-11-07
 
 `/kg-build` no longer runs a shell command, so auto mode no longer stops it on permission prompts. Reported

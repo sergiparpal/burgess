@@ -145,6 +145,10 @@ prose, edit the canon note.
 `kg_propose(payload)` is the **hypothesized write lane**: it forces `provenance=hypothesized`,
 refuses text claims (`propose-lane-text-claim`), requires no span, and preserves
 `authored_by=deterministic` for genuine discovery mechanisms. Same validator, same forge guards.
+The refusal runs both ways: `kg_write` REJECTS an item claiming `provenance=hypothesized`
+(`write-lane-hypothesis`, 0.5.1), because the validator keeps such an item without its span and
+checks nothing. Every edge `kg_write` accepts is therefore span-verified; `kg_propose` reaches
+the shared validator through kg_write's internal `lane="proposal"`.
 The `kg_operate` mechanisms are those discovery mechanisms and they do claim it: their structural edges
 carry `authored_by=deterministic`, while a node whose `label`/`body` came from the caller stays `agent` —
 structure is computed, language is authored.

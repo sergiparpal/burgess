@@ -85,6 +85,13 @@ quarantines or rejects the rest. `payload` is the write contract (see `reference
 contract): `{nodes:[…], edges:[…], complete:true}`. **`complete` MUST be `true`** or the whole payload is
 REJECTED as `truncated-payload`.
 
+`kg_write` is the **text-claim lane**: every edge it accepts carries a span verified against the source. An
+item that claims `provenance: "hypothesized"` is REJECTED with reason `write-lane-hypothesis`
+(`retryable: false`), and the rest of the payload is written; the response then also carries
+`refused_hypotheses: N`. It mirrors `kg_propose`'s `propose-lane-text-claim` (§1.12). A relation inferred
+across sentences is `inferred`, still with its verbatim span; a proposal goes to `kg_propose`. (Before 0.5.1
+the boundary accepted such an item with its span dropped and unchecked.)
+
 `construction` (optional) routes this SAME key-free, span-verified write to a separately-named **second
 construction**'s alternate canon under `<project>/.kg/constructions/<slug>/` instead of the primary canon —
 the in-session second construction `/kg-perturb` cross-generates against (§9/§15, `kg_generate`'s

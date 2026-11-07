@@ -113,7 +113,9 @@ etc. are slash commands.
    substring of the source (whitespace/case-normalized). No span → `REJECTED/no-supporting-span`;
    span not in source → `REJECTED/span-not-in-source` (fabrication). **Copy spans exactly from the
    source; never paraphrase.** From `source.md`: an edge `generality → attacked_by → specificity`
-   needs `span: "a more specific claim, when it holds, defeats a vaguer one"`.
+   needs `span: "a more specific claim, when it holds, defeats a vaguer one"`. A relation inferred
+   across sentences is `inferred`, still with a verbatim span. `kg_write` REJECTS an item claiming
+   `hypothesized` (`write-lane-hypothesis`): that lane carries no span and belongs to `kg_propose`.
 2. **never-forge-a-verdict (§1.4/§1.8).** A `kg_write` payload may NOT assert a non-`unverified`
    `epistemic_state` (`grounded/rejected/failed` *or* `obsolete`), nor claim `authored_by=human` or
    `deterministic` (the latter would otherwise skip span-present — only the in-process parser is

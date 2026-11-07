@@ -902,9 +902,51 @@ class KGEngine:
             self._constructions[name] = eng
         return eng
 
+    # The reason kg_write refuses an item that claims the proposal lane: the mirror of kg_propose's
+    # `propose-lane-text-claim`, so each write tool refuses the other tool's lane at its own door.
+    _WRITE_LANE_HYPOTHESIS = "write-lane-hypothesis"
+
+    @staticmethod
+    def _split_write_lane(payload) -> "tuple[object, list[dict]]":
+        """``(payload, refused)``: ``payload`` without the items that explicitly claim
+        ``provenance=hypothesized``, and one REJECTED detail per item taken out.
+
+        The boundary handles a hypothesized item as a discovery-mechanism PROPOSAL: it stores the item
+        with an EMPTY span and runs no span check (contract §5a). That is right for `kg_propose`, and wrong
+        when the item reached the text-claim lane: an extractor that marked an edge `hypothesized` (as
+        its own contract invited, for a relation "inferred across sentences") had its span dropped and
+        never verified, and the edge was ACCEPTED, so the build's span-support guarantee failed with no
+        REJECTED or QUARANTINED signal (field report on 0.4.6: 2 of 61 edges, found only because their
+        section stayed uncovered). Refusing it here keeps every edge kg_write accepts span-verified, and
+        names the fix: re-emit the claim as `inferred` with its verbatim span, or propose it on purpose
+        through kg_propose. A payload of any other shape passes through untouched, for validate_payload
+        to judge."""
+        if not isinstance(payload, dict):
+            return payload, []
+        refused: "list[dict]" = []
+        out = dict(payload)
+        for key, kind in (("nodes", "node"), ("edges", "edge")):
+            items = payload.get(key)
+            if not isinstance(items, list):
+                continue
+            kept = []
+            for it in items:
+                if not (isinstance(it, dict) and it.get("provenance") == Provenance.HYPOTHESIZED.value):
+                    kept.append(it)
+                    continue
+                try:
+                    rid = (edge_id(it.get("source") or "", it.get("relation") or "", it.get("target") or "")
+                           if kind == "edge" else (it.get("id") or slug(it.get("label") or "")))
+                except Exception:  # noqa: BLE001 — a malformed item still gets its refusal, just no id
+                    rid = None
+                refused.append({"kind": kind, "id": rid, "disposition": Disposition.REJECTED.value,
+                                "reason": KGEngine._WRITE_LANE_HYPOTHESIS, "retryable": False})
+            out[key] = kept
+        return out, refused
+
     def kg_write(self, payload: dict, *, message: str = "kg_write", existing_nodes=None,
                  idempotency_key: str | None = None, construction: str | None = None,
-                 source=None) -> dict:
+                 source=None, lane: str = "text-claim") -> dict:
         """Validate an extraction payload at the boundary and write accepted/demoted items.
 
         `existing_nodes` is the canon baseline used for dedup + rate-limit seeding; it defaults to the
@@ -927,19 +969,31 @@ class KGEngine:
         write to a separately-named alternate canon (`_construction_engine`) instead of the primary one,
         and `source` names the second source document the spans are verified against. This is how
         `/kg-perturb` builds its exo "second construction" in-session with no API key. `construction=None`
-        (every other caller) is the unchanged primary-canon path."""
+        (every other caller) is the unchanged primary-canon path.
+
+        **The text-claim lane (0.5.1).** `lane="text-claim"`, the default and the only lane the MCP tool
+        exposes, refuses any item that claims `provenance=hypothesized` (REJECTED,
+        `write-lane-hypothesis`, see `_split_write_lane`) and writes the rest, so every edge it accepts
+        carries a verified span. `kg_propose` alone passes `lane="proposal"`, after forcing its items
+        into that lane."""
+        if lane not in ("text-claim", "proposal"):
+            raise ValueError(f"unknown write lane {lane!r}: use 'text-claim' (kg_write) or 'proposal' "
+                             "(kg_propose)")
         if construction:
             # Route to the named alternate canon's own engine — full boundary → canon → projector,
             # rooted elsewhere. The sub-engine computes its own baseline (never the primary's
             # existing_nodes) and uses its own idempotency cache.
             return self._construction_engine(construction, source).kg_write(
-                payload, message=message, idempotency_key=idempotency_key)
+                payload, message=message, idempotency_key=idempotency_key, lane=lane)
         if source is not None:
             # `source` only names the second construction's own source; without `construction` it would be
             # silently dropped (the primary source is fixed at startup). Refuse loudly rather than no-op on
             # a caller that thinks it is re-pointing the primary source (review-fix: L3/server-5).
             raise ValueError("`source` is only valid together with `construction` (it names the second "
                              "construction's source document); omit it for a primary-canon write")
+        refused: "list[dict]" = []
+        if lane == "text-claim":
+            payload, refused = self._split_write_lane(payload)
         receipt = self._payload_receipt(payload)
         if idempotency_key:
             cached = self._write_cache.get(idempotency_key)
@@ -1007,6 +1061,11 @@ class KGEngine:
             "error": (self._scrub_error(info.error) if rolled_back else None),
             "receipt": receipt,
         }
+        if refused:
+            # the lane refusals lead the details, and count as REJECTED, exactly as kg_propose folds its own
+            out["details"] = refused + out["details"]
+            out["dispositions"][Disposition.REJECTED.value] += len(refused)
+            out["refused_hypotheses"] = len(refused)
         # Cache the response under the idempotency key (bounded LRU) so an exact retry replays it verbatim.
         # Do NOT cache a rolled-back batch: a rollback is a transient failure (e.g. an I/O error), and a
         # retry should be allowed to actually write, not replay the failure.
@@ -1061,7 +1120,7 @@ class KGEngine:
                  "edges": _lane(payload.get("edges"), "edge")}
         if "complete" in payload:
             clean["complete"] = payload["complete"]
-        out = self.kg_write(clean, message=message)
+        out = self.kg_write(clean, message=message, lane="proposal")
         # fold the call-site refusals into the same response shape kg_write returns
         out["details"] = refused + out["details"]
         out["dispositions"][Disposition.REJECTED.value] = (
@@ -2564,7 +2623,11 @@ def _register(mcp, engine: KGEngine) -> None:
         second construction's alternate canon under `<project>/.kg/constructions/<slug>/` instead of the
         primary canon — the in-session "second construction" `/kg-perturb` cross-generates against
         (§9/§15). `source` names the second source document so spans verify against IT. Omit both for the
-        normal primary-canon write."""
+        normal primary-canon write.
+
+        This is the TEXT-CLAIM lane: every edge it accepts carries a span verified against the source. An
+        item claiming `provenance=hypothesized` is REJECTED with `write-lane-hypothesis` — use `inferred`
+        (still with a verbatim span) for a relation inferred across sentences; proposals go to kg_propose."""
         return engine.kg_write(payload, idempotency_key=idempotency_key,
                                construction=construction, source=source)
 
