@@ -47,7 +47,7 @@ from .model import (
 )
 from .projector import Projector
 from .reconciler import GROUND_AUDIT, Reconciler
-from .scrub import Scrubber
+from .scrub import Scrubber, placeholders_in
 from .sources import SourceSet, split_sections
 
 # Module logger. The engine had no logging seam, so silent `except Exception: pass` fallbacks were
@@ -672,12 +672,17 @@ class KGEngine:
         src = text if text is not None else self.source_text()
         scrubbed, mapping = self.scrubber.scrub(src)
         self._scrub_map.update(mapping)
-        # Identity entries (a literal ⟦CAT:N⟧ already present in the source prose, mapped to itself so
-        # restore leaves it alone — scrub-2/M4) are protection bookkeeping, not redactions: keep them
-        # out of the reported count and category list so the response reflects real redactions only.
-        real = {k: v for k, v in mapping.items() if v != k}
+        # Count what this TEXT holds, not what this call minted. Placeholders are consistent across the
+        # session (one per value), and scrub() returns only the pairs it created now, so a section whose
+        # values had all been redacted by an EARLIER call came back with ⟦SECRET:1⟧ in its text and
+        # `redactions: 0`, which reads as "the scrubbed text is the original" (field report on 0.4.5).
+        # A placeholder counts when the session map sends it to another value. Identity entries (a literal
+        # ⟦CAT:N⟧ already present in the source prose, mapped to itself so restore leaves it alone —
+        # scrub-2/M4) are protection bookkeeping, not redactions, and stay out of the count and categories.
+        real = {ph for ph in placeholders_in(scrubbed) if self._scrub_map.get(ph, ph) != ph}
         return {"scrubbed": scrubbed, "redactions": len(real),
-                "sensitivity": self.sensitivity, "categories": sorted({k.split(":")[0].strip("⟦") for k in real})}
+                "sensitivity": self.sensitivity,
+                "categories": sorted({ph.split(":")[0].strip("⟦") for ph in real})}
 
     def _restore_fn(self):
         """The §1.9 span-restore: map placeholder spans back to the original before span verification,
@@ -1278,9 +1283,11 @@ class KGEngine:
         obsolete) state — the load-bearing record that preserves grounding/failure memory across a
         rename, kept in ONE place so the two rename loops can never drift apart."""
         old_eid = edge.id
-        if edge.source == old:
+        # Match by slug, the key `old` already is: an endpoint stored as a label ('Meta RADAR' for
+        # meta-radar, written before 0.4.6 or by hand) names the same node, and an exact match missed it.
+        if slug(edge.source) == old:
             edge.source = new
-        if edge.target == old:
+        if slug(edge.target) == old:
             edge.target = new
         edge.id = edge_id(edge.source, edge.relation, edge.target)  # keep id consistent with endpoints
         changed = edge.id != old_eid
@@ -1428,16 +1435,18 @@ class KGEngine:
         survivors: dict[str, Edge] = {}
         changed = False
         for e in edges:
-            rewritten = (e.source == frm) or (e.target == frm)
-            if e.source == frm:
+            # by slug, the key `frm`/`into` already are (see _rewrite_endpoints): a label-form endpoint
+            # names the same node
+            rewritten = (slug(e.source) == frm) or (slug(e.target) == frm)
+            if slug(e.source) == frm:
                 e.source = into
-            if e.target == frm:
+            if slug(e.target) == frm:
                 e.target = into
             e.id = edge_id(e.source, e.relation, e.target)
             if rewritten:
                 report["edges_rewritten"] += 1
                 changed = True
-            if e.source == e.target:  # the rewrite collapsed an endpoint pair into a self-loop
+            if slug(e.source) == slug(e.target):  # the rewrite collapsed an endpoint pair into a self-loop
                 # Negative information is NEVER pruned (§1.7): a failed/rejected edge lying directly
                 # between the two merged nodes must survive the merge as a degenerate self-loop so its
                 # verdict + span stay in falsification_counters. Only a positive/unverified self-loop is
@@ -1589,9 +1598,24 @@ class KGEngine:
         # and the loop short-circuits once a file is fully covered. Identical result to the old per-section
         # `any(sp in body for sp in spans)` (covered iff some span is a substring), without the
         # files×sections×spans worst case.
-        spans = {s for s in (normalize_text(e.span) for e in edges if e.span and e.span.strip()) if s}
+        #
+        # A span counts toward a file the way the boundary VERIFIED it (SourceSet.verifies): an edge whose
+        # `source_file` names a declared basename counts toward THAT file only, and an empty or unknown one
+        # (a single-source canon written before R4, an agent typo) toward any file, as the lenient check
+        # accepted it. Pooling every edge's span across files let a short span of one document ("Sin grupo
+        # de control.") mark a section of ANOTHER document covered, so a resumed build would have skipped
+        # that section (field report on 0.4.5).
+        named: dict[str, set[str]] = {}
+        anywhere: set[str] = set()
+        for e in edges:
+            sp = normalize_text(e.span) if e.span and e.span.strip() else ""
+            if not sp:
+                continue
+            key = SourceSet._key(e.source_file) if e.source_file else ""
+            (named.setdefault(key, set()) if key in texts else anywhere).add(sp)
         files, sections = [], []
         for fname, raw in texts.items():
+            spans = named.get(fname, set()) | anywhere
             # the SAME `##` unit /kg-build extracts per subagent — the rule is single-homed in
             # sources.split_sections (review-r5), shared with the headless backend's slicer.
             secs = split_sections(raw, preamble_title="(preamble)")

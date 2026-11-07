@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.4.6 — 2026-11-07
+
+Patch release for three engine defects that the first real `/kg-build` on 0.4.5 surfaced. That build was
+one 16-section Spanish document from an 8-file source folder, on the reporting Windows install. Each defect
+was confirmed against a copy of that build's own canon before it was fixed, and re-run there after: the
+broken numbers below are from the 0.4.5 engine on that copy, the fixed ones from this release. No change to
+the MCP tool surface or to grounding.
+
+### Fixed
+
+- **Edges whose endpoints were labels never joined the graph.** 3 of the build's 39 edges named their
+  endpoints by label (`Meta RADAR`, `componentes en masa`) while their id and owner used the slug. The
+  extractor contract asks for ids; the boundary keyed each edge on the slug but stored the endpoints as
+  given.
+  - Effect on 0.4.5: the projection hung those edges on phantom nodes, 80 nodes instead of 75. So
+    `get_neighbors` showed `meta-radar` 1 of its 2 edges and `componentes-en-masa` none, and degree and
+    bridges undercounted. `kg_rename` and `kg_merge`, which matched endpoints exactly, would have left
+    them dangling.
+  - The boundary now stores endpoints as node ids.
+  - The projector resolves the label-form endpoints an older canon or a hand edit still holds: an
+    endpoint that is not a node id but whose slug is one names that node. That includes a node stored
+    with a raw id from before node ids were slugged.
+  - A new `PROJECTION_RULES` value in the index forces one full rebuild after the upgrade, because notes
+    that did not change are rebuilt from their old index rows rather than re-read.
+  - Rename and merge match endpoints by slug.
+  - On the copy of the build: 75 nodes, no phantoms, and every edge visible from both ends. The canon
+    files keep their label-form endpoints on disk until something rewrites them.
+- **`kg_status` coverage counted a span toward every source file.** Three short spans of the built
+  document also occur in another file of the folder (`Sin grupo de control.`). So three sections of that
+  other file showed as covered although nothing had been built from it, and a resumed build guided by
+  coverage would have skipped them. A span now counts toward a file the way the boundary verified it:
+  toward the file its edge's `source_file` names when that is a declared source, and toward any file when
+  the edge names none or an unknown one. On the copy, that file went from 3 of 18 sections covered to 0.
+- **`kg_scrub` reported 0 redactions for a section that still held placeholders.** Placeholders are
+  consistent across a session, and the count only included the ones the call itself minted. Sections 7, 9
+  and 16 reused a placeholder an earlier section had minted, and came back holding `⟦SECRET:1⟧` with
+  `redactions: 0` and `categories: []`, which reads as "the scrubbed text is the original". `redactions`
+  now counts every redacted value the returned text holds, so it is 0 exactly when nothing changed; on
+  the copy that held for all 16 sections. The redacted values themselves were three URL path fragments.
+  That over-redaction is deliberate (a URL can carry a real token), and `kg_write` restores them.
+
+### Tests
+
+- **`tests/test_fix_engine_field_report.py` (12 tests)** covers:
+  - the reused-placeholder count, and the "0 redactions ⇔ unchanged text" equivalence;
+  - coverage per named file, while an edge with no known `source_file` still covers any file;
+  - endpoints stored as ids, and label-form endpoints reaching neighbors and degree with no phantom
+    nodes;
+  - a well-formed canon left untouched, and a legacy raw id still found;
+  - an index built under the old rules rebuilt exactly once with no canon change;
+  - rename and merge rewriting a label-form endpoint.
+- **The review-C2 test in `tests/test_fix_boundary_model.py`** now expects the stored source to be the
+  node id, not the label. Its point (no phantom node, no rolled-back batch) is unchanged.
+- **Verified as real pins.** Run against the 0.4.5 engine, 10 of the 12 fail. The other two pin the
+  unchanged lenient coverage. 1437 → 1449 passed, 3 skipped.
+
 ## 0.4.5 — 2026-11-07
 
 Patch release for how commands receive what you type after them, and for the `extract_wave_size` option,
