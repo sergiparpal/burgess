@@ -1,16 +1,15 @@
 """Tests for the /kg-build extraction wave-size resolver (kg_engine.waves).
 
-Covers the deterministic Python reference (resolve_wave_size + the `python -m kg_engine.waves` CLI) AND a
-drift-guard that runs the command's ACTUAL pure-Bash mirror (extracted from commands/kg-build.md) over the
-same matrix, so the two implementations can never diverge on a realistic input.
+Covers the deterministic resolver (resolve_wave_size / explain_wave_size + the `python -m kg_engine.waves`
+CLI) and the runtime path that feeds it: since 0.5.0 `kg_build_plan` resolves the wave size from the typed
+arguments and the option text the command hands it. Through 0.4.6 a drift guard here ran the command's
+pure-Bash mirror instead; the command has no Bash left, so the resolver is the only implementation.
 
 Contract: precedence inline-arg > user_config (the extract_wave_size option) > default(6); parse to int;
 unset/non-numeric/<1 -> default; >10 -> clamp to 10; always in [1, 10].
 """
 from __future__ import annotations
 
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -20,25 +19,12 @@ from kg_engine.waves import (
     MAX_WAVE_SIZE,
     MIN_WAVE_SIZE,
     WAVE_ENV,
+    explain_wave_size,
     main,
     resolve_wave_size,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _bash_available() -> bool:
-    """True only if a *working* bash is on PATH. `shutil.which('bash')` is not enough on Windows: the
-    runners ship the WSL launcher stub at C:\\Windows\\System32\\bash.exe, which is found by `which` but
-    exits non-zero (no distro installed) — so probe it, and only run the drift guard where bash actually
-    executes (Linux/macOS, or a properly-configured Git Bash)."""
-    if shutil.which("bash") is None:
-        return False
-    try:
-        r = subprocess.run(["bash", "-c", "echo ok"], capture_output=True, text=True, timeout=15)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return r.returncode == 0 and r.stdout.strip() == "ok"
 
 
 def test_constants_are_the_documented_bounds():
@@ -122,56 +108,61 @@ def test_cli_clamps_and_reads_env(capsys, monkeypatch):
     assert capsys.readouterr().out.strip() == "10"
 
 
-# ---- drift guard: the command's pure-Bash mirror must agree with the resolver ----
-# The two ways a value reaches those lines at runtime, reproduced as they happen (0.4.5): the orchestrator
-# writes the wave size it parsed out of the arguments between WAVE_ARG's empty quotes, and Claude Code fills
-# the `${user_config.extract_wave_size}` placeholder when the option is set, leaving it as it is when the
-# option is unset. The Bash tool's environment carries no CLAUDE_PLUGIN_OPTION_* variable, and neither does
-# this run. (Before 0.4.5 the mirror read `${2:-$WAVE_ENV}`, and this guard fed it both as bash's own `$2`
-# and environment, two channels the real command never had, so it passed while every build used 6.)
-_ARG_LINE = 'WAVE_ARG=""'
+# ---- explain_wave_size: the value and the level it came from ---------------------------------------
+@pytest.mark.parametrize("arg,cfg,expected", [
+    ("3", "8", (3, "argument")),
+    ("11", None, (10, "argument")),     # clamped, keeps its origin
+    ("", "8", (8, "option")),
+    (None, "11", (10, "option")),
+    ("0", "8", (6, "default")),         # present-but-invalid: the default, never the option
+    ("abc", None, (6, "default")),
+    (None, "${user_config.extract_wave_size}", (6, "default")),   # an unfilled placeholder
+    (None, None, (6, "default")),
+])
+def test_explain_wave_size_reports_the_level_used(arg, cfg, expected):
+    assert explain_wave_size(arg, cfg) == expected
+    assert resolve_wave_size(arg, cfg) == expected[0]
+
+
+# ---- the runtime path: kg_build_plan resolves the wave size (0.5.0) ---------------------------------
+# The two ways a value reaches the plan, reproduced as they happen: the typed wave size is the trailing
+# whole number of `$ARGUMENTS`, which kg_build_plan splits off itself, and the option is the text Claude Code
+# filled into `${user_config.extract_wave_size}` (left as written when the option is unset), which the command
+# passes as `configured_wave_size`. The engine reads no env var for it (tests/test_manifests.py), so neither
+# does this test's engine.
 _CFG_PLACEHOLDER = "${user_config.extract_wave_size}"
 
 
-def _extract_command_bash() -> str:
-    """Pull the six wave-size resolution lines out of commands/kg-build.md so the test exercises the
-    REAL snippet (not a copy), then append an `echo` so we can read the resolved value."""
-    text = (ROOT / "commands" / "kg-build.md").read_text(encoding="utf-8")
-    prefixes = ('WAVE_ARG=', 'WAVE_CFG=', 'WAVE_RAW=', 'case "$WAVE_RAW"', '[ "$WAVE_SIZE" -lt',
-                '[ "$WAVE_SIZE" -gt')
-    lines = [ln for ln in text.splitlines() if ln.strip().startswith(prefixes)]
-    assert len(lines) == 6, f"expected 6 resolution lines in kg-build.md, found {len(lines)}: {lines}"
-    return "\n".join(lines) + '\necho "$WAVE_SIZE"\n'
+@pytest.fixture
+def plan_engine(tmp_path, vault, monkeypatch):
+    from kg_engine.server import KGEngine
+
+    monkeypatch.setenv(WAVE_ENV, "9")   # must change nothing: the engine never reads it
+    src = tmp_path / "doc.md"
+    src.write_text("## A\na\n\n## B\nb\n", encoding="utf-8")
+    return KGEngine(vault, source_path=src)
 
 
-def _run_bash(script: str, arg, cfg):
-    if arg is not None:                       # the orchestrator's substitution
-        assert _ARG_LINE in script
-        script = script.replace(_ARG_LINE, f'WAVE_ARG="{arg}"', 1)
-    if cfg is not None:                       # Claude Code's, for a set option
-        assert _CFG_PLACEHOLDER in script
-        script = script.replace(_CFG_PLACEHOLDER, cfg)
-    env = {"PATH": __import__("os").environ.get("PATH", "")}
-    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=True)
-    return out.stdout.strip()
-
-
-@pytest.mark.skipif(not _bash_available(), reason="no working bash (e.g. Windows WSL-stub runner)")
-@pytest.mark.parametrize("arg,cfg", [
-    ("1", None), ("5", None), ("6", None), ("10", None), ("7", None),
-    ("11", None), ("100", None), ("0", None), ("-1", None), ("-3", None),
-    ("abc", None), ("3x", None),
-    (None, "8"), (None, "11"), (None, "0"), (None, "abc"), (None, None),
-    ("3", "8"), ("abc", "8"), ("0", "8"),
-    # the previously-divergent inputs the reference was tightened to mirror (signed / whitespace-padded /
-    # whitespace-only-cascades / leading-zero) — they must now AGREE on every one:
-    ("+5", None), ("  4  ", None), (" 4", None), ("4 ", None),
-    ("   ", "8"), ("07", None), ("007", None), ("010", None),
+@pytest.mark.parametrize("typed,cfg,expected,origin", [
+    ("", _CFG_PLACEHOLDER, 6, "default"),     # nothing typed, option unset: the placeholder stays
+    ("", "8", 8, "option"),
+    ("", "11", 10, "option"),
+    ("", "0", 6, "default"),
+    ("", "abc", 6, "default"),
+    ("doc.md 3", "8", 3, "argument"),         # typed beats the option
+    ("4", _CFG_PLACEHOLDER, 4, "argument"),   # a lone whole number is the wave size
+    ("doc.md 0", "8", 6, "default"),          # present-but-invalid does not cascade to the option
+    ("doc.md 100", "", 10, "argument"),
+    ("doc.md", "7", 7, "option"),
 ])
-def test_command_bash_mirror_matches_resolver(arg, cfg):
-    script = _extract_command_bash()
-    bash_result = int(_run_bash(script, arg, cfg))
-    assert bash_result == resolve_wave_size(arg, cfg), (
-        f"bash and resolver disagree for arg={arg!r} option={cfg!r}: "
-        f"bash={bash_result} resolver={resolve_wave_size(arg, cfg)}")
-    assert MIN_WAVE_SIZE <= bash_result <= MAX_WAVE_SIZE
+def test_the_plan_resolves_the_wave_size_like_the_resolver(plan_engine, typed, cfg, expected, origin):
+    plan = plan_engine.kg_build_plan(typed, cfg)
+    assert plan["ok"], plan
+    assert (plan["wave_size"], plan["wave_size_from"]) == (expected, origin)
+    assert plan["waves"] == -(-plan["sections_uncovered"] // expected)
+
+
+def test_the_command_hands_the_option_to_the_plan():
+    text = (ROOT / "commands" / "kg-build.md").read_text(encoding="utf-8")
+    assert f'configured_wave_size: "{_CFG_PLACEHOLDER}"' in text
+    assert "WAVE_CFG" not in text and "WAVE_ARG" not in text   # the 0.4.x Bash channels are gone

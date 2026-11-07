@@ -82,9 +82,10 @@ def test_plugin_userconfig_has_no_dead_domain():
     user_config = plugin["userConfig"]
     assert "domain" not in user_config, "domain maps to no engine env var — misleading dead config"
     # `source_path`/`sensitivity`/`metrics_mode` are the keys the engine actually reads
-    # (server.py:build_engine_from_env); `extract_wave_size` is an ORCHESTRATION knob the /kg-build
-    # command/skill consumes (kg_engine.waves.resolve_wave_size), never the engine — so it is the one
-    # userConfig key with no corresponding env read in build_engine_from_env, and that is intentional.
+    # (server.py:build_engine_from_env); `extract_wave_size` is an ORCHESTRATION knob, never engine config:
+    # since 0.5.0 the /kg-build command hands its filled-in text to kg_build_plan as an argument
+    # (kg_engine.waves.explain_wave_size) — so it is the one userConfig key with no corresponding env read
+    # in build_engine_from_env, and that is intentional.
     assert set(user_config) == {"source_path", "sensitivity", "metrics_mode", "extract_wave_size"}
 
 
@@ -167,7 +168,7 @@ def _registered_mcp_tools() -> set:
     # equivalent ways; nesting that inside `(?:...)*` made the ways multiply and the match
     # backtrack exponentially (CodeQL py/redos). Measured on the pathological input, the old
     # pattern quadrupled every two repetitions — 83 ms at 20, extrapolating to ~85 s at 30 —
-    # while this one stays flat at ~0.02 ms. Both scrape the same 27 tools from server.py.
+    # while this one stays flat at ~0.02 ms. Both scrape the same set of tools from server.py.
     return set(
         re.findall(
             r"@mcp\.tool\(\)[ \t]*\n(?:[ \t]*@[\w.]+[ \t]*\n)*[ \t]*def[ \t]+(\w+)[ \t]*\(", src

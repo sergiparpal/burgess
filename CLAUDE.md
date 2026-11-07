@@ -37,7 +37,7 @@ Notes:
 
 Two layers, one boundary:
 
-1. **Deterministic Python engine** — `scripts/kg_engine/`. Exposed as the `burgess` MCP server (27 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` is the KGEngine facade + FastMCP tool surface = the trust boundary. The engine is **never installed**: it resolves via `PYTHONPATH=<repo>/scripts` (see `.mcp.json`), so engine source edits need no rebuild; the venv (built by `scripts/bootstrap.py`, triggered by the SessionStart hook, dev fallback `<repo>/.venv`) holds only dependencies.
+1. **Deterministic Python engine** — `scripts/kg_engine/`. Exposed as the `burgess` MCP server (29 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` is the KGEngine facade + FastMCP tool surface = the trust boundary. The engine is **never installed**: it resolves via `PYTHONPATH=<repo>/scripts` (see `.mcp.json`), so engine source edits need no rebuild; the venv (built by `scripts/bootstrap.py`, triggered by the SessionStart hook, dev fallback `<repo>/.venv`) holds only dependencies.
 2. **Language layer** — 9 slash commands (`commands/kg-*.md`), 6 subagents (`agents/`: extractor, grounder, adversarial-grounder, generator, annotator, evaluator), the operating-guide skill (`skills/burgess/SKILL.md` + on-demand `references/`). LLM work happens ONLY here; agents hand structured JSON back across the MCP boundary. The engine stays rule-bound.
 
 `scripts/launch_server.mjs` supervises the Python engine (cold-start venv self-heal, restart policy); `hooks/precontext.mjs` (PreToolUse on Grep/Glob/Read) injects grounded graph context, fails silent.

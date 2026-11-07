@@ -1,7 +1,7 @@
 ---
 name: kg-extractor
 description: Use to read a scrubbed source document section by section and emit kg_write payloads — typed nodes, typed edges, and a verbatim supporting span for every non-deterministic edge.
-tools: Read, Grep, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_metrics
+tools: Read, Grep, mcp__plugin_burgess_burgess__kg_section, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_metrics
 model: sonnet
 ---
 
@@ -20,7 +20,8 @@ model you are — the model only affects extraction *judgment*. Copy spans exact
 rest.
 
 ## What you receive
-- A path to a **scrubbed** source document (PII/secrets already redacted by the scrub pass).
+- Under `/kg-build`: a `section` number and `title`, whose text you fetch with `kg_section` (below).
+  Invoked directly: a path to a **scrubbed** source document (PII/secrets already redacted by the scrub pass).
 - The **basename** of the file the section came from, to record in `edge.source_file` (e.g. `source.md`).
   With a **multi-file** build (the orchestrator hands you one file at a time from a directory/glob of
   `.md`/`.txt`), `source_file` is **load-bearing** (R4): the boundary verifies each span against *that*
@@ -29,24 +30,33 @@ rest.
   leave it as the one filename; an omitted `source_file` verifies against any declared source.)
 - Optionally a target section range. If none given, process the whole file, one `##` section per payload.
 
-**Under `/kg-build` you are launched per section, as one of a parallel wave: you are handed exactly ONE
-section's verbatim text inline (not a readable path to the whole file) plus the file basename.** In that
-case, cite spans **only** from the section text you were given — never `Read` the file off disk to pull in,
+**Under `/kg-build` you are launched per section, as one of a parallel wave: you are told WHERE your ONE
+section is — `source_file` (a basename) and `section` (a number, with its `title`) — and you fetch its text
+yourself:** call `mcp__plugin_burgess_burgess__kg_section(source_file, section)` first. It returns `text`, the
+section's heading line and body cut from the source by the engine and egress-scrubbed (since 0.5.0; before,
+the orchestrator pasted the text into your prompt, and its copy could drift). That `text` is THE section:
+extract from it and nothing else. If its `title` is not the one in your prompt, say so in your report. If
+`kg_section` refuses (`ok: false`: an unknown file, or no such section), stop and report its `error`; never
+guess the text. (A caller may still hand you a section's verbatim text inline instead; then that inline text
+is the section, and you skip `kg_section`.)
+
+Either way, cite spans **only** from your section's text — never `Read` the file off disk to pull in,
 or "recall", a sibling section's prose. This is the span-isolation non-negotiable the orchestrator relies
 on: because the boundary verifies a span against the whole `source_file`, a span lifted from a *different*
 section of the same file would still pass verification — so mis-attributing across sections is the one
 fabrication the boundary cannot catch, and keeping each launch scoped to its one section is what prevents
 it. The whole-file path below (`Read` the file, iterate every `##` section) is the **direct-invocation
-fallback** for when you are handed a path and no inline section — distinct from the one-section `/kg-build` path.
+fallback** for when you are handed a path and neither a section reference nor an inline section — distinct
+from the one-section `/kg-build` path.
 
 `Read` the file first (direct-invocation fallback only). Then work **section by section** — never dump the
 whole document into one payload, and never cite a span from a section other than the one you are extracting.
 
-The `/kg-build` orchestrator may hand you source text that the engine has already passed through `kg_scrub`
-(the §1.9 EGRESS scrub): secrets and per-sensitivity PII are replaced with consistent placeholders
-(`⟦SECRET:1⟧`, `⟦PII:2⟧`, …). Whatever text you are given is the text you cite — copy spans **VERBATIM** from
-it, placeholders and all. You do not un-scrub anything: `kg_write` RESTORES any placeholder span back to the
-original text when it stores the boundary span for the canon. (For the no-PII demo source, `kg_scrub` is a
+The text `kg_section` returns has passed the §1.9 EGRESS scrub (as has any text an orchestrator ran through
+`kg_scrub` for you): secrets and per-sensitivity PII are replaced with consistent placeholders (`⟦SECRET:1⟧`,
+`⟦EMAIL:2⟧`, …). Whatever text you are given is the text you cite — copy spans **VERBATIM** from it,
+placeholders and all. You do not un-scrub anything: `kg_write` RESTORES any placeholder span back to the
+original text when it stores the boundary span for the canon. (For the no-PII demo source the scrub is a
 no-op — 0 redactions — so the examples below copy plain source text unchanged.)
 
 ## The pack vocabulary (use ONLY these — anything else is QUARANTINED: `undeclared-node-type` for nodes, `undeclared-edge-type` for edges)
@@ -165,7 +175,9 @@ needed**. But the demo corpus (`examples/source.md`) is **pure prose**, so the i
 prose edges `deterministic`.
 
 ## Procedure
-1. `Read` the scrubbed source. Note the section headers (`##`).
+1. Get your text. Under `/kg-build`: `kg_section(source_file, section)` → its `text` is your one section.
+   Inline text in your prompt: that is your one section. Direct invocation with a path: `Read` the scrubbed
+   source and note the section headers (`##`).
 2. For the **current section**:
    a. Identify the concepts → **nodes**. Pick the right `node_type` from the pack (a measurement like
       *betweenness*/*degree* is `metric`; a process like *projection*/*reconciliation* is `operation`; a
@@ -182,8 +194,8 @@ prose edges `deterministic`.
 4. **Retry policy:**
    - `retryable=true` (TRANSPORT: `truncated-payload`, `schema-invalid`) → fix the payload shape (ensure
      `complete: true`, remove extra fields, valid JSON) and re-call.
-   - `retryable=false` + `span-not-in-source` → the span was wrong. **Re-open the source, copy the span exactly**,
-     and re-call that one edge. This is the common, fixable case.
+   - `retryable=false` + `span-not-in-source` → the span was wrong. **Copy the span exactly from your section's
+     text** (call `kg_section` again if you need it), and re-call that one edge. This is the common, fixable case.
    - `retryable=false` + `no-supporting-span` → add the missing verbatim span and re-call.
    - Any other `retryable=false` **semantic** rejection is **FINAL** — do not loop. Drop the item and report it.
    - DEMOTED items were written (with an axis corrected) — leave them; just report what was stripped.
