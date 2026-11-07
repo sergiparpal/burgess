@@ -160,8 +160,9 @@ defends_against, projects, survives) only — anything else is QUARANTINED with 
 details[].reason of `undeclared-node-type` (nodes) or `undeclared-edge-type` (edges). Every
 non-deterministic edge MUST carry a verbatim "span" that is a substring of the section text (§1.5), or it is
 REJECTED. Do NOT set epistemic_state to a verdict and do NOT set authored_by=human (§1.4) — those are DEMOTED
-("forged-verdict-stripped" / "human-claim-stripped"). Emit exactly one payload with "complete": true and return
-the kg_write result (dispositions, details[], written_nodes[], rolled_back).
+("forged-verdict-stripped" / "human-claim-stripped"). Emit exactly one payload with "complete": true, call
+kg_write with that payload only (never `source` or `construction`), and return the kg_write result
+(dispositions, details[], written_nodes[], rolled_back).
 """
 )
 ```
@@ -220,7 +221,7 @@ Summarize the build back to the user:
   section still uncovered at the end (with its extractor's reason).
 - **Dispositions** — summed across all section launches: ACCEPTED / DEMOTED / QUARANTINED / REJECTED, and for any
   REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `write-lane-hypothesis`,
-  `truncated-payload`, `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are
+  `self-loop`, `truncated-payload`, `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are
   extractor errors, not transport; `retryable=true` for TRANSPORT (truncation, schema).
 - **Node / edge counts** — from `kg_metrics()`: `nodes`, `edges`, and the `edges_by_epistemic_state` breakdown.
 - **Span-support** — every ACCEPTED non-deterministic edge carries a verifiable span by construction (the
@@ -263,6 +264,10 @@ spaces to hyphens — e.g. `e_generality-confound__attacked-by__specificity` (th
   once. Do not hand-edit spans yourself.
 - **An extractor reports that `kg_section` refused** (`ok: false`: an unknown file or a section number out of
   range) → the source changed since the plan. Call `kg_build_plan` again, and launch from its new numbering.
+- **REJECTED `self-loop`** → the extractor wrote an edge from a node to itself. Nothing to retry: there was no
+  claim. Report it with the other rejections.
+- **A refused `kg_write` call** (`ok: false`, "`source` is only valid together with `construction`") → the
+  extractor passed `source` to kg_write. Nothing was written; it should re-send the payload alone.
 - **REJECTED `write-lane-hypothesis`** → the extractor marked an item `hypothesized`, the proposal lane that
   carries no span. Its contract tells it to re-emit the item as `inferred` with a verbatim span, or to drop
   it; if it reported the rejection instead, re-launch that section once.

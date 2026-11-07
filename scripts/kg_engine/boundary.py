@@ -450,6 +450,15 @@ def _validate_edge(edge_in: EdgeIn, ctx: _EdgeLaneContext, seen: set,
     for role, value in (("source", edge.source), ("relation", edge.relation), ("target", edge.target)):
         if not re.search(r"[^\W_]", value or "", re.UNICODE):
             return _result("edge", edge, Disposition.REJECTED, f"empty-{role}", False, canonical_id)
+    # reject a self-loop: an edge whose two endpoints name ONE node (compared as the slugs that key the
+    # node) relates a concept to itself, which none of the pack's relations can state about the text.
+    # It is an extraction slip, not a claim: in one field build (0.5.1) an extractor wrote
+    # `h1-… survives h1-…` at confidence 0.2 as a placeholder, with a span that verified, so nothing
+    # else stopped it. Every lane, the propose lane included: a generator has no business proposing one
+    # either. kg_merge already discards the unverified self-loops ITS rewrite creates and keeps only the
+    # failed/rejected ones as failure memory (§1.7); those never pass through here.
+    if slug(edge.source) == slug(edge.target):
+        return _result("edge", edge, Disposition.REJECTED, "self-loop", False, canonical_id)
 
     # clamp the confidence hint into [0,1]; drop NaN/inf so it can't poison downstream calibration
     if edge.confidence_score is not None:

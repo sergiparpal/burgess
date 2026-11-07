@@ -152,6 +152,9 @@ never be the thing that ends a falsification (§1.7).
 | `truncated-payload`   | true      | `complete` was false (§1.3) — transport failure, whole payload dropped |
 | `schema-invalid: N errors` | true | Pydantic rejected the shape (extra/missing/mistyped field) |
 | `rate-limited-flood`  | false     | net-new writable **edges or nodes** past the per-payload budget `max(64, kb·20)` — anti-injection cap (§Stage 9) |
+| `empty-source` / `empty-relation` / `empty-target` | false | an endpoint or relation with no content character, which would slug to the `node` fallback |
+| `self-loop`           | false     | `source` and `target` slug to ONE node (0.5.2): no pack relation states a claim about a concept and itself. Every lane |
+| `write-lane-hypothesis` | false   | `kg_write` only: the item claimed `provenance=hypothesized`, the propose lane, which carries no span (0.5.1, §5a) |
 
 `retryable=false` ⇒ **semantic** failure: do not resend the same item; fix the span or drop the edge.
 `retryable=true` ⇒ **transport** failure: re-emit the corrected/whole payload.

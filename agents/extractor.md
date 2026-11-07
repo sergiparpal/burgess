@@ -138,6 +138,14 @@ Field rules:
 - `source`/`target` on an edge are **node ids (slugs)**, not labels. The boundary auto-creates a placeholder
   node for an edge's `source` if it is missing from `nodes[]`; a `target` may reference a node you have not
   created yet (e.g. it appears in a later section). You do **not** need to redeclare a node you already wrote.
+- **Name ids in the source's own words and language.** An id is the term as the text writes it, in lowercase
+  ASCII kebab-case with accents dropped (`cuello de botella` → `cuello-de-botella`, `revisión humana` →
+  `revision-humana`), never a translation of it (`bottleneck`). Keep the accents in the `label`. Other
+  sections and other files reach the same concept only through the same id: two spellings of one concept,
+  `revisión` and `revision` included, are two nodes, which only a later `kg_merge` can join.
+- **An edge joins two DIFFERENT nodes.** `source` = `target` is REJECTED `self-loop`. Read the edge back as
+  "source relation target" and check that it says what its span says, in that direction. If no pack relation
+  fits, or you are unsure of the direction, leave the edge out instead of approximating it.
 - `edge.id` is derived deterministically as `e_{source}__{relation}__{target}` (slugged) — never set it.
 - `provenance` ∈ `span-present | inferred`. Use `span-present` when your span states the relation outright
   (the normal case). Use `inferred` for a relation you genuinely inferred across sentences: it still needs a
@@ -192,7 +200,10 @@ prose edges `deterministic`.
       drawn from the text.
    b. Identify the relations → **edges**. For each, choose the pack `relation`, set `source`/`target` to the
       node slugs, and **copy the verbatim span** that states it.
-   c. Assemble ONE payload with `complete: true` and call `mcp__plugin_burgess_burgess__kg_write`.
+   c. Assemble ONE payload with `complete: true` and call `mcp__plugin_burgess_burgess__kg_write` with that
+      payload and nothing else (add an `idempotency_key` only when re-sending the same payload). Never pass
+      `construction` or `source`: they route a write to `/kg-perturb`'s second construction, and `source`
+      without `construction` is refused before anything is written.
 3. Read the return: `{dispositions, details[], written_nodes[], rolled_back, receipt, error}` (`receipt` is
    a deterministic hash of the payload's target ids — same payload → same receipt). Report the
    `dispositions` counts (ACCEPTED / DEMOTED / QUARANTINED / REJECTED) and any DEMOTED/QUARANTINED/REJECTED
@@ -205,6 +216,7 @@ prose edges `deterministic`.
    - `retryable=false` + `no-supporting-span` → add the missing verbatim span and re-call.
    - `retryable=false` + `write-lane-hypothesis` → you marked the item `hypothesized`. Re-emit it as
      `inferred` (or `span-present`) with the verbatim span that anchors it, or drop it if no span does.
+   - `retryable=false` + `self-loop` → the edge joined a node to itself. There is no claim to repair: drop it.
    - Any other `retryable=false` **semantic** rejection is **FINAL** — do not loop. Drop the item and report it.
    - DEMOTED items were written (with an axis corrected) — leave them; just report what was stripped.
    - QUARANTINED items used an undeclared type — fix the type to a pack type if the text supports it, else report
