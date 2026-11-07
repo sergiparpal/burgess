@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.6.0 — 2026-11-07
+
+`kg_section` now shows each extractor the nodes already in the canon that its section names, so later
+sections reuse an id instead of coining a near-duplicate. Reported from the full `/kg-build` on 0.5.2 of the
+reporting install's 8-file corpus (84 sections, 486 nodes). There, one concept written by two sections landed
+under two ids about 19 times (`radar` / `meta-radar`, `pass-at-k` / `pass-k`, singular/plural pairs), and
+102 nodes had no edge. The write boundary, grounding and the canon format do not change.
+
+### Added
+
+- **`known_nodes` in `kg_section`'s result:** up to 60 canon nodes whose name the section mentions, as
+  `{id, label, node_type}`, most specifically named first. `known_nodes_more` counts the ones past the cap.
+  - **Named:** at least half the content words of the node's id or label occur in the section, singular or
+    plural, with accents and function words ignored.
+  - **Order:** a rarity weight over the canon's names puts `radar` or `camel` ahead of `codigo`, then degree,
+    then id, so the list is the same on every run.
+  - **No merging:** it only decides what the extractor is shown. Nothing is merged automatically.
+- **`buildplan.related_nodes`** is the match itself: deterministic and word-based, with no embeddings.
+
+### Changed
+
+- **The extractor's contract:**
+  - reuse a known node's id only for the same concept;
+  - never reuse it for a broader, narrower or merely related one;
+  - create a new node when in doubt;
+  - never redeclare a known node in `nodes[]`, because a redeclared node's label, node_type and body replace
+    the ones in the canon. In the reported build, `meta-radar` changed type that way.
+- **`/kg-build`'s launch template** passes the same rule on.
+
+### Tests
+
+- **`tests/test_known_nodes.py` (19 tests)** covers:
+  - what counts as named: half the words, plurals, accents, numbers, function words;
+  - the rarity order and the deterministic tie-breaks, and the cap and its count;
+  - through `kg_section`: an empty canon, a later section seeing an earlier one's node, egress-scrubbed
+    labels, an unreadable canon still serving the section, and one canon parse per wave;
+  - the contract and template texts.
+- **These tests cannot fail informatively on 0.5.2**, where the function does not exist. The match was
+  measured offline instead, on copies of the reported build's canon and its 84 sections.
+  - Two members of the build's 18 duplicate groups appear together in some section's list for 12 of them at
+    a cap of 20, 14 at 40 and 16 at 60, and still 16 at 80; hence the cap of 60, about 1.5k tokens per
+    extractor.
+  - The two misses are a translation (`mutation-score` / `puntuacion-de-mutacion`) and synonyms with no word
+    in common.
+- **Checked end to end with Claude Code 2.1.316**, in auto mode and headless: a `/kg-build` of
+  `examples/source.md` with the option set to 2, so three waves.
+  - The first wave got no known nodes, from an empty canon.
+  - In the second, §3 was shown two known nodes and reused `generality-confound` in its edges, and §4 reused
+    `claim`. No extractor redeclared a known node.
+  - Nothing ran Bash or read a file, and no permission was denied. The canon held 20 nodes and 11 edges, and
+    the run cost $0.76.
+- 1508 → 1527 passed, 3 skipped.
+
 ## 0.5.2 — 2026-11-07
 
 Patch release from the first full `/kg-build` on 0.5.1: all 8 files of the reporting install's source, 84

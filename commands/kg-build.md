@@ -125,6 +125,11 @@ verifies each span against **that file specifically** (R4 — a span attributed 
 `span-not-in-named-source`). The extractor reads its section, emits a single complete `kg_write` payload, and
 reports its dispositions back to you.
 
+`kg_section` also lists the nodes already in the canon that the section names (`known_nodes`, 0.6.0), so an
+extractor in a later wave reuses an id another section wrote instead of coining a near-duplicate. Extractors
+in the same wave cannot see each other's nodes; that is the price of running them in parallel, and a later
+`kg_merge` joins what slips through.
+
 **Launch the per-section subagents CONCURRENTLY in waves of `wave_size` (from the plan).** Collect the plan's
 uncovered `(file, section)` pairs in plan order, then process them in batches: issue `wave_size` `Task(...)`
 calls **in a single message** (so they run in parallel), wait for that whole wave to finish, then launch the
@@ -152,7 +157,8 @@ title: "1. Compression and the cost of generality"
 Get the section's text with mcp__plugin_burgess_burgess__kg_section(source_file: "source.md", section: 1)
 and extract from that text only. It is the engine's verbatim, egress-scrubbed cut of the section: copy every
 span EXACTLY from it, ⟦CAT:N⟧ placeholders included. If the title it returns is not the one above, say so in
-your report.
+your report. Its known_nodes are nodes other sections already wrote that your section names: reuse a known
+node's id only for the same concept, and never redeclare it in nodes[].
 
 Follow your system contract: declared node_types (compression, primitive, claim, metric, operation, failure)
 and edge_types (grounds, attacked_by, reconciles_with, bridges, collapses_into, confounded_by, approximates,

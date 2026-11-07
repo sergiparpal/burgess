@@ -670,6 +670,16 @@ launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `
   original. Copy spans from it exactly, placeholders included.
 - `title` — scrubbed the same way, so its placeholders match the heading line's.
 - `redactions` / `categories` / `sensitivity` — `kg_scrub`'s, for this text.
+- `known_nodes` (0.6.0) — up to 60 canon nodes whose NAME the section mentions, as `{id, label,
+  node_type}`, so the extractor can reuse an id another section wrote instead of coining a near-duplicate.
+  - **What counts as named** (`buildplan.related_nodes`): at least half the content words of the node's id or
+    label occur in the section, singular or plural, accents and function words ignored.
+  - **Order:** the rarity-weighted share of the name found (an IDF over the canon's names, so `radar`
+    outweighs `codigo`), then the weight found, then degree, then id.
+  - **What it does not do:** it only decides what the extractor is shown. Whether a concept is the same stays
+    the extractor's call, and nothing is merged automatically.
+  - **Egress:** labels pass the egress scrub.
+- `known_nodes_more` — how many more nodes the section names past the cap.
 
 `ok: false` with `error` for a file that is not a configured source file (`files[]` lists the configured
 basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of

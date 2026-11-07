@@ -283,3 +283,30 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - A self-loop already in a canon stays until `/kg-ground` rejects it.
   - A future pack relation that is reflexive by nature would need this rule revisited.
 - **Pinned in:** `tests/test_fix_self_loops_and_write_args.py`. Run against the 0.5.1 engine, 6 of its 7 tests fail; the other pins the unchanged refusal of `source` without `construction`.
+
+## kg_section shows the extractor the canon nodes its section names (2026-11-07)
+
+- **Decision:** `kg_section` returns `known_nodes` along with the section's text: up to 60 canon nodes whose NAME the section mentions, as `{id, label, node_type}`, plus `known_nodes_more` for the ones past the cap (`buildplan.related_nodes`).
+  - **Named:** at least half the content words of the node's id or label occur in the section, singular or plural, accents and function words ignored.
+  - **Order:** the rarity-weighted share of the name found (an IDF over the canon's names), then the weight found, then degree, then id.
+  - **The contract:** the extractor reuses a known id only for the same concept, creates a new node when in doubt, and never redeclares a known node.
+- **Problem it addresses:** each extractor named its nodes without seeing the canon. In a full build of an 8-file corpus (0.5.2, 84 sections, 486 nodes), one concept written by two sections landed under two ids about 19 times (`radar` / `meta-radar`, `pass-at-k` / `pass-k`, singular/plural pairs), and 102 nodes had no edge. Those pieces join only through a later `kg_merge`.
+- **Why lexical, not embeddings:** the match only decides what an extractor is SHOWN; whether two names are one concept stays the extractor's judgment, and the engine never guesses identity. A word match is deterministic, explainable and free. Embeddings measure dispersion, never truth, and identity is a truth question.
+- **Why a rarity weight and a cap of 60:** in that build's own canon, a section names a median of 107 nodes by the half-the-words rule, mostly through words every other name shares (`revision`, `agente`). Measured offline on its 84 sections, two members of a duplicate group appear together in some section's list for:
+  - 12 of the 18 groups at a cap of 20;
+  - 14 at 40;
+  - 16 at 60;
+  - still 16 at 80.
+
+  The two misses are a translation (`mutation-score` / `puntuacion-de-mutacion`) and synonyms with no word in common. Sixty entries cost about 1.5k tokens per extractor.
+- **Why "never redeclare":** the canon merge lets an incoming node's label, node_type and body replace the existing ones. In that build, `meta-radar` changed from `primitive` to `operation` because a second section declared it again.
+- **Rejected alternatives:**
+  - (a) *Show every node:* ~9k tokens per extractor at 486 nodes, growing with the canon, and a list that long is skimmed, not read.
+  - (b) *Have the orchestrator pass ids in the launch prompt:* the copy-through-the-prompt problem 0.5.0 removed.
+  - (c) *Merge near-duplicates at write time:* the boundary would be guessing identity, and a wrong merge silently joins two concepts, which is worse than a duplicate.
+  - (d) *Run extractors serially so each sees all earlier nodes:* gives up the parallel waves.
+- **Accepted trade-offs:**
+  - Extractors in the same wave cannot see each other's nodes, so the first wave gains nothing.
+  - Synonyms and translations still slip through to `kg_merge`.
+  - The match is for scripts with word boundaries (`[^\W_]+`), which fits this corpus but not, say, unsegmented CJK.
+- **Pinned in:** `tests/test_known_nodes.py`. Checked end to end on the demo in waves of 2: the second wave was shown the first wave's nodes and reused `generality-confound` and `claim`, without redeclaring either.
