@@ -13,14 +13,16 @@ Before extraction, the §1.9 **egress scrub** `mcp__plugin_burgess_burgess__kg_s
 **consistent** placeholders (`⟦SECRET:1⟧` etc.) so relational structure survives, then hands the scrubbed
 text to the subagent. `kg_write` **restores** the placeholder spans to the ORIGINAL text before writing, so
 the boundary stores the restored original span in the canon (the span still verifies against the unscrubbed
-source, §5). For a no-PII source the scrub is a no-op (`redactions=0`). The graph tool surface adds the
-generative layer's tools on top of the sixteen core read/write tools: `kg_ping`, `kg_scrub`, `kg_write`,
-`kg_ground`, `kg_rename`, `kg_merge` (deliberate node-merge with edge dedup), `kg_metrics`, `kg_status`,
+source, §5). For a no-PII source the scrub is a no-op (`redactions=0`). Under `/kg-build` the scrub runs
+inside `mcp__plugin_burgess_burgess__kg_section(source_file, section)`, which serves an extractor its one
+section already cut and scrubbed (0.5.0). The graph tool surface adds the generative layer's tools on top of
+the eighteen core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (the /kg-build plan),
+`kg_section`, `kg_write`, `kg_ground`, `kg_rename`, `kg_merge` (deliberate node-merge with edge dedup), `kg_metrics`, `kg_status`,
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
 `kg_export` (read-only human-facing render) (plus the four generative-layer tools `kg_propose` (§5a),
-`kg_generate`, `kg_operate`, `kg_absorption` — see the generative-layer references) — twenty in all.
-The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to twenty-seven; they
+`kg_generate`, `kg_operate`, `kg_absorption` — see the generative-layer references) — twenty-two in all.
+The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to twenty-nine; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---

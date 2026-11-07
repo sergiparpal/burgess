@@ -9,8 +9,9 @@ already knows the resolved path, so `kg_status()` now exposes it under a `source
 reads it from there — and fails loud instead of building the demo by surprise.
 
 FALLO 4: the command enumerated only level-2 `## ` headings; a file whose single `## ` is its title but
-whose content is `### ` subsections collapsed into one section, breaking span-isolation. Step 0b now
-detects the dominant heading level per file and warns on 0-1 level-2 sections.
+whose content is `### ` subsections collapsed into one section, breaking span-isolation. Step 0b then
+detected the dominant heading level per file in Bash; since 0.5.0 the engine does (`kg_build_plan`, through
+`sources.plan_sections`), and the command reports the plan's `heading_level` instead of grepping for it.
 """
 from pathlib import Path
 
@@ -66,27 +67,75 @@ def test_command_does_not_resolve_source_from_shell_env_var():
     assert 'SOURCE="${1:-${CLAUDE_PLUGIN_OPTION_SOURCE_PATH' not in CMD
 
 
-def test_command_reads_source_from_kg_status():
-    # Step 0a resolves the path through the engine (kg_status().source.path), the single source of truth.
-    assert "kg_status()" in CMD
+def test_command_reads_source_from_the_engine():
+    # Since 0.5.0 the plan carries the engine-resolved source (kg_build_plan().source, the same block
+    # kg_status returns): the single source of truth, and the command reports `source.path` from it.
+    assert "kg_build_plan" in CMD
     assert "source.path" in CMD
 
 
 def test_command_fails_loud_instead_of_demo_fallback():
-    # When nothing is configured and no $1 is passed, the command STOPs rather than building the demo.
-    assert "STOP" in CMD
-    low = CMD.lower()
-    assert "fails loud" in low or "fail loud" in low or "silently build" in low
+    # When nothing is configured, the command STOPs rather than building the demo.
+    flat = " ".join(CMD.split())
+    assert "**`ok: false` → STOP.**" in flat
+    assert "never fall back to the demo corpus" in flat
+
+
+def test_the_plan_refuses_an_unconfigured_source(vault):
+    plan = KGEngine(vault).kg_build_plan("", "")
+    assert plan["ok"] is False
+    assert plan["source"]["path"] is None
+    assert "no source_path is configured" in plan["error"]
+    # A subset cannot stand in for a missing source_path: spans verify against the configured source only.
+    assert KGEngine(vault).kg_build_plan("notes.md", "")["ok"] is False
 
 
 # --------------------------------------------------------------------------- #
 # FALLO 4 — dominant heading level detection
 # --------------------------------------------------------------------------- #
-def test_command_detects_dominant_heading_level():
-    # Step 0b must count both `## ` and `### ` and iterate `### ` when a file's only `## ` is its title.
-    assert "grep -cE '^## '" in CMD
-    assert "grep -cE '^### '" in CMD
-    assert "grep -nE '^### '" in CMD          # it actually enumerates the level-3 sections
-    low = CMD.lower()
-    assert "dominant heading level" in low
-    assert "warning" in low                    # warns on 0-1 level-2 sections
+def _plan_file(tmp_path, vault, text: str) -> dict:
+    src = tmp_path / "doc.md"
+    src.write_text(text, encoding="utf-8")
+    plan = KGEngine(vault, source_path=src).kg_build_plan("", "")
+    assert plan["ok"], plan
+    (entry,) = plan["files"]
+    return entry
+
+
+def test_a_title_only_file_is_planned_at_its_subsections(tmp_path, vault):
+    # The FALLO 4 shape: one `## ` heading (the title), the content in `### ` subsections.
+    entry = _plan_file(tmp_path, vault, "## Título\nintro\n\n### Uno\na\n\n### Dos\nb\n\n### Tres\nc\n")
+    assert entry["heading_level"] == 3
+    assert [s["title"] for s in entry["sections"]] == ["Uno", "Dos", "Tres"]
+    assert "### subsections" in entry["note"]
+
+
+def test_a_file_with_two_level_two_sections_stays_at_level_two(tmp_path, vault):
+    entry = _plan_file(tmp_path, vault, "## A\n### a1\n### a2\n## B\n### b1\n")
+    assert entry["heading_level"] == 2
+    assert [s["title"] for s in entry["sections"]] == ["A", "B"]
+
+
+def test_a_single_subsection_does_not_switch_the_level(tmp_path, vault):
+    entry = _plan_file(tmp_path, vault, "## Título\n### Solo\ntexto\n")
+    assert entry["heading_level"] == 2
+    assert [s["title"] for s in entry["sections"]] == ["Título"]
+
+
+def test_headings_inside_a_code_fence_are_not_counted(tmp_path, vault):
+    # Step 0b's grep counted a `### ` inside a fence; the engine's rule (sources._chunks) does not.
+    entry = _plan_file(tmp_path, vault, "## Título\n```\n### no\n### tampoco\n```\n")
+    assert entry["heading_level"] == 2
+    assert [s["title"] for s in entry["sections"]] == ["Título"]
+
+
+def test_a_file_without_headings_is_one_whole_file_section(tmp_path, vault):
+    entry = _plan_file(tmp_path, vault, "Solo prosa, sin encabezados.\n")
+    assert [s["title"] for s in entry["sections"]] == ["(whole file)"]
+    assert "whole file" in entry["note"]
+
+
+def test_the_command_explains_the_heading_level():
+    flat = " ".join(CMD.split())
+    assert "`heading_level` is 2 for `## ` sections" in flat
+    assert "FALLO 4" in flat

@@ -1,7 +1,7 @@
 ---
 description: Build the grounded knowledge graph from a source document — extract section-by-section into the canon (bounded parallel waves), then project.
 argument-hint: "[subset] [wave_size]"
-allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_scrub, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_status, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph
+allowed-tools: Task, mcp__plugin_burgess_burgess__kg_build_plan, mcp__plugin_burgess_burgess__kg_status, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph
 ---
 
 # /kg-build — orchestrate the BUILD
@@ -9,81 +9,93 @@ allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_scrub, mcp__plugin_bu
 You are the **build orchestrator**. You turn a non-self-grounding conceptual document into a grounded,
 queryable graph by driving the `kg-extractor` subagent over the source **section by section**, then forcing the
 derived projection and reporting what landed. You do the *coordination*; the extractor does the *language work*;
-the engine does the *deterministic work* behind the `kg_write` boundary.
+the engine does the *deterministic work*: it plans the build, cuts and scrubs each section, and verifies every
+span behind the `kg_write` boundary.
 
 You do **not** call `kg_write` yourself, and you **never** assert a verdict — verdicts come only from `kg_ground`
 (out of scope for this command). See §1.4 / §1.8 (never-forge-a-verdict).
+
+**This command needs no shell and no file access.** Do not run Bash, do not `Read` or `Grep` the source or the
+plugin's files, and do not write helper scripts: the tools this command declares do all of it. In auto mode
+Claude Code ignores a command's permission to use Bash, so every shell command would wait on its classifier,
+or on the user. If a step seems to need a shell or a file, stop and report it instead of working around it.
 
 ## Inputs
 
 **Arguments, as typed:** `$ARGUMENTS`
 
-Read the arguments from that line and nowhere else. Claude Code puts there the text typed after the
-command, in every version. Its numbered placeholders are not used here: Claude Code counts them from 0, so
-the one that looks like the first argument is the second, and what it does with one that has no argument
-behind it differs between versions. Split the line into arguments like this:
+Do not split that line yourself: pass it to `kg_build_plan` exactly as it appears, and the engine reads it.
 
-1. A quoted part (`"…"` or `'…'`) is one argument, without its quotes; the rest splits at spaces. An empty
-   line means no arguments.
-2. **One argument** is the **subset**.
-3. **Two or more, the last a whole number:** the last is the **wave size**, and the rest, rejoined with
-   single spaces, is the subset. An unquoted name with spaces therefore still works
-   (`/kg-build Fábricas de software.md 4`).
-4. **Two or more, the last not a whole number:** the whole line, rejoined, is the subset, which is an
-   unquoted name with spaces. Two separately quoted paths are not supported: STOP and ask for one file,
-   folder or glob.
+- **Empty** → the whole configured `source_path`, at the configured wave size.
+- **A trailing whole number after a space** is the **wave size**, and the rest is the **subset**. So an
+  unquoted name with spaces works: `/kg-build Fábricas de software.md 4`.
+- **A line that is only a whole number** is the wave size: `/kg-build 4`.
+- **Quotes** around the subset are dropped. Quote a name that itself ends in a number (`"capítulo 3"`), or
+  that number is read as the wave size. Two separately quoted paths are refused: one subset is one file,
+  folder or glob.
 
-Quote a name that ends in a number (`"capítulo 3"`), or rule 3 reads the number as the wave size.
+The two arguments:
 
-- **subset** — an **optional subset** of the configured source: a single **file**, or a **directory / glob** of
-  `.md`/`.txt` files (R4 — multi-document), that lies **inside** the configured `source_path`. It narrows
-  what gets built; it cannot replace the configured source. `kg_write` verifies every span against the
-  files of the configured `source_path` (the engine's SourceSet, keyed by basename), never against the
-  subset, so a file outside it would have every edge REJECTED `span-not-in-source`; Step 0b checks this
-  before any extractor runs. **When omitted, the source is the user's configured
-  `source_path`, which you read from the ENGINE in Step 0a (`kg_status().source.path`) — NOT from a
-  shell env var.** `CLAUDE_PLUGIN_OPTION_SOURCE_PATH` / `KG_SOURCE_PATH` are **not visible to this
-  command's Bash shell** (the host injects userConfig options only into the MCP server process), so
-  resolving the default in Bash silently misses a configured `source_path` and builds the demo by
-  surprise. Step 0 resolves the path through the engine and **fails loud** — it never falls back to
-  `examples/source.md` when a `source_path` is configured (FALLO 3). `source_path` is `required` in
-  `plugin.json`, so a configured value must be honored.
+- **subset** — optional. A file, or a folder / glob of `.md`/`.txt` files, **inside** the configured
+  `source_path`, relative to the project folder or absolute. A bare file name also matches a configured file
+  by name. It narrows what gets built and never replaces the configured source, because `kg_write` verifies
+  every span against the files of the configured `source_path` (the engine's SourceSet, keyed by basename).
+  A subset that reaches past those files makes the plan refuse, before any extractor runs. **When omitted,
+  the source is the user's configured `source_path`**, which the engine resolved when it started; this
+  command never reads it from a shell or an env var, so a configured `source_path` is never silently
+  ignored (FALLO 3), and there is no fallback to `examples/source.md`.
+- **wave size** — optional: how many extractor subagents run CONCURRENTLY per wave (bounded parallelism).
+  - **Precedence:** the wave size in the arguments > the `extract_wave_size` option > 6.
+  - **Validation:** parsed to a whole number and **clamped to 1–10**. Unset, not a number, or below 1 → 6;
+    above 10 → 10.
+  - **The option** reaches this command through its own text: Claude Code fills
+    `${user_config.extract_wave_size}` when the command loads, and that is what you pass as
+    `configured_wave_size`. When the option is unset the placeholder stays as written, and the engine reads
+    it as unset.
 
-- **wave size** — **optional**: how many section-extractor subagents to launch CONCURRENTLY per wave
-  (bounded parallelism). **Precedence: the wave size in the arguments > the `extract_wave_size` option >
-  default.** The option reaches this command through its own text, not through the shell. When the command
-  loads, Claude Code writes the configured value into the `WAVE_CFG` line of Step 0b (it fills
-  `${user_config.KEY}` placeholders in command text), and leaves the placeholder as it is when the option is
-  unset. The `CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE` env var that hooks and the MCP server receive is
-  **not** set in this command's Bash shell. The value is parsed to an integer and **clamped to 1–10**
-  (unset / non-numeric / `< 1` → `6`; `> 10` → `10`). One section is still one subagent (the
-  span-isolation property, below); the wave size only controls how many of those run at once. Resolved
-  deterministically in Step 0b.
+  One section is still one subagent (the span-isolation property, below); the wave size only controls how
+  many of those run at once.
 
 ## Procedure
 
-### 0. Resolve & enumerate the source FILES
+### 0. Plan the build (`kg_build_plan`)
 
-#### 0a. Resolve the source path via the ENGINE (tool, not the shell)
+Call:
 
-Call `mcp__plugin_burgess_burgess__kg_status()` and read its **`source`** block — `{path, exists, files}`.
-`source.path` is the engine-resolved `source_path` (the server has `KG_SOURCE_PATH`, already dequoted): the
-single source of truth. Decide the source, in this order:
+```
+mcp__plugin_burgess_burgess__kg_build_plan(
+  arguments: "<the arguments line above, verbatim; empty if nothing was typed>",
+  configured_wave_size: "${user_config.extract_wave_size}"
+)
+```
 
-- **A subset given** → the source is **the subset**, narrowed to what the engine can verify: Step 0b checks
-  that every file it enumerates is listed in `source.files`.
-- **else `source.path` is set** → the source is **`source.path`**.
-- **else** (no subset and `source.path` is `null`) → **STOP.** No `source_path` is configured. Do **not**
-  silently build the demo corpus — tell the user to set the plugin's `source_path` (see *Changing
-  `source_path`* below). Naming a subset cannot stand in for it: spans verify against the configured source
-  only. (`source_path` is `required` in `plugin.json`; a missing value is a configuration error, not a cue
-  to build `examples/source.md`.)
+Copy `configured_wave_size` exactly as this text shows it, even if it still reads `${user_config.…}`.
 
-If `source.path` is set but **`source.exists` is `false`** (configured but resolving to zero readable
-`.md`/`.txt` files), **STOP** and report that unreadable path — never fall through to the demo, and do not
-work around it with a subset, for the same reason. This is the FALLO 3 fix: the command reads the path the
-engine actually resolved instead of an env var that is empty in the tool shell, so a configured
-`source_path` can never be silently ignored.
+**`ok: false` → STOP.** Report `error`, and each of `problems` if there are any. Do not build anything, and
+never fall back to the demo corpus:
+
+- **No `source_path` is configured:** tell the user how to set it (*Changing `source_path`*, below). Naming a
+  subset cannot stand in for it: spans verify against the configured source only.
+- **Nothing readable at the configured path:** report `source.path`. Do not work around it with a subset,
+  for the same reason.
+- **A subset problem:** the subset names files outside the configured source, or nothing at all. Report it,
+  and tell the user to move the files into the configured source or to change `source_path`.
+
+**`ok: true`** → the plan holds:
+
+- `files[]`, one per file to build, in source order. Each has its `sections[]` (`section` number, `title`,
+  `chars`, `covered`), its `heading_level` and any `note`.
+  - `heading_level` is 2 for `## ` sections. It is 3 when the file's only `## ` heading is its title and its
+    `### ` subsections carry the content (FALLO 4).
+  - A file with no heading at that level is one section holding the whole file.
+  - The text before a file's first heading (usually a title and a byline) is not a section.
+- `wave_size`, and `wave_size_from`: `argument`, `option` or `default`.
+- `sections_total`, `sections_uncovered`, and `waves`, the number of waves the uncovered sections need.
+- `skipped`, when a file of the folder could not be read as UTF-8 text.
+
+Tell the user in a line or two what you are about to build: the files, the number of sections, and the wave
+size and where it came from. A section whose `covered` is `true` already has span-present edges, from an
+earlier or interrupted build: skip it.
 
 **Changing `source_path`.** Give the user the value the engine reported, then the fix. From a terminal,
 pipe a JSON object to `claude plugin configure burgess@<marketplace> --values-stdin` (Claude Code 2.1.285
@@ -100,165 +112,54 @@ documented to pick up a new value.
 
 > In the plugin **dev repo**, an unconfigured run resolves to the bundled demo (`examples/source.md` exists
 > under the project) and builds the five-section theory-of-grounding corpus — that path is a legitimate
-> engine default, surfaced as `source.path`, not a silent Bash fallback.
+> engine default, surfaced as `source.path`, not a silent fallback.
 
-#### 0b. Enumerate the FILES and each file's sections (Bash)
+### 1. Launch the `kg-extractor` subagent per section, in BOUNDED PARALLEL WAVES (Task)
 
-With the source chosen in 0a, build the file list and enumerate each file's sections. A single file is the
-common case; a directory or glob builds from **every** `.md`/`.txt` member. **Substitute the chosen path for
-`SRC` below** — the subset verbatim if the user gave one, else the `source.path` string from 0a — inside
-the double quotes, as one string, even when it holds spaces. Put the wave size from the arguments, if
-there is one, between the empty quotes of `WAVE_ARG`. Never hard-code `examples/source.md` here; Step 0a
-already decided (or stopped).
+For **each uncovered section of each file in the plan**, launch one extractor and tell it only where its
+section is: the file's basename as `source_file`, and the plan's `section` number and `title`. **Never paste
+section text into a prompt.** The extractor fetches its own with `kg_section`: the engine cuts it from the
+source by the same rule the plan numbered by, and scrubs it on the way out. What the extractor reads is
+therefore the source's own text, which is what lets its spans verify. With a multi-file build the boundary
+verifies each span against **that file specifically** (R4 — a span attributed to the wrong file is REJECTED
+`span-not-in-named-source`). The extractor reads its section, emits a single complete `kg_write` payload, and
+reports its dispositions back to you.
 
-```bash
-SOURCE="$SRC"   # the subset if the user named one, else the source.path value from kg_status() (Step 0a)
-# Dequote defensively: a path a user wrapped in quotes — or a host that handed back a JSON-quoted value —
-# must not carry literal quotes into the ls/find below. Peel matched surrounding pairs REPEATEDLY (a
-# double-wrapped ""path"" collapses to the bare path), mirroring kg_engine.envconfig.clean.
-while :; do
-  case "$SOURCE" in
-    \"*\") SOURCE="${SOURCE#\"}"; SOURCE="${SOURCE%\"}" ;;
-    \'*\') SOURCE="${SOURCE#\'}"; SOURCE="${SOURCE%\'}" ;;
-    *) break ;;
-  esac
-done
-[ -n "$SOURCE" ] || { echo "no source resolved — see Step 0a (configure source_path)"; exit 1; }
-# Resolve the extraction WAVE SIZE: the arguments' wave size > the extract_wave_size option > default 6;
-# integer; clamp 1..10. (This pure-Bash resolution mirrors kg_engine.waves.resolve_wave_size, the
-# unit-tested reference — no venv/PYTHONPATH dependency here. A present-but-invalid value falls straight to
-# the default 6, not the next level down.) The option arrives in the WAVE_CFG line, written there by Claude
-# Code when the command loads; unset, that line keeps its placeholder, which is not a number, so -> 6.
-WAVE_ARG=""                                   # the wave size from the arguments, if any; else leave empty
-WAVE_CFG='${user_config.extract_wave_size}'   # the extract_wave_size option, filled in by Claude Code
-WAVE_RAW="${WAVE_ARG:-$WAVE_CFG}"
-case "$WAVE_RAW" in (''|*[!0-9]*) WAVE_SIZE=6 ;; (*) WAVE_SIZE=$WAVE_RAW ;; esac   # unset/non-numeric -> 6
-[ "$WAVE_SIZE" -lt 1 ] 2>/dev/null && WAVE_SIZE=6      # below range -> default
-[ "$WAVE_SIZE" -gt 10 ] 2>/dev/null && WAVE_SIZE=10    # above range -> clamp to max
-echo "extraction wave size: $WAVE_SIZE"
-# Build the list of source FILES, ONE PATH PER LINE: a single file, every .md/.txt in a directory, or a glob.
-# Never let the shell word-split a path. Windows paths routinely hold spaces ("Proyectos personales",
-# "OneDrive - Org"), and an unquoted $SOURCE or `for f in $FILES` cuts them into pieces that name nothing.
-if [ -d "$SOURCE" ]; then
-  FILES=$(find "$SOURCE" -maxdepth 1 -type f \( -iname '*.md' -o -iname '*.txt' \) ! -name '.*' | sort)
-elif [ -f "$SOURCE" ]; then
-  FILES="$SOURCE"   # one file, taken whole
-else
-  # A glob, expanded as ONE pattern, so its spaces stay literal. `\` becomes `/` first, so the separators of
-  # a Windows pattern (C:\docs\*.md) are not read as glob escapes. Same .md/.txt filter as the engine.
-  FILES=$(compgen -G "${SOURCE//\\//}" | grep -iE '\.(md|txt)$' | sort)
-fi
-[ -n "$FILES" ] || { echo "no .md/.txt source found at: $SOURCE"; exit 1; }
-echo "building from:"; echo "$FILES"
-# Enumerate each file's section headings at that file's DOMINANT heading level (FALLO 4). Most files use
-# level-2 `## ` sections; a file whose ONLY `## ` is its title but that carries several `### ` subsections
-# is split at `### ` instead — otherwise the whole file collapses into ONE section, breaking the
-# per-section span-isolation the extractor relies on (see the span-isolation note in Step 2). Warn when a
-# file yields 0-1 sections at level 2 so a mis-levelled document is never silently built as one blob.
-while IFS= read -r f; do
-  echo "== $f =="
-  H2=$(grep -cE '^## '  "$f"); H2=${H2:-0}
-  H3=$(grep -cE '^### ' "$f"); H3=${H3:-0}
-  if [ "$H2" -le 1 ] && [ "$H3" -ge 2 ]; then
-    echo "(dominant heading level: '### ' — $H3 subsections; the single '## ' is the file title)"
-    grep -nE '^### ' "$f"
-  else
-    [ "$H2" -le 1 ] && echo "WARNING: only $H2 level-2 '## ' section(s) here — the whole file is one section; verify the heading level before launching one extractor over the entire file"
-    grep -nE '^## ' "$f"
-  fi
-done <<< "$FILES"
-```
+**Launch the per-section subagents CONCURRENTLY in waves of `wave_size` (from the plan).** Collect the plan's
+uncovered `(file, section)` pairs in plan order, then process them in batches: issue `wave_size` `Task(...)`
+calls **in a single message** (so they run in parallel), wait for that whole wave to finish, then launch the
+next wave, until every section is done. With the default of 6, a 19-section document is four waves (6 + 6 + 6
++ 1) instead of 19 serial launches. The extractors' (slow) token generation overlaps across the wave, while the
+(brief) `kg_section` and `kg_write` calls all funnel through the one MCP server process and **serialize
+cleanly** there, so nothing is dropped or corrupted. Ordering does **not** matter for correctness: the boundary
+auto-creates a placeholder node for an edge's `source`, and a `target` may reference a node a later section
+creates, so edges across waves resolve regardless of which wave lands first. Keep **one section per subagent**
+(never batch sections into one launch — see the span-isolation note below).
 
-**Check the enumerated files against the engine before launching anything.** Every basename printed under
-`building from:` must appear in `source.files` from Step 0a. A file the engine does not list can never
-verify a span (each of its edges would be REJECTED `span-not-in-source`), so **STOP** and name it instead of
-launching extractors for it, and tell the user to move it into the configured source or change
-`source_path`. With no subset the two lists should match; report any file `source.files` lists that Step 0b
-did not find.
-
-The demo corpus (`examples/source.md`) is the five-section "theory of grounded conceptual knowledge":
-**§1 Compression and the cost of generality**, **§2 Provenance and the span**, **§3 Bridges and betweenness**,
-**§4 Memory of failures**, **§5 The canon and the projection**. One extractor launch per section — at each
-file's **dominant heading level** from Step 0b (usually `## `; `### ` for a file whose only `## ` is its
-title), **per file**; pass the file's basename (e.g. `source.md`) as the extractor's `source_file`.
-
-> **Resume note.** `kg_status().coverage` reports `##`-level sections; for a `### `-dominant file it shows a
-> single section, so treat your Step 0b per-file enumeration as the authority for which slices to launch and
-> use `coverage` as a best-effort "has this file been touched" signal.
-
-### 1. Egress scrub — the §1.9 egress point (now WIRED)
-
-You are reading a **source on disk** and handing *section text* to a subagent. The §1.9 egress scrub is the
-engine's `scrub.py`, now exposed as the MCP tool `mcp__plugin_burgess_burgess__kg_scrub`. It is real and wired into the
-flow as **Step 0** of each section:
-
-1. **Step 0 — scrub before egress.** Call `mcp__plugin_burgess_burgess__kg_scrub(text=<section body>)` to get the
-   `scrubbed` source. This redacts secrets (always) and PII (per sensitivity) into **consistent placeholders**
-   (`⟦SECRET:1⟧`, `⟦EMAIL:1⟧`, …) before any text crosses the egress to a subagent. It returns
-   `{scrubbed, redactions, sensitivity, categories}`. For the no-PII demo source (`examples/source.md`),
-   `kg_scrub` is a **no-op** — `redactions: 0` and the scrubbed text equals the original. `redactions`
-   counts every redacted value the returned text holds, including the ones an earlier section already
-   turned into a placeholder, so it is 0 exactly when nothing was changed. Still hand on `scrubbed`
-   itself, never the original.
-2. **Hand the SCRUBBED text to `kg-extractor`.** The subagent only ever sees the scrubbed (placeholder) form, so
-   it emits spans in **scrubbed form** when a redaction fell inside a span.
-3. **`kg_write` RESTORES the spans to the original for the canon.** The boundary maps each placeholder span back
-   to the original text before span verification and stores the **restored original** span in the canon. The
-   scrub protects the **egress**, not the local canon — the canonical record keeps the true text.
-
-So the scrub does run for §1.9 egress protection, but it runs **before** the extractor (Step 0), not silently
-inside `kg_write`; the boundary's role is the **restore**. You do **not** post-process spans yourself — the
-extractor copies spans **verbatim** (§1.5) from the scrubbed text it was given, and the boundary restores and
-validates them. Do not paraphrase or "clean up" the section text you pass in; a mangled span will be **REJECTED**
-as `span-not-in-source` (fabrication).
-
-### 2. Launch the `kg-extractor` subagent per section, in BOUNDED PARALLEL WAVES (Task)
-
-For **each** section **of each file** — at that file's dominant heading level from Step 0b (`## `, or `### `
-for a title-only-`##` file) — launch the extractor with the **section's verbatim text** and the **basename of
-the file it came from** as `source_file`. The extractor stamps every edge in that section with that
-basename; with a multi-file build the boundary verifies each span against **that file specifically** (R4 — a span
-attributed to the wrong file is REJECTED `span-not-in-named-source`). The extractor reads the section, emits a
-single complete `kg_write` payload, and reports its dispositions back to you.
-
-**Launch the per-section subagents CONCURRENTLY in waves of `WAVE_SIZE` (from Step 0).** Collect the full list of
-`(file, section)` pairs, then process it in batches: issue `WAVE_SIZE` `Task(...)` calls **in a single message**
-(so they run in parallel), wait for that whole wave to finish, then launch the next wave, until every section is
-done. The default `WAVE_SIZE` is `6`; a 19-section document is therefore four waves (6 + 6 + 6 + 1) instead of 19
-serial launches — the extractors' (slow) token generation overlaps across the wave, while the (brief) `kg_write`
-calls all funnel through the one MCP server process and **serialize cleanly** there, so nothing is dropped or
-corrupted. Ordering does **not** matter for correctness: the boundary auto-creates a placeholder node for an
-edge's `source`, and a `target` may reference a node a later section creates, so edges across waves resolve
-regardless of which wave lands first. Keep **one section per subagent** (never batch sections into one launch —
-see the span-isolation note below).
-
-Exact Task invocation (one per section — repeat across the wave, substituting each section's heading + body):
+Exact Task invocation (one per section — repeat across the wave, with each section's file, number and title):
 
 ```
 Task(
   subagent_type: "kg-extractor",
-  description: "Extract §1 Compression",
+  description: "Extract §1 Compression and the cost of generality",
   prompt: """
 You are extracting ONE section of the source document into the canon via mcp__plugin_burgess_burgess__kg_write.
 
-source_file: source.md          # basename of THIS section's file, as in source.files — used as edge.source_file
-section: "## 1. Compression and the cost of generality"
+source_file: source.md      # basename of THIS section's file, from the plan — used as edge.source_file
+section: 1                  # the plan's section number
+title: "1. Compression and the cost of generality"
 
-SECTION TEXT (verbatim — copy spans EXACTLY from this; never paraphrase):
-<<<
-A **compression** is a single idea that stands in for many observations; it earns its keep only when it
-predicts. The **generality confound** is the failure mode where a vague idea accumulates spurious
-connections: because it touches everything loosely, it looks central while explaining nothing. Generality
-is therefore *attacked_by* specificity — a more specific claim, when it holds, defeats a vaguer one that
-merely overlaps it. A compression that survives specific attack is said to *grounds* the claims beneath it.
->>>
+Get the section's text with mcp__plugin_burgess_burgess__kg_section(source_file: "source.md", section: 1)
+and extract from that text only. It is the engine's verbatim, egress-scrubbed cut of the section: copy every
+span EXACTLY from it, ⟦CAT:N⟧ placeholders included. If the title it returns is not the one above, say so in
+your report.
 
 Follow your system contract: declared node_types (compression, primitive, claim, metric, operation, failure)
 and edge_types (grounds, attacked_by, reconciles_with, bridges, collapses_into, confounded_by, approximates,
 defends_against, projects, survives) only — anything else is QUARANTINED with a per-item
 details[].reason of `undeclared-node-type` (nodes) or `undeclared-edge-type` (edges). Every
-non-deterministic edge MUST carry a verbatim "span" that is a substring of the section text above (§1.5), or it
-is REJECTED. Do NOT set epistemic_state to a verdict and do NOT set authored_by=human (§1.4) — those are DEMOTED
+non-deterministic edge MUST carry a verbatim "span" that is a substring of the section text (§1.5), or it is
+REJECTED. Do NOT set epistemic_state to a verdict and do NOT set authored_by=human (§1.4) — those are DEMOTED
 ("forged-verdict-stripped" / "human-claim-stripped"). Emit exactly one payload with "complete": true and return
 the kg_write result (dispositions, details[], written_nodes[], rolled_back).
 """
@@ -273,16 +174,26 @@ the kg_write result (dispositions, details[], written_nodes[], rolled_back).
 > boundary, which verifies the span against the whole `source_file`, not the one section. Waves change *how many*
 > single-section extractors run at once; they never change *what one extractor sees*.
 
+**The egress scrub (§1.9) happens inside `kg_section`.** Secrets (always) and PII (per the engine's
+sensitivity) leave as **consistent placeholders** (`⟦SECRET:1⟧`, `⟦EMAIL:1⟧`, …), so the extractor only ever
+sees the scrubbed form, and cites spans in that form when a redaction falls inside one. `kg_write` **restores**
+each placeholder span to the original before verifying it, and stores the original in the canon: the scrub
+protects the egress, not the local canon. You never see section text at all, so there is nothing for you to
+scrub or to post-process: do not paraphrase, "clean up" or re-quote spans; the boundary validates them as the
+extractor copied them.
+
 **Resume / progress probe (projection-free).** Between waves — or to recover after a transport hiccup or a
-cancelled request — call `mcp__plugin_burgess_burgess__kg_status()`: it reads the **canon
-only** (it never projects) and returns the node/edge counts, the `unverified` queue size, and a `coverage` map
-of which `##` sections already carry an anchored span-present edge. Re-launch only the **uncovered** sections
-(covered re-writes are idempotent anyway), and call it once more at the end to confirm full coverage.
+cancelled request — call `kg_build_plan` again with the same two arguments. It reads the **canon only** (it
+never projects), and its `covered` flags show which sections already carry a span-present edge. Re-launch only
+the sections still uncovered (re-writes are idempotent anyway). A section can stay uncovered after its launch
+when its extractor wrote no span-present edge (nothing to extract, or every edge REJECTED): re-launch such a
+section at most once, then report it instead of looping. `kg_status()` stays available for node and edge
+counts and the grounding queue.
 
 Collect each launch's returned `kg_write` result: the `dispositions` counts
 (**ACCEPTED / DEMOTED / QUARANTINED / REJECTED**), `details[]`, `written_nodes[]`, and `rolled_back`.
 
-### 3. Force / confirm the derived projection
+### 2. Force / confirm the derived projection
 
 The canon is the single source of truth; the derived layer is regenerable and **projects** the canon (§5). The
 read tools project **lazily** — they only rebuild the derived layer when it is stale. Confirm the build landed:
@@ -301,10 +212,12 @@ read tools project **lazily** — they only rebuild the derived layer when it is
 Optionally spot-check structure with `mcp__plugin_burgess_burgess__query_graph(node_type="compression")` or
 `mcp__plugin_burgess_burgess__query_graph(epistemic_state="unverified", limit=50)` to eyeball the written nodes/edges.
 
-### 4. Report
+### 3. Report
 
 Summarize the build back to the user:
 
+- **What was built** — the files and sections from the plan, the wave size and where it came from, and any
+  section still uncovered at the end (with its extractor's reason).
 - **Dispositions** — summed across all section launches: ACCEPTED / DEMOTED / QUARANTINED / REJECTED, and for any
   REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `truncated-payload`,
   `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are
@@ -318,8 +231,8 @@ Summarize the build back to the user:
 
 ## Worked example (against `examples/source.md`)
 
-After five extractor launches over the demo corpus (one wave at the default `WAVE_SIZE=6`, since the demo has
-five `##` sections) you should expect ACCEPTED nodes like `compression`,
+The plan lists five `## ` sections in `source.md`, so five extractor launches run as one wave at the default
+`wave_size` of 6. You should expect ACCEPTED nodes like `compression`,
 `generality-confound`, `specificity`, `bridge`, `betweenness`, `specificity-weighted-betweenness`, `degree`,
 `canon`, `derived`, and ACCEPTED edges such as:
 
@@ -345,13 +258,15 @@ spaces to hyphens — e.g. `e_generality-confound__attacked-by__specificity` (th
 
 ## Failure modes to watch (and how you, the orchestrator, respond)
 
-- **A section returns all REJECTED with `span-not-in-source`** → the section text you pasted into the Task prompt
-  was altered (markdown stripped, whitespace mangled). Re-launch that section with the **verbatim** body. Do not
-  hand-edit spans yourself.
+- **A section returns all REJECTED with `span-not-in-source`** → the extractor altered the text `kg_section` gave
+  it (markdown stripped, whitespace mangled), or quoted text from outside its section. Re-launch that section
+  once. Do not hand-edit spans yourself.
+- **An extractor reports that `kg_section` refused** (`ok: false`: an unknown file or a section number out of
+  range) → the source changed since the plan. Call `kg_build_plan` again, and launch from its new numbering.
 - **`rolled_back: true`** on a launch → the whole payload was atomic-rejected (e.g. `truncated-payload`). This is
   `retryable=true`; re-launch the extractor for that section.
 - **High QUARANTINED count** → the extractor used types outside the pack vocabulary (per-item
   `details[].reason` is `undeclared-node-type` / `undeclared-edge-type`; the offending node lands in the
   `undeclared-type` node_type bucket value). This is a pack-coverage gap, not a build error; report it so the pack
   (`pack/pack.yaml`) can be extended, then
-  validated with `python -m kg_engine.pack validate pack/pack.yaml "$SOURCE"`.
+  validated with `python -m kg_engine.pack validate pack/pack.yaml <source>` (a maintainer's step, not yours).

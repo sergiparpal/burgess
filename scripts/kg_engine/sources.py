@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import glob as _glob
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from .model import normalize_text, span_present_in
@@ -24,11 +25,50 @@ _GLOB_CHARS = "*?["
 # What starts a section: a level-2 ATX heading — `##` followed by whitespace. `###` and deeper never
 # match (the char after `##` is `#`, not whitespace) and stay inside their section's body.
 _SECTION_HEAD_RE = re.compile(r"^##\s+(.*)$")
+# The same rule one level down, for a file whose sections are `###` subsections (see section_level).
+# `####` and deeper never match it, for the same reason.
+_SUBSECTION_HEAD_RE = re.compile(r"^###\s+(.*)$")
+_HEAD_RES = {2: _SECTION_HEAD_RE, 3: _SUBSECTION_HEAD_RE}
 # A fenced-code-block delimiter (``` or ~~~, optionally indented, with an optional info string). Lines
 # INSIDE a fence are literal content, so a `## ...` there (a shell comment, Markdown-about-Markdown) is
 # NOT a section heading — toggling on this keeps split_sections from carving a code block at such a line
 # (review-fix: the single section-splitting home, so backend/projector/harness all inherit the fix).
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+
+def _chunks(text: str, level: int = 2) -> "list[tuple[str | None, str | None, list[str]]]":
+    """The section rule itself: ``(heading_line, title, body_lines)`` per section, in order, split at
+    ATX headings of exactly ``level`` (2 or 3) outside fenced code. The preamble, the text before the
+    first heading, comes first with ``heading_line`` and ``title`` both None, and only when it has any
+    lines (blank ones included). An empty heading (``## `` alone) has the title ``""``. A section left
+    open at EOF is always emitted. split_sections and plan_sections are both views over this, so they
+    can never disagree about where a section starts."""
+    head_re = _HEAD_RES[level]
+    # Strip a single leading UTF-8 BOM (U+FEFF): a Windows/Notepad-authored .md is read with
+    # encoding="utf-8" (SourceSet/harness/backend), which PRESERVES a leading BOM, and it would then
+    # keep the first line `﻿## Heading` from matching `_SECTION_HEAD_RE` — folding the first
+    # section into the preamble and losing its title. Fixed here (the single section-splitting home) so
+    # every reader is covered; span verification is already BOM-immune via normalize_text (review-r8-8).
+    if text.startswith("﻿"):
+        text = text[1:]
+    chunks: "list[tuple[str | None, str | None, list[str]]]" = []
+    heading, title, buf = None, None, []  # title=None -> still in the preamble
+    in_fence = False  # inside a ``` / ~~~ fenced code block — headings there are literal content
+    for line in text.splitlines():
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            buf.append(line)
+            continue
+        m = None if in_fence else head_re.match(line)
+        if m:
+            if title is not None or buf:
+                chunks.append((heading, title, buf))
+            heading, title, buf = line, m.group(1).strip(), []
+        else:
+            buf.append(line)
+    if title is not None or buf:
+        chunks.append((heading, title, buf))
+    return chunks
 
 
 def split_sections(text: str, *, include_heading: bool = False,
@@ -45,32 +85,56 @@ def split_sections(text: str, *, include_heading: bool = False,
     behavior of every prior copy); an empty heading (``## `` alone) also falls back to
     ``preamble_title``. A section left open at EOF is always emitted.
     """
-    # Strip a single leading UTF-8 BOM (U+FEFF): a Windows/Notepad-authored .md is read with
-    # encoding="utf-8" (SourceSet/harness/backend), which PRESERVES a leading BOM, and it would then
-    # keep the first line `﻿## Heading` from matching `_SECTION_HEAD_RE` — folding the first
-    # section into the preamble and losing its title. Fixed here (the single section-splitting home) so
-    # every reader is covered; span verification is already BOM-immune via normalize_text (review-r8-8).
-    if text.startswith("﻿"):
-        text = text[1:]
-    sections: "list[tuple[str, str]]" = []
-    title, buf = None, []  # title=None -> still in the preamble
-    in_fence = False       # inside a ``` / ~~~ fenced code block — headings there are literal content
-    for line in text.splitlines():
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            buf.append(line)
+    return [(title or preamble_title,
+             "\n".join(([heading] if include_heading and heading is not None else []) + lines))
+            for heading, title, lines in _chunks(text, 2)]
+
+
+@dataclass(frozen=True)
+class PlannedSection:
+    """One section of a /kg-build plan: the unit ONE extractor receives (0.5.0, kg_build_plan and
+    kg_section). ``index`` is 1-based among the file's headed sections at its section_level; ``text``
+    is the heading line plus the body, verbatim (before the egress scrub); ``body`` drops the heading.
+    The title ``""`` marks a file with no heading at that level, which is one whole-file section."""
+    index: int
+    title: str
+    text: str
+    body: str
+
+
+def section_level(text: str) -> int:
+    """The heading level a file's sections sit at: 3 when its only ``##`` heading is the file's title
+    and two or more ``###`` subsections carry the content, else 2. That is the rule /kg-build's Step 0b
+    applied in Bash through 0.4.6 (FALLO 4: such a file had collapsed into one section, breaking
+    span-isolation), now counted with the same fence-aware rule as the split itself."""
+    h2 = sum(1 for heading, _t, _l in _chunks(text, 2) if heading is not None)
+    if h2 > 1:
+        return 2
+    h3 = sum(1 for heading, _t, _l in _chunks(text, 3) if heading is not None)
+    return 3 if h3 >= 2 else 2
+
+
+def plan_sections(text: str) -> "tuple[int, list[PlannedSection]]":
+    """``(level, sections)``: what /kg-build extracts from one file, one extractor per section.
+
+    The sections are the file's headed sections at ``section_level(text)``. The preamble before the
+    first heading is not one of them: through 0.4.6 Step 0b enumerated headings only, and the preamble
+    is usually a title and a byline. A file with no heading at that level is one section holding the
+    whole file, so a headingless note still gets built. ``kg_build_plan`` numbers sections and
+    ``kg_section`` serves them through this one function, so a plan's section N is always the text an
+    extractor asking for N receives."""
+    level = section_level(text)
+    sections: "list[PlannedSection]" = []
+    for heading, title, lines in _chunks(text, level):
+        if heading is None:
             continue
-        m = None if in_fence else _SECTION_HEAD_RE.match(line)
-        if m:
-            if title is not None or buf:
-                sections.append((title or preamble_title, "\n".join(buf)))
-            title = m.group(1).strip()
-            buf = [line] if include_heading else []
-        else:
-            buf.append(line)
-    if title is not None or buf:
-        sections.append((title or preamble_title, "\n".join(buf)))
-    return sections
+        # An empty heading (`## ` alone) is still a section of its own; only the whole-file case is "".
+        sections.append(PlannedSection(len(sections) + 1, title or "(untitled)", "\n".join([heading] + lines),
+                                       "\n".join(lines)))
+    if not sections and text.strip():
+        whole = text[1:] if text.startswith("﻿") else text
+        sections.append(PlannedSection(1, "", whole, whole))
+    return level, sections
 
 
 def section_corpus(text: str) -> "list[str]":

@@ -47,8 +47,10 @@ from .model import (
 )
 from .projector import Projector
 from .reconciler import GROUND_AUDIT, Reconciler
+from .buildplan import parse_arguments, resolve_subset
 from .scrub import Scrubber, placeholders_in
-from .sources import SourceSet, split_sections
+from .sources import SourceSet, plan_sections, split_sections
+from .waves import explain_wave_size
 
 # Module logger. The engine had no logging seam, so silent `except Exception: pass` fallbacks were
 # invisible to an operator. Stays quiet by default (no handler attached) per the library convention; an
@@ -572,6 +574,11 @@ class KGEngine:
                                          metrics_mode=metrics_mode)
         self.scrubber = Scrubber(sensitivity)
         self._scrub_map: dict[str, str] = {}  # accumulated egress placeholder -> original (§1.9)
+        # Serializes the session scrub (the Scrubber's counters + _scrub_map). Since 0.5.0 a whole wave of
+        # extractors calls kg_section at once. mcp 1.x runs a sync tool on the event loop, so those calls
+        # already arrive one at a time; the lock keeps placeholder numbering and the restore map consistent
+        # if a transport ever runs them on threads, where two values could otherwise share a placeholder.
+        self._scrub_lock = threading.Lock()
         self.sensitivity = sensitivity
         self.metrics_mode = metrics_mode
         self.max_edges_per_kb = max_edges_per_kb
@@ -670,8 +677,9 @@ class KGEngine:
         scrub protects the egress, not the local canon). Pass `text` to scrub a snippet, or omit to scrub
         the configured source. Returns the scrubbed text the subagent should see."""
         src = text if text is not None else self.source_text()
-        scrubbed, mapping = self.scrubber.scrub(src)
-        self._scrub_map.update(mapping)
+        with self._scrub_lock:
+            scrubbed, mapping = self.scrubber.scrub(src)
+            self._scrub_map.update(mapping)
         # Count what this TEXT holds, not what this call minted. Placeholders are consistent across the
         # session (one per value), and scrub() returns only the pairs it created now, so a section whose
         # values had all been redacted by an EARLIER call came back with ⟦SECRET:1⟧ in its text and
@@ -1584,6 +1592,25 @@ class KGEngine:
         by_state = dict(Counter(e.epistemic_state.value for e in edges))  # same idiom as kg_status
         return {"nodes": len(nodes), "edges": len(edges), "edges_by_epistemic_state": by_state}
 
+    @staticmethod
+    def _span_groups(edges, texts) -> "tuple[dict[str, set[str]], set[str]]":
+        """``(named, anywhere)``: the distinct normalized spans of ``edges``, grouped the way the boundary
+        VERIFIED them (SourceSet.verifies). An edge whose `source_file` names a declared basename counts
+        toward THAT file only (``named[basename]``), and an empty or unknown one (a single-source canon
+        written before R4, an agent typo) toward any file (``anywhere``), as the lenient check accepted
+        it. Pooling every edge's span across files let a short span of one document ("Sin grupo de
+        control.") mark a section of ANOTHER document covered, so a resumed build would have skipped that
+        section (field report on 0.4.5). Shared by kg_status's coverage and kg_build_plan's."""
+        named: dict[str, set[str]] = {}
+        anywhere: set[str] = set()
+        for e in edges:
+            sp = normalize_text(e.span) if e.span and e.span.strip() else ""
+            if not sp:
+                continue
+            key = SourceSet._key(e.source_file) if e.source_file else ""
+            (named.setdefault(key, set()) if key in texts else anywhere).add(sp)
+        return named, anywhere
+
     def _coverage(self, edges) -> dict:
         """Which configured source files / `##` sections already have at least one ANCHORED (span-present)
         edge — the resume signal: a section with no covered span hasn't been extracted yet. Reads the
@@ -1599,20 +1626,7 @@ class KGEngine:
         # `any(sp in body for sp in spans)` (covered iff some span is a substring), without the
         # files×sections×spans worst case.
         #
-        # A span counts toward a file the way the boundary VERIFIED it (SourceSet.verifies): an edge whose
-        # `source_file` names a declared basename counts toward THAT file only, and an empty or unknown one
-        # (a single-source canon written before R4, an agent typo) toward any file, as the lenient check
-        # accepted it. Pooling every edge's span across files let a short span of one document ("Sin grupo
-        # de control.") mark a section of ANOTHER document covered, so a resumed build would have skipped
-        # that section (field report on 0.4.5).
-        named: dict[str, set[str]] = {}
-        anywhere: set[str] = set()
-        for e in edges:
-            sp = normalize_text(e.span) if e.span and e.span.strip() else ""
-            if not sp:
-                continue
-            key = SourceSet._key(e.source_file) if e.source_file else ""
-            (named.setdefault(key, set()) if key in texts else anywhere).add(sp)
+        named, anywhere = self._span_groups(edges, texts)
         files, sections = [], []
         for fname, raw in texts.items():
             spans = named.get(fname, set()) | anywhere
@@ -1696,6 +1710,118 @@ class KGEngine:
             "derived_present": self.projector.db_path.exists(),
             "projection_degraded": self._projection_degraded,
         }
+
+    # ---- the /kg-build plan (0.5.0) ---------------------------------------
+    _NO_SOURCE = ("no source_path is configured: set the plugin's source_path option to the file, folder "
+                  "or glob to build from, then restart Claude Code")
+
+    def kg_build_plan(self, arguments: "str | None" = "",
+                      configured_wave_size: "str | int | None" = None) -> dict:
+        """What `/kg-build` builds: the files, their sections, which are already covered, and the wave
+        size — Step 0 of the build, which through 0.4.6 ran as a Bash block. In auto mode Claude Code
+        ignores a command's `Bash` permission, so that block (and the helper scripts orchestrators wrote
+        around it) went to the classifier and could stop the build on a permission prompt; an MCP tool
+        the command declares runs without one (field report on 0.4.6).
+
+        ``arguments`` is the typed `$ARGUMENTS`, verbatim: ``buildplan.parse_arguments`` splits it into
+        a subset and a wave size. ``configured_wave_size`` is the `extract_wave_size` option as the
+        command's own text carries it (Claude Code fills `${user_config.extract_wave_size}` when the
+        command loads, and leaves the placeholder when the option is unset, which reads as unset here).
+        The engine still holds no wave-size setting of its own (tests/test_manifests.py): both values
+        come in as arguments, resolved by ``waves.explain_wave_size``.
+
+        Sections follow ``sources.plan_sections``, the rule ``kg_section`` serves them by, so section N
+        here is the text an extractor asking for N receives. A section is ``covered`` when a span-present
+        edge attributed to its file (or to no known file, as the lenient span check allows) quotes it,
+        heading included. Read-only and projection-free, like kg_status: it reads the canon spans and the
+        source only, and section titles leave through the egress scrub.
+
+        ``ok: false`` means do not build, with ``error`` (and ``problems`` for a subset that reaches past
+        the configured source) saying why: nothing configured, nothing readable, or a subset naming files
+        outside it. A subset only narrows the configured source; it never replaces it."""
+        args = parse_arguments(arguments)
+        cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
+        wave, origin = explain_wave_size(args.wave_size, cfg)
+        source = self._source_info()
+        out = {"ok": False, "arguments": arguments or "", "subset": args.subset or None,
+               "wave_size": wave, "wave_size_from": origin, "source": source}
+        if args.problem:
+            return {**out, "error": args.problem}
+        if source["path"] is None:
+            return {**out, "error": self._NO_SOURCE}
+        if not source["exists"]:
+            return {**out, "error": "the configured source_path resolves to no readable .md/.txt file"}
+        texts = self.source_set().texts
+        declared = SourceSet.resolve(self.source_path)
+        skipped: "list[str]" = []
+        if args.subset:
+            names, problems = resolve_subset(args.subset, project_dir=self.project_dir, declared=declared)
+            problems += [f"{n} is in the configured source but could not be read as UTF-8 text"
+                         for n in names if n not in texts]
+            if problems:
+                return {**out, "error": problems[0] if len(problems) == 1
+                        else f"{len(problems)} problems with the subset", "problems": problems}
+        else:
+            names = [p.name for p in declared if p.name in texts]
+            skipped = [p.name for p in declared if p.name not in texts]
+        named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
+        files, total, uncovered = [], 0, 0
+        for name in names:
+            level, secs = plan_sections(texts[name])
+            spans = named.get(name, set()) | anywhere
+            rows = []
+            for s in secs:
+                norm = normalize_text(s.text)
+                rows.append({"section": s.index, "title": s.title or "(whole file)", "chars": len(s.text),
+                             "covered": any(sp in norm for sp in spans)})
+            total += len(rows)
+            uncovered += sum(1 for r in rows if not r["covered"])
+            entry = {"file": name, "heading_level": level, "sections": rows}
+            if level == 3:
+                entry["note"] = "the sections are this file's ### subsections: its only ## heading is its title"
+            elif len(secs) == 1 and not secs[0].title:
+                entry["note"] = "no heading to split at: the whole file is one section"
+            files.append(entry)
+        plan = {**out, "ok": True, "files": files, "sections_total": total,
+                "sections_uncovered": uncovered, "waves": -(-uncovered // wave)}
+        if skipped:
+            plan["skipped"] = skipped
+            plan["note"] = "skipped files could not be read as UTF-8 text"
+        return self._scrub_egress(plan)
+
+    def kg_section(self, source_file: str, section: "int | str") -> dict:
+        """One section of the configured source, cut and egress-scrubbed by the engine: what a
+        `kg-extractor` launched by `/kg-build` extracts from (0.5.0). ``source_file`` is a basename and
+        ``section`` a number, both from ``kg_build_plan``; the cut is ``sources.plan_sections``, the same
+        rule the plan numbered by.
+
+        The extractor asks for its own text, so the orchestrator never copies a section into a prompt.
+        Through 0.4.6 it copied each one twice (into kg_scrub, then into the launch), and on a long
+        document it reached for helper scripts in Bash rather than trust its copy, which in auto mode
+        meant permission prompts; a copy that changed one character also cost the section its spans. The
+        text here is the source's own bytes, heading line included, through the session scrub
+        (``kg_scrub``): consistent placeholders, recorded so ``kg_write`` restores a placeholder span to
+        the original. ``redactions``/``categories``/``sensitivity`` are kg_scrub's, for this text."""
+        texts = self.source_set().texts
+        name = SourceSet._key(source_file or "")
+        if name not in texts:
+            return {"ok": False, "error": "not a configured source file: use a file name kg_build_plan "
+                                          "listed", "source_file": name, "files": list(texts)}
+        try:
+            idx = int(section)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "section must be a section number kg_build_plan listed",
+                    "source_file": name}
+        level, secs = plan_sections(texts[name])
+        if not 1 <= idx <= len(secs):
+            return {"ok": False, "error": f"{name} has {len(secs)} section(s), so there is no section {idx}",
+                    "source_file": name, "of": len(secs)}
+        s = secs[idx - 1]
+        scrubbed = self.kg_scrub(s.text)
+        return {"ok": True, "source_file": name, "section": idx, "of": len(secs), "heading_level": level,
+                "title": self.kg_scrub(s.title)["scrubbed"] if s.title else "(whole file)",
+                "text": scrubbed["scrubbed"], "redactions": scrubbed["redactions"],
+                "categories": scrubbed["categories"], "sensitivity": scrubbed["sensitivity"]}
 
     def _failure_ids(self, G=None) -> set:
         """Forward edge ids in failure memory (rejected/failed). The generators also check the reverse,
@@ -2504,6 +2630,26 @@ def _register(mcp, engine: KGEngine) -> None:
         configured source_path is never silently ignored), and which source files/`##` sections already
         have an anchored edge. Unlike kg_metrics it never opens the derived db."""
         return engine.kg_status()
+
+    @mcp.tool()
+    @_tool_result
+    def kg_build_plan(arguments: str = "", configured_wave_size: str | int | None = "") -> dict:
+        """Plan a /kg-build: the configured source files to build, each file's sections (numbered, with
+        title, size and whether a span-present edge already covers them), and the wave size. Pass the
+        command's typed `$ARGUMENTS` VERBATIM as `arguments` — the engine splits it: an optional subset
+        (a file, folder or glob inside the configured source_path) and an optional trailing wave size —
+        and the `extract_wave_size` option as the command text carries it as `configured_wave_size`.
+        `ok: false` means do not build; `error`/`problems` say why. Read-only, projection-free."""
+        return engine.kg_build_plan(arguments, configured_wave_size)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_section(source_file: str, section: int) -> dict:
+        """The text of ONE section to extract, cut from the configured source and egress-scrubbed by the
+        engine: `source_file` and `section` come from kg_build_plan. Returns `text` (the section's heading
+        line and body, verbatim but for ⟦CAT:N⟧ placeholders) and its `title`. Copy spans from `text`
+        exactly, placeholders included — kg_write restores them to the original."""
+        return engine.kg_section(source_file, section)
 
     @mcp.tool()
     @_tool_result

@@ -205,3 +205,34 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_engine_field_report.py`, together with the scrub-count and coverage fixes from the same field report.
   - Run against `main`'s engine, with `PYTHONPATH` pointing at a worktree of `main`, 10 of its 12 tests fail. The other two pin that an edge with no known `source_file` still covers any file.
   - The review-C2 test in `tests/test_fix_boundary_model.py` now expects the stored source to be the node id.
+
+## /kg-build plans and cuts its sections in the engine, and runs no shell (2026-11-07)
+
+- **Decision:** `/kg-build` declares `Task` and five engine tools, and no `Bash`. Two new MCP tools do what its Step 0b Bash block and its orchestrator did:
+  - `kg_build_plan(arguments, configured_wave_size)` returns the files, each file's numbered sections at its heading level, their coverage, and the wave size. The typed `$ARGUMENTS` are split by `buildplan.parse_arguments`, not by the orchestrator.
+  - `kg_section(source_file, section)` serves one planned section, cut and egress-scrubbed by the engine. The extractor calls it itself, so no section text passes through the orchestrator.
+  - Both number sections through `sources.plan_sections`, which shares one splitter (`sources._chunks`) with `split_sections`.
+- **Bug it fixes:** in auto mode every `/kg-build` asked for permission over and over, and waited until it was given (field report on 0.4.6). Read from the Claude Code binary (2.1.316): in auto mode the permission check skips every allow rule that could bypass the classifier, which covers a tool-wide `Bash` rule and an `Agent`/`Task` rule from any source, a command's `allowed-tools` included. So each Bash call went to the classifier. The reporting install's session logs show what that cost:
+  - every long wait was a Bash command; engine tools and subagent launches never waited for the user;
+  - the 0.4.5 build waited about 32 minutes on six helper scripts the orchestrator had written itself, to cut sections into files and scrub them, rather than copy each section verbatim twice;
+  - the 0.4.6 build waited 3.5 minutes on Step 0b, which had passed in a second the time before.
+- **Why engine tools, not a narrower shell grant:** in auto mode Claude Code drops broad Bash rules (and, in some configurations, every Bash rule), so any shell step depends on the classifier. The MCP tools a command declares keep their grant. In the 0.4.5 log, `kg_scrub` (declared) answered at once, while `get_neighbors` (not declared) took 5–6 s through the classifier.
+- **Why the extractor fetches its own text:** it removes the double copy, and with it both the drift that cost a section its spans and the helper scripts written to avoid that drift. It also closes an egress gap: to copy sections, the orchestrator read the whole raw document, which sent the unscrubbed text to the model before any scrub ran.
+- **Why the argument split moved into code:** the 0.4.5 decision kept it in each command's text, interpreted by the orchestrator. For `/kg-build` it is now deterministic and tested. One rule changed: a line that is only a whole number is the wave size, where before it was a subset that named no file. The other commands keep their own split.
+- **Revisits 0.4.5's rejected alternative (c), the wave size through `kg_status`:**
+  - Its first reason holds. The engine reads no orchestration knob: the command passes the option's filled-in text as an argument, and `build_engine_from_env` still reads nothing for it (`tests/test_manifests.py`).
+  - Its second reason, that the build would depend on the MCP server for a number the host already holds, no longer applies: the build depends on the server for its plan anyway.
+- **Rejected alternatives:**
+  - (a) *Narrower Bash rules for the Step 0b script:* stripped or classifier-reviewed in auto mode like any other, and they do nothing for the scripts an orchestrator improvises.
+  - (b) *Tell the orchestrator not to write scripts, but keep the copy-twice design:* the reason it wrote them, byte-exact copies of long sections, would remain.
+  - (c) *Recommend bypass-permissions mode:* it removes every protection to fix one command.
+  - (d) *Grow `kg_status` into the plan:* `kg_status` is the argument-free cheap probe whose `##`-level coverage other callers read, while a plan needs the typed arguments.
+- **Accepted trade-offs:**
+  - Subagent launches still go through the classifier in auto mode, a few seconds each. The `Task` grant is stripped by design, and in the measured builds no launch waited for the user.
+  - The preamble before a file's first heading is still not extracted, as with Step 0b.
+  - Headings inside fenced code no longer count toward the `###` rule; Step 0b's `grep` counted them.
+  - `kg_status`'s coverage stays at `##` level, so for a `###` file it can differ from the plan's.
+  - The new tests cannot fail on 0.4.6 in an informative way: the tools they call did not exist. The fix was
+    checked end to end instead: a real `/kg-build` of the demo with Claude Code 2.1.316 in auto mode, headless,
+    ran no Bash and no file read, was denied no permission, and accepted all 34 items.
+- **Pinned in:** `tests/test_kg_build_plan.py`; `tests/test_fix_kg_build_paths.py` and `tests/test_fix_kg_build_source.py`, rewritten from Step 0b's Bash to the engine; `tests/test_waves.py`; `tests/test_fix_command_arguments.py`; and the 29-tool count in `tests/fusion/test_diverge_surface.py`.

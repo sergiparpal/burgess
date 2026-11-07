@@ -39,8 +39,8 @@ numbered argument slots, whose numbering differs between Claude Code versions.
 
 *Two arguments, in order.* `/kg-build` and `/kg-generate`. Quote an argument that contains spaces,
 or let the command's own rule sort it out: `/kg-build` reads a trailing whole number as the wave size
-and everything before it as the path, and `/kg-generate` reads a whole number as `k` and the other
-word as the mechanism set.
+and everything before it as the path (the engine applies that rule, in `kg_build_plan`), and
+`/kg-generate` reads a whole number as `k` and the other word as the mechanism set.
 
 *One path.* `/kg-perturb`, `/kg-eval` and `/kg-experiment` take a single path, and the whole line is
 that path, so a path with spaces works with or without quotes. `/kg-view` takes one word.
@@ -215,6 +215,12 @@ boundary rejects it as fabrication.
 **Everything it writes lands `unverified`.** `/kg-build` never asserts a verdict. It is **additive**:
 run it again on another document of your source and the same graph grows.
 
+**It runs no shell commands.** The engine plans the build (`kg_build_plan`) and hands each extractor
+its own section, already cut and scrubbed (`kg_section`). So the only thing `/kg-build` asks Claude Code
+for is to launch its subagents, and in auto mode it no longer stops to ask your permission for shell
+scripts. (Through 0.4.6 it ran a Bash step, and in auto mode Claude Code ignores a command's Bash
+permission, so those commands could stop the build on a prompt.)
+
 ### Arguments
 
 | Argument | Required | Accepted values | Default |
@@ -230,10 +236,11 @@ run it again on another document of your source and the same graph grows.
 | A single file | Build only that document. The common case once the source is a folder. |
 | A directory | Build **every** `.md`/`.txt` file directly inside it (not recursive). |
 | A glob | Build every matching file. |
+| A bare file name | Build the configured file of that name, whichever folder the session was opened in. |
 
 The subset only narrows the build. Every span is verified against the configured `source_path`, so a
-file outside it would have every relationship rejected; the command checks each file against the
-engine's own list and stops before launching anything for one it does not know. To build from
+file outside it would have every relationship rejected; the engine checks each file against the
+configured source, and the command stops before launching anything for one it does not know. To build from
 somewhere else, change `source_path` (see the README's configuration reference) and restart Claude
 Code.
 
@@ -244,7 +251,8 @@ a number (`"research/capítulo 3"`), or that number is read as the wave size.
 Spans are verified per file: an edge attributed to the wrong source file is rejected. Sections are
 split at each file's **dominant heading level** — usually `##`, but a file whose only `##` is its
 title and which carries several `###` subsections is split at `###` instead, so it never collapses
-into one blob.
+into one blob. Headings inside code blocks never count, a file with no heading is built as one
+section, and the text before a file's first heading (usually its title and byline) is not extracted.
 
 ### `wave_size` — what the number does
 
@@ -257,8 +265,8 @@ controls how many of those run at once.
 - Lower it (`1`–`2`) if you are rate-limited or want to watch the build step by step. Raise it
   (`8`–`10`) for a long document you want built quickly.
 
-A lone number is read as the subset, never as the wave size, so **passing `wave_size` requires a
-subset too**. To change it for every build, set the `extract_wave_size` option instead.
+A lone number is the wave size for the whole source (`/kg-build 4`); before 0.5.0 it was read as a
+subset that named no file. To change it for every build, set the `extract_wave_size` option instead.
 
 ### Examples
 
@@ -297,10 +305,15 @@ Build one document whose name holds spaces:
 Build all of it at maximum parallelism:
 
 ```text
-/kg-build research/ 10
+/kg-build 10
 ```
 
 ### Reading the report
+
+The build starts by telling you what it is about to build: the files, the number of sections, and the
+wave size and where it came from (your argument, the option, or the default). A section that already
+holds extracted relationships, from an earlier or interrupted build, is skipped, so running the same
+command again resumes it.
 
 The build reports **dispositions** summed across every section:
 
@@ -889,7 +902,7 @@ a `graph`-wins verdict.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **27 MCP tools** exposed by the `burgess`
+The nine slash commands are a thin language layer over **29 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 

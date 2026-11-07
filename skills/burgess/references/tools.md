@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty graph tools (§1), then the seven divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-two graph tools (§1), then the seven divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,11 +17,12 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-two** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
-plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), and the projection-free `kg_status` (§1.18).
-The seven **divergence-surface** tools (§1B) complete the server's **twenty-seven**.
+plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
+the `/kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20).
+The seven **divergence-surface** tools (§1B) complete the server's **twenty-nine**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/kg-build`, …) that *orchestrate* these tools.
 
@@ -563,9 +564,9 @@ build** after a transport hiccup without grepping the filesystem. No args.
 - `source` — the **engine-resolved** source (`{path, exists, files}`): `path` is the configured
   `source_path` the server resolved (or `null` when nothing is configured), `exists` is true iff it
   resolves to ≥1 readable `.md`/`.txt` file, `files` are the ordered basenames (R4). `/kg-build` reads the
-  source path from HERE, not from a shell env var — the host injects userConfig only into the server
-  process, so a Bash-shell env-var read would silently miss a configured `source_path` and build the demo
-  by surprise.
+  source from the ENGINE (this block, which `kg_build_plan` §1.19 also returns), never from a shell env
+  var — the host injects userConfig only into the server process, so a Bash-shell env-var read would
+  silently miss a configured `source_path` and build the demo by surprise.
 - `coverage` — which source files / `##` sections already have at least one ANCHORED (span-present) edge:
   `files[]` (`{file, covered, sections, covered_sections}`) and per-section `sections[]`
   (`{file, title, covered}`). A section with no covered span hasn't been extracted yet — the **resume**
@@ -578,7 +579,90 @@ build** after a transport hiccup without grepping the filesystem. No args.
 - `projection_degraded` — echoes the last reprojection failure (a read sets it, never this probe); `null` when
   healthy.
 
-Unlike `kg_metrics` (§1.6) this NEVER opens the derived db. Granted to `/kg-build` for the resume use.
+Unlike `kg_metrics` (§1.6) this NEVER opens the derived db. Granted to `/kg-build` for node/edge counts and
+the grounding queue; the build's own resume probe is `kg_build_plan` (§1.19), whose coverage is per planned
+section.
+
+### 1.19 `mcp__plugin_burgess_burgess__kg_build_plan(arguments="", configured_wave_size="")`
+
+The `/kg-build` plan (0.5.0): which files and sections to build, which are already covered, and the wave
+size. It is the build's Step 0, which through 0.4.6 ran as a Bash block; in auto mode Claude Code ignores a
+command's `Bash` permission, so that block could stop a build on a permission prompt, while an MCP tool the
+command declares runs without one. **Read-only and projection-free**: it reads the canon spans and the
+source only.
+
+- `arguments` — the command's typed `$ARGUMENTS`, **verbatim**; the engine splits it
+  (`buildplan.parse_arguments`). Empty → the whole configured source. A trailing whole number after a space
+  is the wave size and the rest is the subset, so an unquoted name with spaces works. A line that is only a
+  whole number is the wave size. Matched surrounding quotes are dropped, repeatedly; quote a name that
+  itself ends in a number. Two separately quoted parts are refused.
+- `configured_wave_size` — the `extract_wave_size` option as the command text carries it: Claude Code fills
+  `${user_config.extract_wave_size}` when the command loads, and leaves the placeholder when the option is
+  unset, which reads as unset. The engine has no wave-size setting of its own.
+- The **subset** narrows the configured source and never replaces it: a file, folder or glob, relative to
+  the project folder unless absolute, resolved like `source_path` itself (`SourceSet.resolve`); a bare name
+  or name glob (no folder part) that is no path there is matched against the configured basenames. A subset that reaches
+  a file outside the configured source (or a same-named copy elsewhere) is refused, because none of its
+  spans could verify.
+
+```json
+{
+  "ok": true,
+  "arguments": "Fábricas de software.md 4",
+  "subset": "Fábricas de software.md",
+  "wave_size": 4,
+  "wave_size_from": "argument",
+  "source": {"path": "C:/docs/fuente", "exists": true, "files": ["Fábricas de software.md", "notas.md"]},
+  "files": [
+    {"file": "Fábricas de software.md", "heading_level": 2,
+     "sections": [{"section": 1, "title": "Resumen", "chars": 2778, "covered": false}]}
+  ],
+  "sections_total": 16,
+  "sections_uncovered": 16,
+  "waves": 4
+}
+```
+
+- `files[].sections[]` — the sections ONE extractor each receives, numbered from 1 in file order; the same
+  numbering `kg_section` serves (`sources.plan_sections`). `heading_level` is 2 for `## ` sections, or 3
+  when the file's only `## ` heading is its title and two or more `### ` subsections carry the content
+  (FALLO 4); a `note` says so. The text before a file's first heading is not a section; a file with no
+  heading at that level is one section titled `(whole file)`. Headings inside fenced code never count.
+- `covered` — a span-present edge quotes the section (heading included), counted the way the boundary
+  verified the span: toward the file its edge's `source_file` names, or toward any file when it names none
+  or an unknown one. `sections_uncovered` and `waves` (uncovered sections ÷ `wave_size`, rounded up) are the
+  work left: the resume signal.
+- `wave_size_from` — `argument`, `option`, or `default` (nothing usable at the chosen level: unset, an
+  unfilled placeholder, not a whole number, below 1). Validation and clamping (1–10, default 6) are
+  `waves.explain_wave_size`'s.
+- `skipped` (+ `note`) — files of the configured folder that could not be read as UTF-8 text.
+- Titles leave through the egress scrub (§1.9); the plan never carries section text.
+
+`ok: false` means **do not build**, with `error` (and `problems[]` for a subset) saying why: no
+`source_path` configured, nothing readable at it, two quoted parts, or a subset reaching past the
+configured files. The `source`, `wave_size` and `arguments` fields are present either way.
+
+### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section)`
+
+One section of the configured source, **cut and egress-scrubbed by the engine**: what a `kg-extractor`
+launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `section` a number, both from
+`kg_build_plan`. The extractor calls it itself, so no section text ever passes through the orchestrator.
+
+```json
+{"ok": true, "source_file": "Fábricas de software.md", "section": 2, "of": 16, "heading_level": 2,
+ "title": "Evidencia", "text": "## Evidencia\nSin grupo de control. Clave ⟦SECRET:1⟧ en la nota.\n",
+ "redactions": 1, "categories": ["SECRET"], "sensitivity": "medium"}
+```
+
+- `text` — the section's heading line and body, the source's own text but for the session scrub
+  (`kg_scrub`, §1.2): consistent placeholders, recorded so `kg_write` restores a placeholder span to the
+  original. Copy spans from it exactly, placeholders included.
+- `title` — scrubbed the same way, so its placeholders match the heading line's.
+- `redactions` / `categories` / `sensitivity` — `kg_scrub`'s, for this text.
+
+`ok: false` with `error` for a file that is not a configured source file (`files[]` lists the configured
+basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of
+extractors asking at once keeps one placeholder per value.
 
 ---
 

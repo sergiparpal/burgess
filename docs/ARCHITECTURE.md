@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (27 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (29 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -53,6 +53,7 @@ verdict path.
 | `advisory_geometry.py` | Advisory hybrid-descriptor DPP ordering over `kg_generate` candidates (behind `divergence.dpp`, default off) |
 | `pathing.py` | The grounded-only path algorithm behind `kg_explain_path` |
 | `waves.py` | Deterministic resolver for `/kg-build`'s extraction wave size |
+| `buildplan.py` | `/kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step) |
 | `export.py` (+ `templates/graph_html.py`) | Render `graph.html` + `GRAPH_REPORT.md` from the derived layer |
 | `harness.py` | Deterministic measurement: agreement, specificity, ideation, convergence |
 | `backend.py` | Headless API-key extraction for CI (same boundary as the interactive flow) |
@@ -228,6 +229,12 @@ the prose) is not a redaction. The high-entropy fallbacks over-redact on purpose
 such as `practical_mutation_testing_tse_2021` can come back as a `SECRET`, which costs nothing because
 `kg_write` restores it, while a URL can carry a real token.
 
+Under `/kg-build` the egress point is `kg_section` (0.5.0): it serves each extractor its one section
+through the same session scrub, so no section text reaches the orchestrator at all. Through 0.4.6 the
+orchestrator read the whole document to copy sections out of it, which sent the unscrubbed text to
+the model before any scrub ran. The session scrub is serialized by a lock, so a wave of extractors
+asking at once keeps one placeholder per value.
+
 ## 4. The generative layer
 
 `kg_generate` runs seven deterministic structural mechanisms over the derived graph (default set:
@@ -261,14 +268,16 @@ clean band separation. Candidates route through `kg_propose`; the four endo oper
 scores, per node grounded from a hypothesis, how long it stayed perturbing before the graph
 renormalized (`fertile | absorbed | isolated`).
 
-## 5. The MCP tool surface (27 tools)
+## 5. The MCP tool surface (29 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
-- **Read/query (12):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
+- **Read/query (14):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
   status + section coverage, where a span counts toward the file its edge's `source_file` names, as
-  span verification does, + the engine-resolved `source` — the build-resume probe and
-  `/kg-build`'s source-of-truth for the configured `source_path`), `query_graph`, `get_node`, `get_neighbors`,
+  span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/kg-build` plan:
+  files, sections at each file's heading level, per-section coverage, the wave size; it reads the
+  typed arguments and the option text it is handed, so the command needs no shell), `kg_section`
+  (one planned section, cut and egress-scrubbed for the extractor that asks for it), `query_graph`, `get_node`, `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
   (grounded-edges-only chain + advisory `leap`; capped at
   `pathing.MAX_EXPLAIN_NODES` distinct nodes — its closure is quadratic in that count, so an uncapped
@@ -392,7 +401,8 @@ divergence templates ship as pack fragments under `pack/domains/`.
 - **Commands** (9): `/kg-build` (wave-parallel extraction), `/kg-ground` (the grounding loop),
   `/kg-generate`, `/kg-perturb`, `/kg-query`, `/kg-eval`, `/kg-experiment`, `/kg-view`,
   `/kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
-- **Subagents** (6): `kg-extractor` (one per `##` section; emits `kg_write` payloads),
+- **Subagents** (6): `kg-extractor` (one per planned section, whose text it fetches with
+  `kg_section`; emits `kg_write` payloads),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
   `attacked_by` edges + `failed` verdicts), `kg-generator` (phrases structural candidates —
   language only, never structure), `kg-annotator` (label passes for precision/agreement),
@@ -481,7 +491,7 @@ divergence templates ship as pack fragments under `pack/domains/`.
 | `KG_DIVERGE_EMBEDDER` / `KG_DIVERGE_HOME` / `KG_DIVERGE_DEBUG` | Divergence embedder provider / state-dir override / tracebacks |
 | `KG_LIGHTRAG` (+ `KG_LIGHTRAG_QUERY_MODE`, `OPENAI_API_KEY`) | Opt-in LightRAG experiment arm |
 | `KG_BACKEND_MODEL` / `KG_BACKEND_MAX_TOKENS` | Headless backend knobs |
-| `CLAUDE_PLUGIN_OPTION_*` | userConfig reads: `SOURCE_PATH`, `SENSITIVITY` (default `medium`), `METRICS_MODE` (default `structure_only`); `EXTRACT_WAVE_SIZE` (default 6) only through `python -m kg_engine.waves` |
+| `CLAUDE_PLUGIN_OPTION_*` | userConfig reads: `SOURCE_PATH`, `SENSITIVITY` (default `medium`), `METRICS_MODE` (default `structure_only`); `EXTRACT_WAVE_SIZE` (default 6) only through `python -m kg_engine.waves` — `/kg-build` hands it to `kg_build_plan` from its own text instead |
 
 All env reads pass through one cleaner that drops empty values, unsubstituted `${…}` placeholders,
 and bare `/.venv` sentinels.
@@ -489,7 +499,11 @@ and bare `/.venv` sentinels.
 Claude Code sets the `CLAUDE_PLUGIN_OPTION_*` variables for hooks and MCP servers only. A command's
 Bash shell never has them, so `/kg-build` takes `extract_wave_size` from its own text: Claude Code
 fills the `${user_config.…}` placeholder there when the command loads, and leaves it unfilled when
-the option is unset. Commands read their arguments from `$ARGUMENTS`, the raw typed text, and never
+the option is unset. Since 0.5.0 the command passes that text to `kg_build_plan`, so the engine
+resolves the wave size without holding a setting for it, and `/kg-build` runs no shell at all: in
+auto mode Claude Code ignores a command's `Bash` permission (and its `Task` one), so a shell step
+there goes to the classifier and can stop the build on a prompt, while the MCP tools a command
+declares keep their grant. Commands read their arguments from `$ARGUMENTS`, the raw typed text, and never
 from the numbered placeholders: Claude Code counts those from 0 (2.1.202 and 2.1.316 alike), and
 empties (2.1.202) or leaves unfilled (2.1.316) one with no argument behind it.
 

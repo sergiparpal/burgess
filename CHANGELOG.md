@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.5.0 — 2026-11-07
+
+`/kg-build` no longer runs a shell command, so auto mode no longer stops it on permission prompts. Reported
+from the Windows install after 0.4.6: every build asked for permission over and over, auto mode on, and
+waited until it got it. Two new engine tools take over what the command did in Bash. The write boundary,
+grounding and the canon format do not change.
+
+### Why it asked
+
+In auto mode Claude Code ignores the permissions a command declares for `Bash` and for launching subagents
+(`Task`), because a tool-wide grant would let the model step around its classifier (read from the Claude
+Code binary, 2.1.316). Every Bash command `/kg-build` ran went to the classifier, and the ones it did not
+clear waited for the user. The session logs of the reporting install's two builds show it:
+
+- Every long wait was a Bash command. Engine tools and subagent launches never waited for the user.
+- In the first build (0.4.5), six Bash commands waited 2.5 to 11 minutes each, about 32 minutes in all. They
+  were helper scripts the orchestrator wrote itself, to cut the document into section files and apply the
+  scrub to them, because the command asked it to copy each section verbatim twice: into `kg_scrub`, then
+  into the extractor's prompt.
+- In the second (0.4.6), Step 0b waited 3.5 minutes, although the same script had passed in a second the
+  time before.
+
+### Added
+
+- **`kg_build_plan(arguments, configured_wave_size)`**, the build's Step 0 in the engine. It returns the files
+  to build, each file's numbered sections at its heading level, which sections are already covered, and the
+  wave size.
+  - It reads the typed `$ARGUMENTS` itself (`kg_engine.buildplan.parse_arguments`).
+  - It takes the `extract_wave_size` option from the text Claude Code fills into the command
+    (`${user_config.extract_wave_size}`), so the engine still reads no env var for it.
+  - It refuses a subset that reaches past the configured source before any extractor runs, as Step 0b did,
+    and also a same-named copy of a configured file kept elsewhere.
+- **`kg_section(source_file, section)`**, one planned section, cut from the source and egress-scrubbed by the
+  engine. The extractor calls it itself.
+- The MCP surface goes from 27 to 29 tools.
+
+### Changed
+
+- **`/kg-build` declares no Bash and runs no shell.** Its `allowed-tools` are `Task` and five engine tools.
+  It never reads the source or pastes section text into a prompt, it tells the user what it is about to
+  build, and it resumes from the plan's coverage.
+- **The extractor fetches its own section** with `kg_section`, now among its tools. Section text handed to
+  it inline, and the direct-invocation path, still work.
+- **Egress.** The orchestrator no longer reads the whole document. That read sent the unscrubbed text to the
+  model before any scrub ran; the only section text that now leaves the engine is `kg_section`'s scrubbed
+  output. The session scrub is serialized by a lock, so a wave of extractors asking at once keeps one
+  placeholder per value.
+- **The argument rules are code now, and unchanged but for one.** A trailing whole number is the wave size
+  and the rest is the subset; quotes are dropped; two quoted parts are refused. The change: a line that is
+  only a whole number is the wave size (`/kg-build 4`). Before, it was a subset that named no file.
+- **Sections.** `sources.plan_sections` is what the plan numbers and `kg_section` serves; `split_sections`
+  returns exactly what it did, from the same splitter.
+  - Headings inside fenced code no longer count toward the `### ` rule (FALLO 4); Step 0b's `grep` counted
+    them.
+  - The plan's coverage is per planned section, `### ` subsections included. `kg_status`'s coverage is
+    unchanged.
+
+### Tests
+
+- **`tests/test_kg_build_plan.py` (40 tests)** covers:
+  - the argument and subset rules, and both tools called through a real FastMCP with what a model sends;
+  - that a plan's section N is the text `kg_section` serves for N;
+  - the scrub/restore round trip through `kg_section`, and a secret in a heading;
+  - one placeholder per value under concurrent `kg_section` calls;
+  - coverage per file and section, and the refusals;
+  - the command and agent texts that wire it together.
+- **The Bash tests of Step 0b now pin the same properties against the engine.**
+  - `tests/test_fix_kg_build_paths.py` (9 → 12) and `tests/test_fix_kg_build_source.py` (7 → 13).
+  - `tests/test_waves.py` (55 → 46): its 28-case Bash drift guard gives way to plan tests, since the
+    resolver is now the only implementation.
+  - `tests/test_fix_command_arguments.py` (76 → 78) fills in the command text as Claude Code does and hands
+    it to the plan.
+- The tool-count pin goes to 29. 1449 → 1491 passed, 3 skipped.
+- **The new tests cannot fail informatively on 0.4.6**, because the tools they call did not exist there. The
+  fix was checked end to end instead: a real `/kg-build` of `examples/source.md` with Claude Code 2.1.316 in
+  auto mode, headless, the plugin loaded from this tree and the option set to 3.
+  - It called only `kg_build_plan`, five extractor launches in waves of 3 and 2, `kg_metrics`, `kg_context`
+    and a closing `kg_build_plan`; each extractor called only `kg_section` and `kg_write`.
+  - Nothing ran Bash or read a file, and no permission was denied.
+  - 34 items were ACCEPTED and none rejected, giving 20 nodes and 11 edges, and every section ended
+    covered. The run took 74 s and cost $0.65.
+
 ## 0.4.6 — 2026-11-07
 
 Patch release for three engine defects that the first real `/kg-build` on 0.4.5 surfaced. That build was

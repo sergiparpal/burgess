@@ -197,7 +197,7 @@ Leave this at `structure_only`. It has no bearing on `/kg-diverge`, whose embedd
 | **`6`** *(default)* | A 19-section document builds in four waves: 6 + 6 + 6 + 1 |
 | `8`–`10` | Faster on long sources, with more rate-limit and lock pressure |
 
-An explicit second `/kg-build` argument overrides the configured wave size for that run. Values are clamped to `1`–`10`; non-numeric values or values below `1` fall back to `6`.
+A wave size typed after `/kg-build` (a trailing whole number, as in `/kg-build notes.md 4` or `/kg-build 4`) overrides the configured one for that run. Values are clamped to `1`–`10`; non-numeric values or values below `1` fall back to `6`.
 
 ### Verify configuration
 
@@ -237,7 +237,7 @@ Remember: the status check (`kg_ping`) and the other behind-the-scenes MCP tools
 5. **Session-ephemeral archives** — MAP-Elites archives never persist across sessions; only pins, discards, comparisons and session metadata do (project-local, git-friendly, under `.kg/diverge/`). The knowledge graph is the durable archive.
 6. **Unified negative memory** — human discards and grounding failures live in one semantic store; neither generation path ever re-proposes from it.
 
-The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 27 tools) is the trust boundary; six subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator) do the language work; the engine stays deterministic.
+The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 29 tools) is the trust boundary; six subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator) do the language work; the engine stays deterministic.
 
 Those six are the load-bearing ones; the suite enforces eleven (`I1`–`I11`). The full, self-contained architecture reference — module map, data model, write-boundary contract, tool surface, divergence internals and constants, runtime and environment, and the invariants in full — is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1449 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1491 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

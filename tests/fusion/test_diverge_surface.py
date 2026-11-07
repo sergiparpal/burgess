@@ -115,11 +115,14 @@ def test_graphless_scripted_session_end_to_end(tmp_path, monkeypatch):
     assert not (derived / "index.sqlite").exists() and not (derived / "graph.json").exists()
 
 
-def test_mcp_surface_is_twenty_seven_tools(engine):
+def test_mcp_surface_is_twenty_nine_tools(engine):
+    # 27 through 0.4.6; 0.5.0 added kg_build_plan and kg_section, which take /kg-build's planning and
+    # section cutting out of Bash.
     mcp = FakeMCP()
     _register(mcp, engine)
     assert DIVERGE_TOOLS <= set(mcp.tools), sorted(mcp.tools)
-    assert len(mcp.tools) == 27, sorted(mcp.tools)
+    assert {"kg_build_plan", "kg_section"} <= set(mcp.tools), sorted(mcp.tools)
+    assert len(mcp.tools) == 29, sorted(mcp.tools)
 
 
 def test_resolve_axes_source_paths(tmp_path, monkeypatch):

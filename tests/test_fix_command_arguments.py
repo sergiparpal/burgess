@@ -146,9 +146,9 @@ def test_two_arguments_both_reach_kg_build():
 
 def test_kg_build_reads_the_option_from_its_text_not_the_shell():
     text = _read(REPO / "commands" / "kg-build.md")
-    assert "CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE:-" not in text   # not in the Bash tool's environment
-    assert "WAVE_CFG='${user_config.extract_wave_size}'" in text
-    assert 'WAVE_RAW="${WAVE_ARG:-$WAVE_CFG}"' in text
+    assert "CLAUDE_PLUGIN_OPTION_EXTRACT_WAVE_SIZE" not in text   # hooks and the MCP server only
+    # Since 0.5.0 the filled-in option goes to kg_build_plan, not to a WAVE_CFG line of a Bash block.
+    assert 'configured_wave_size: "${user_config.extract_wave_size}"' in text
 
 
 # ---- running the commands' Bash as the orchestrator would -------------------------------------------
@@ -194,12 +194,13 @@ def _run(script: str, tmp_path: Path, **env_extra: str) -> "tuple[int, str]":
     return r.returncode, (r.stdout + r.stderr).decode("utf-8", errors="replace").replace("\r", "")
 
 
-def _kg_build_step0b(options: "dict[str, str] | None", wave_arg: "str | None" = None) -> str:
-    script = _first_bash_block(_expand(_read(REPO / "commands" / "kg-build.md"), "", options), "#### 0b.")
-    if wave_arg is not None:                                       # the orchestrator's own substitution
-        assert 'WAVE_ARG=""' in script
-        script = script.replace('WAVE_ARG=""', f'WAVE_ARG="{wave_arg}"', 1)
-    return script
+def _plan_call(expanded: str) -> "tuple[str, str]":
+    """The two values the orchestrator copies into kg_build_plan, read off the FILLED-IN command text: the
+    arguments line, and the configured_wave_size text."""
+    args = re.search(r"\*\*Arguments, as typed:\*\* `(.*)`", expanded)
+    cfg = re.search(r'configured_wave_size: "([^"]*)"', expanded)
+    assert args and cfg, "kg-build.md lost its arguments line or its kg_build_plan call"
+    return args.group(1), cfg.group(1)
 
 
 @pytest.fixture
@@ -209,17 +210,24 @@ def one_document(tmp_path: Path) -> Path:
     return doc
 
 
-@needs_bash
-@pytest.mark.parametrize("options,wave_arg,expected", [
-    ({"extract_wave_size": "8"}, None, 8),     # the option, set: it reaches the build
-    (None, None, 6),                           # unset: the placeholder stays, and is not a number
-    ({"extract_wave_size": "8"}, "3", 3),      # the arguments' wave size beats the option
-    ({"extract_wave_size": "25"}, None, 10),   # clamped like any other value
+@pytest.mark.parametrize("raw,options,expected", [
+    ("", {"extract_wave_size": "8"}, 8),            # the option, set: it reaches the build
+    ("", None, 6),                                   # unset: the placeholder stays, and is not a number
+    ("3", {"extract_wave_size": "8"}, 3),            # the arguments' wave size beats the option
+    ("", {"extract_wave_size": "25"}, 10),           # clamped like any other value
+    ('"doc.md" 4', None, 4),                         # a quoted subset, then the wave size
+    ("doc.md 5", {"extract_wave_size": "8"}, 5),
 ])
-def test_the_wave_size_reaches_kg_builds_script(one_document, tmp_path, options, wave_arg, expected):
-    code, out = _run(_kg_build_step0b(options, wave_arg), tmp_path, SRC=str(one_document))
-    assert code == 0, out
-    assert f"extraction wave size: {expected}" in out, out
+def test_the_wave_size_reaches_the_plan(one_document, vault, raw, options, expected):
+    # End to end without a shell: the command text as Claude Code fills it in (the model above), the two
+    # values the orchestrator copies from it, and the plan the engine makes of them. Through 0.4.6 this
+    # ran Step 0b's Bash block instead; 0.5.0 has none.
+    from kg_engine.server import KGEngine
+
+    args, cfg = _plan_call(_expand(_read(REPO / "commands" / "kg-build.md"), raw, options))
+    plan = KGEngine(vault, source_path=one_document).kg_build_plan(args, cfg)
+    assert plan["ok"], plan
+    assert plan["wave_size"] == expected
 
 
 def _kg_perturb_block(second: "str | None") -> str:
