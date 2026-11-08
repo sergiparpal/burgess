@@ -438,7 +438,8 @@ divergence templates ship as pack fragments under `pack/domains/`.
   items, ≤3 advisory bridges, a falsification counter) so the session queries the graph before the
   filesystem. It fails silent on every error path, bails if the derived index doesn't exist,
   declares a 15 s lease TTL (so a SIGKILLed hook can't wedge writers), and size-gates synchronous
-  reprojection at 400 notes (above that it serves the existing index).
+  reprojection at 400 notes. Above that it serves the index only while it is fresh, and injects
+  nothing while it is stale, until the server's next read reprojects (0.10.1).
 
 ## 9. Runtime: provisioning and supervision
 

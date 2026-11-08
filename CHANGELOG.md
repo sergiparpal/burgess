@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.1 — 2026-11-08
+
+The six merges on the Windows corpus went as planned: 410 nodes and 194 edges, every verdict kept. But a Grep
+made right after them was shown the edges of two nodes the merges had retired.
+
+### Fixed
+
+- **The precontext hook showed a stale graph above 400 notes.** The hook on Grep, Glob and Read reads the
+  derived index, and a write tool such as `kg_merge` leaves that index stale until the server's next read
+  reprojects it. The hook reprojects by itself only up to 400 notes, because it is killed at 5 s. Above that it
+  served the stale index without saying so. It now runs the projector's staleness check, which needs no
+  projection and re-reads only the notes that changed. While the index is stale, the hook injects nothing, and
+  it serves the index again once a server read has reprojected it. Up to 400 notes nothing changes: the hook
+  reprojects as before.
+
+### Tests
+
+- `tests/test_fix_precontext_stale.py` (6): above the gate, a fresh index is served, and a stale one is not,
+  after a merge, a verdict change or a source edit. An mtime-only touch keeps the context, and below the gate
+  the hook still reprojects. Against the 0.10.0 hook, the three stale cases fail.
+- 1662 → 1668 passed, 3 skipped.
+- **Checked on a copy of the field canon** (410 notes): the hook served the fresh index, fell silent after a
+  rename, and served the renamed node once a server read had reprojected. The 0.10.0 hook showed the retired id
+  at the same step. A hook call took 0.13 s in WSL, against 0.08 s before. The copy was deleted.
+
 ## 0.10.0 — 2026-11-08
 
 The fourth `/kg-ground` on the Windows corpus, the first on 0.9.0, judged the ten leads `/kg-build --leads` had
