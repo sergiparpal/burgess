@@ -48,7 +48,9 @@ counts the ones past the cap. They are how your section joins what other section
   exactly instead of coining your own. That holds in the singular or the plural, and under a shorter or
   longer name (`radar` for `meta-radar`).
 - **Never for a broader, narrower or merely related concept.** Create your own node, and connect the two
-  only if your text states the relation, with its span.
+  only if your text states the relation, with its span. A table cell naming test tampering is not the known
+  node for cheating on tests at large. The grounder checks this: an edge whose node is broader or narrower
+  than what its span names is rejected as `wrong-node` (0.8.1).
 - **When in doubt, create a new node.** A duplicate can be merged later with `kg_merge`, while a wrong reuse
   silently joins two concepts.
 - **Do not redeclare a known node in `nodes[]`.** Name its id in your edges: a redeclared node's label,

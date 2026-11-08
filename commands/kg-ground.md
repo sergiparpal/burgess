@@ -124,8 +124,11 @@ verdicted items on its own, so this is the only place they come back up.
 Launch one `kg-grounder` per batch of the plan, **`wave_size` launches in a single message** (so they run in
 parallel); wait for that whole wave, then launch the next, until every batch is done. Each grounder fetches
 the evidence for its own items with `kg_ground_item` and stamps verdicts with `kg_ground`; `kg_ground` calls
-from parallel grounders serialize in the engine, so nothing is lost. **Never paste evidence into a prompt:**
-give each grounder its item ids and nothing else.
+from parallel grounders serialize in the engine, so nothing is lost. **Never paste evidence or rules into a
+prompt:** give each grounder its item ids and nothing else. Its contract holds the rules: the relation table
+(a precondition is `enables`, never `grounds`), and its rules on tables and on what each node names. A rule
+added to one batch's prompt makes that batch judge differently from the others. A rule recalled from an earlier
+session may also predate the contract: in 0.8.0's field pass, one told a grounder the pack had no `enables`.
 
 ```
 Task(
@@ -142,12 +145,14 @@ For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
 of the source. Do not read files. Then apply ONE verdict with
 mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note), per your contract:
-  - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction, as
-    your contract's relation table defines it, and the relation is specific and falsifiable. A table row
-    states a relation when the table's header says what its cells are.
-  - rejected: span_in_source is false, the span does not state the relation (a bare label, a cell its header
-    relates to nothing, another relation such as a precondition filed as grounds, or its opposite), or the
-    edge is true only by being vague (note reason `vague`).
+  - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction,
+    between what the two nodes name, as your contract's relation table defines it, and the relation is
+    specific and falsifiable. A table row states a relation when the table's header says what its cells are.
+  - rejected: span_in_source is false; the span does not state the relation (a bare label, a cell its
+    header relates to nothing, or its opposite); it states another relation, such as a precondition
+    (`enables`) filed as `grounds` (note reason `wrong-relation`); it states the relation for a concept
+    narrower or broader than one of the nodes (`wrong-node`); or the edge is true only by being vague
+    (`vague`). For `wrong-relation` and `wrong-node`, name the edge the span does state.
   - a hypothesized item is grounded only with support (a support_span copied from the context, placeholders
     included, or a support_note); a [diverge]-pinned item without support stays unverified.
 Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
@@ -191,9 +196,11 @@ Task(
       2. For any existing edge your counter genuinely refutes, call
          kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>) on THAT edge, never on
          your own counter-edge, which stays unverified for the next pass's grounders.
+    Write a counter-edge only when its span, in its own context, sets itself against the claim it attacks.
+    A contradiction that no single span states goes in your report, not into an edge.
     Respect the per-run attack cap. A `failed` edge is negative information (§1.7): never pruned,
-    surfaced later as a falsification counter. Report: counter-edges written, edges failed, and any hub
-    you could not attack.
+    surfaced later as a falsification counter. Report: counter-edges written, edges failed, any hub you
+    could not attack, and the contradictions no single span states.
   """
 )
 ```
@@ -222,6 +229,11 @@ Grounding pass complete.
   hubs attacked : <hub list> → C attacked_by counter-edges
 ```
 
+Then list the leads the grounders named for an extractor: for each `wrong-relation` rejection, the relation its
+span does state (a precondition filed as `grounds` is an `enables` edge from the same span), and for each
+`wrong-node` rejection, the concept its span names. They are leads for the user, not work for this pass: this
+command writes no edge, and `/kg-build` skips every section that already has one.
+
 ## §Stage 6 — Merge checkpoint (NON-BLOCKING)
 
 If either grounder reports a genuinely ambiguous node merge (two nodes that may be the same concept), surface
@@ -243,6 +255,8 @@ deliberate node-merge tool: it rewrites + dedups the colliding edges (negative i
   evidence with `kg_ground_item`, and the verdicts go through `kg_ground`.
 - It NEVER calls `kg_ground` itself and NEVER forges a verdict in a write payload (§1.4/§1.8). Verdicts come
   only from the two grounder subagents via `kg_ground`.
+- It gives each grounder its item ids and nothing else: the rules are in the grounders' contracts, which every
+  batch reads alike (0.8.1).
 - It uses only the declared vocabulary: edge type `attacked_by`, `epistemic_state` values
   `unverified|grounded|rejected|failed`, verdict reason `vague` for generality-confound rejections (§1.6).
 - An unfocused pass attacks each hub once until the hub gains a grounded claim: the counter-edges carry the

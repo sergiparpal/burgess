@@ -54,24 +54,34 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
    one that merely overlaps it." That sentence is a real attack span. Find the analogous real sentence for
    each hub; if the source contains no span that contradicts the hub, you may not invent an attack — emit a
    *falsifying question* instead (see Output B) and move on.
-2. **never-forge-a-verdict (§1.4/§1.8).** Your `kg_write` payload may NOT set `epistemic_state` to
+2. **the counter must be the source's (0.8.1).** The next pass's grounders judge your counter-edge like any
+   other claim: they ground it only when its span, read in its excerpt, sets itself against the claim it
+   attacks. Either a word turns it against that claim (*but*, *against*, *on the contrary*; «pero», «en
+   contra», «en sentido contrario» in a Spanish source), or it sits under a header that says so («Mejor
+   argumento en contra»). In the first field pass that judged counter-edges, they rejected four of ten. Those
+   four rested instead on a premise the attacker supplied, on a figure the source gives as support, on a
+   counter the source sets against a different claim, or on a link between two documents that the source never
+   makes. A contradiction that no single span states is not an edge: list it in your report. And a counter-edge
+   the grounders reject is no weaker attack: it stays in the negative-information memory for good (§1.7),
+   counted with the refuted claims.
+3. **never-forge-a-verdict (§1.4/§1.8).** Your `kg_write` payload may NOT set `epistemic_state` to
    `failed`/`rejected`/`grounded`, and may NOT set `authored_by="human"`. The boundary DEMOTES those
    (`forged-verdict-stripped`, `human-claim-stripped`). Write the attacked_by edge as
    `epistemic_state: "unverified"`, `authored_by: "agent"`. **THEN** set the verdict with a SEPARATE
    `kg_ground` call. `kg_ground` is the ONLY path that sets a verdict.
-3. **two steps, never one.** (a) `kg_write` the counter-edge → it lands `unverified`, and stays so: the next
+4. **two steps, never one.** (a) `kg_write` the counter-edge → it lands `unverified`, and stays so: the next
    `/kg-ground` pass's grounders judge it like any other claim. (b) Only if its span *genuinely* falsifies one
    of the hub's existing claims, call
    `kg_ground(target_id=<that claim's edge id>, verdict="failed", note=<what refuted it>)`, with the id exactly
    as `get_neighbors` or `kg_ground_item` returned it. **Never ground your own counter-edge:** `failed` on it
    would record the counter-claim as falsified, the opposite of what you found.
-4. **direction and mark.** `attacked_by` reads `HEAD attacked_by TAIL`: the HEAD is the victim, the hub or the
+5. **direction and mark.** `attacked_by` reads `HEAD attacked_by TAIL`: the HEAD is the victim, the hub or the
    claim of it under attack; the TAIL is the stronger, more specific attacker. Every relation reads by the
    HEAD/TAIL table in `agents/extractor.md`. Open every counter-edge's `notes` with
    `counter-edge (adversarial pass, hub <hub-id>)`, the hub's id exactly: `kg_ground_plan` reads that mark to
    know the hub has been attacked, so later passes move on to the next hubs (0.8.0). A counter-edge without
    it leaves the hub looking unattacked.
-5. **reject the unfalsifiable (§1.6).** Do NOT manufacture an attack that is "true" only because it is generic.
+6. **reject the unfalsifiable (§1.6).** Do NOT manufacture an attack that is "true" only because it is generic.
    If the only counter you can write is itself vague/unfalsifiable, that is the generality confound attacking
    itself — skip it. You ground a claim `failed` only when a SPECIFIC span defeats it. When you decline,
    say why (reason: `vague`).
@@ -90,7 +100,8 @@ vaguest hubs over breadth across many.
    a. `get_neighbors(hub_id)` → list the load-bearing claims (incident edges, esp. `grounds`/`bridges`/
       `approximates`/`reconciles_with`). For each, ask: *what would have to be true for this to be false?*
    b. Search the source (`Grep`/`Read`) for a span that asserts a stronger/more specific claim defeating the
-      hub or one of its claims. The pack edge vocabulary names the weapon: `attacked_by` (more-specific
+      hub or one of its claims, and that, in its own context, sets itself against that claim (contract item
+      2). The pack edge vocabulary names the weapon: `attacked_by` (more-specific
       defeats vaguer), `confounded_by` (apparent value is inflated), `collapses_into` (reduces to a known
       failure).
    c. If a real defeating span exists → build the counter-edge (Output A, its `notes` opening with the mark),
@@ -99,7 +110,8 @@ vaguest hubs over breadth across many.
       → `kg_ground` **that claim** `failed`, with a one-line refutation note. If the span merely *challenges*
       (does not refute), fail nothing: the counter-edge stands as a recorded, surfaced challenge, which is
       itself useful. Either way the counter-edge stays `unverified`.
-   e. If no defeating span exists, emit a falsifying question (Output B). Do not write an unfalsifiable edge.
+   e. If no span sets itself against the hub or one of its claims, emit a falsifying question (Output B). Do
+      not write an unfalsifiable edge, or one you expect the grounders to reject.
 3. Re-read `kg_context()`. Confirm `falsification_counters.failed_or_rejected_edges` rose by the number of
    claims you grounded `failed`. Report deltas.
 
@@ -192,4 +204,6 @@ generality confound does not get to attack on its own terms.
   challenges.
 - Hubs you could not attack (Output B only): they carry no mark, so a later pass may offer them again.
 - Falsifying questions emitted (Output B) with their decline reason.
+- Contradictions you found that no single span states, such as two documents that disagree: reported, not
+  written as edges.
 - `falsification_counters.failed_or_rejected_edges` before → after.

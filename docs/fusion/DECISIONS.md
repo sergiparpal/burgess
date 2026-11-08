@@ -407,3 +407,34 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Why it is safe:** every caller that existed before it, in the commands, agents and tests, gives at most one filter. A `node_type` or `epistemic_state` filter returns the nodes it returned before, and a `relation` filter the edges; only the other half changes, to match. The extractor's nodes are never verdicted, so a state filter returns few or no nodes, and `/kg-query` now says so.
 - **Pinned in:** `tests/test_fix_query_graph_filters.py`.
   - **Checked on a copy of the field canon:** `epistemic_state="grounded"` now returns 50 grounded edges, and `node_type="hypothesis"` returns nothing.
+
+## Each end of an edge is the concept its span names, and the grounder checks it (2026-11-08)
+
+- **Decision:** the grounder contract gets the rule the extractor's has had since 0.6.0 for reusing a known node. Each end of an edge is the concept its span names, and a span that states the relation for something narrower or broader than one of the nodes does not ground the edge to that node. The grounder rejects such an edge with a new reason, `wrong-node`, and names the concept the span does name. For each `wrong-relation` or `wrong-node` rejection it also names the edge the span does state, and `/kg-ground`'s report lists these as leads for an extractor.
+- **Bug it fixes:** grounders split on endpoint scope (field report on 0.8.0).
+  - Two `defends_against` edges of «Retirar revisión humana» mapped a narrower phrase onto the broad node `hacer-trampas-con-los-tests` («aprobar los tests sin resolver el problema real»). One is the §5 matrix row «Tests protegidos | Manipulación de tests», whose «Falla por» cell reads «Trampas sin tocar tests»; the other is the §6 bullet «Resuelve la manipulación de tests visibles». Grounders running in parallel rejected the first and grounded the second.
+  - The 0.8.0 orchestrator then asked the user whether `defends_against` holds when the span covers only part of the target. The extractor's contract already said no.
+- **Why the rule speaks of what each node names:** a `grounds` edge's HEAD is often one company's figures, offered as evidence for a general claim. That is how evidence works, and a rule framed as "the span must cover the whole target" would reject it. The contract says so in one sentence.
+- **Why a new reason and not `wrong-relation`:** the relation may be right while a node is not. The report breaks rejections down by reason, and the lead of a `wrong-node` rejection is a node to create.
+- **Rejected alternatives:**
+  - (a) *A partial defense still defends:* most defenses are partial, but the graph would then say that protected tests defend against cheating on tests at large, while the source's own row names the cheating they miss.
+  - (b) *Leave it to the extractor's rule:* the field canon was built under that rule and still reused the broad node. The grounder is the defensive filter.
+- **Accepted trade-offs:**
+  - Verdicts already given stand: on the field canon, `e_escenarios-reservados__defends-against__hacer-trampas-con-los-tests` stays grounded until someone re-verdicts it.
+  - A node whose label bundles two facts can no longer ground through a span that names one of them; the lead is to split it.
+  - Leads are reported, not written: `/kg-build` skips every section that already has edges, so no command acts on them yet.
+- **Pinned in:** `tests/test_fix_node_scope_and_counters.py`.
+  - **Checked end to end:** a headless `/kg-ground`, in auto mode with Claude Code 2.1.316, over seven field edges written fresh on scratch copies of their documents. Both edges onto `hacer-trampas-con-los-tests` were rejected as `wrong-node`, and the matrix row whose cell names its node's concept was grounded. The two edges that offer one company's figures for the general claim were grounded. An edge whose node label bundles Meta's figure with Vercel's was rejected, with the lead to split the node.
+
+## A counter-edge needs the source's own counter, and /kg-ground hands its grounders ids, not rules (2026-11-08)
+
+- **Decision:** the adversarial contract gains an item: a counter-edge's span, read in its excerpt, must set itself against the claim it attacks. A contradiction that no single span states goes in the report, not into an edge, and a hub with no such span gets a falsifying question. `/kg-ground` now names `enables` in its own text, and tells the orchestrator to send each grounder its item ids and nothing else, because the grounders' contracts hold the rules.
+- **Bug it fixes:** rules lived in the user's memory notes instead of the contracts (field report on 0.8.0).
+  - Of the first ten counter-edges written in the field, the grounders rejected four. They rested on a premise the attacker supplied, on a figure the source gives as support, on a counter the source sets against a different claim, or on a link between two documents. Each stays in the negative-information memory for good, counted with the refuted claims. The lesson then lived only in the user's notes, and the orchestrator pasted it into the next adversarial prompt.
+  - The same notes carried two grounder rules into a grounder's prompt, with "the pack has no `enables` relation". That line was written under 0.7.0 and pasted about twenty minutes after 0.8.0 was installed. `/kg-ground`'s text never named `enables`, so nothing the orchestrator read contradicted the note. The re-verdicts it ran rejected two claims that state an `enables` edge, and nobody proposed the edge.
+- **Why the contracts:** a rule in one batch's prompt makes that batch judge differently from the others, the split 0.8.0's single relation table exists to prevent. And a rule recalled from an earlier session can predate the contract it contradicts.
+- **Accepted trade-offs:**
+  - A hub with no counter-span carries no mark and may be offered again, as in 0.8.0; the stricter rule makes that more likely. A falsifying question writes nothing, so it has nowhere to carry the mark, and a counter-edge written only to mark a hub would cost a permanent rejected edge.
+  - The orchestrator still holds whatever its session remembers. The command can only say where the rules are.
+- **Pinned in:** `tests/test_fix_node_scope_and_counters.py`.
+  - **Checked end to end:** on the same copies, the adversarial grounder attacked the field hub `aprobacion-humana-se-erosiona` with one counter-edge whose span sits under the source's «El mejor argumento contra cada conclusión». It reported three contradictions between documents instead of writing them. The orchestrator sent both templates as written.
