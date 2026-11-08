@@ -106,7 +106,8 @@ def already_attacked(marks: "list[tuple[str, str | None]]", newest_claim: "str |
     `marks` are the `(epistemic_state, verdict_at)` of the counter-edges that name the hub, plus one
     `(ATTACK_RECORDED, at)` for each attack the ledger records against it (0.10.0); `newest_claim` is the
     latest `verdict_at` among its grounded claims (ISO-8601 UTC, so they compare as strings). A hub with no
-    mark has never been attacked."""
+    mark has never been attacked. `verdict_at` is when an edge entered its state: a re-verdict that keeps
+    the state keeps it (0.10.2), so neither a re-confirmed claim nor a re-sealed counter-edge moves a time."""
     if not marks:
         return False
     if any(state == EpistemicState.UNVERIFIED.value for state, _ in marks):

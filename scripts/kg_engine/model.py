@@ -269,8 +269,8 @@ class Edge:
     source_file: str = ""
     confidence: Confidence = Confidence.INFERRED
     confidence_score: float | None = None
-    verdict_by: str | None = None
-    verdict_at: str | None = None
+    verdict_by: str | None = None   # who put the edge in its epistemic_state, and when (ISO-8601 UTC):
+    verdict_at: str | None = None   # a re-verdict that keeps the state keeps both (kg_ground, 0.10.2)
     notes: str = ""
     id: str = ""
 

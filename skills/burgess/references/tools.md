@@ -177,8 +177,10 @@ On failure: `{"ok": false, "error": "invalid verdict 'maybe'"}` / `"invalid kind
 Promotion-specific refusals: `hypothesis-needs-support` (grounding a `hypothesized` edge with neither
 `support_span` nor `support_note`), `support-span-not-in-source`, `support-span-too-short`.
 For an edge, also sets `verdict_by` (always `agent` via this tool — a human verdict cannot be forged
-through the tool surface) and `verdict_at`. Note: the return `key` for a node verdict is `node:<id>`;
-for an edge it is the edge id.
+through the tool surface) and `verdict_at`. A verdict that keeps the edge's state (0.10.2) re-confirms it and
+leaves both as they are, so they record who put the edge in its state and when. Its `note` and `lead` are
+still appended, and the audit log records the call. Note: the return `key` for a node verdict is
+`node:<id>`; for an edge it is the edge id.
 
 > Adversarial grounding (§1.7): the adversarial grounder adds `attacked_by` edges then calls
 > `kg_ground(target_id=<edge>, verdict="failed")`. Failed/rejected edges are NEGATIVE INFORMATION — never
@@ -771,9 +773,10 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   claims was grounded since (0.8.0), most connected first. A counter-edge is one whose `notes` open with
   `counter-edge (adversarial pass, hub <hub-id>)`, the mark the adversarial grounder writes. A hub counts as
   attacked while one of its counter-edges awaits a verdict, or when the newest counter-edge verdict is no
-  older than its newest grounded claim. An attack that wrote no counter-edge counts once the adversarial
-  grounder records it with `kg_record_attack` (§1.23, 0.10.0), as a counter-edge judged at the time of the
-  record. So each pass attacks the next hubs down the list, and Stage 2 ends
+  older than its newest grounded claim. Both times are `verdict_at`, when the edge entered its state: since
+  0.10.2 a re-verdict that keeps an edge's state moves neither, so re-confirming a claim does not reopen its
+  hub. An attack that wrote no counter-edge counts once the adversarial grounder records it with `kg_record_attack`
+  (§1.23, 0.10.0), as a counter-edge judged at the time of the record. So each pass attacks the next hubs down the list, and Stage 2 ends
   once every hub has been attacked. A `focus` skips this memory (and leaves `attacked_hubs` empty): naming a
   concept is how a user asks for a second attack on it. Through 0.7.0 nothing recorded an attack and the
   degree counted every edge, so every pass offered the same five hubs and left ten new unverified

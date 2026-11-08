@@ -179,7 +179,8 @@ verdict is wasted, not honored.
 Verdicts come **only** from
 `mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, support_span, support_note)`
 with `verdict ∈ {grounded, rejected, failed, obsolete}`, which stamps `verdict_by`/`verdict_at` and appends an
-audit record. The reconciler re-quarantines any verdict that appears in canon without a matching audit
+audit record. A re-verdict that keeps the edge's state leaves the two fields as they are (0.10.2), so they
+record who put the edge in its state and when. The reconciler re-quarantines any verdict that appears in canon without a matching audit
 record. **Extractors emit `unverified` only.** Promoting a **hypothesized** edge to `grounded` *requires*
 support, which upgrades its provenance: `support_span` (a verbatim source substring → `span-present`) or
 `support_note` (an external citation → `inferred`); without either the promotion is refused with

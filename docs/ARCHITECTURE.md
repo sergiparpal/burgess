@@ -294,7 +294,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
   grounders, plus the wave size and the hubs no adversarial pass has attacked since their last grounded
   claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge and from the
-  attack ledger `kg_record_attack` writes, and the count of pending leads),
+  attack ledger `kg_record_attack` writes, and the count of pending leads; a claim's time is its
+  `verdict_at`, when it entered its state, which a re-verdict that keeps the state keeps, 0.10.2),
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
   reads no file), `query_graph` (every filter applies to nodes and edges alike), `get_node`,
