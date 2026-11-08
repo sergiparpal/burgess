@@ -17,7 +17,7 @@ Burgess currently works best with:
 - UTF-8 Markdown or plain text, preferably divided into sections;
 - questions about what supports, attacks, bridges, confounds, approximates, or survives another concept.
 
-The current release ships one **conceptual-theory domain pack**. Its node types are `compression`, `primitive`, `claim`, `metric`, `operation`, and `failure`; its relations are `grounds`, `attacked_by`, `reconciles_with`, `bridges`, `collapses_into`, `confounded_by`, `approximates`, `defends_against`, `projects`, and `survives`. Material outside that vocabulary may be mapped awkwardly, dropped by the extractor, or quarantined at the write boundary.
+The current release ships one **conceptual-theory domain pack**. Its node types are `compression`, `primitive`, `claim`, `metric`, `operation`, and `failure`; its relations are `grounds`, `attacked_by`, `reconciles_with`, `bridges`, `collapses_into`, `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`, and `enables`. Material outside that vocabulary may be mapped awkwardly, dropped by the extractor, or quarantined at the write boundary.
 
 Burgess is not currently:
 
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1554 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1600 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

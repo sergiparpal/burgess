@@ -163,7 +163,7 @@ section defines it. Declare in nodes[] every other node your edges name.
 
 Follow your system contract: declared node_types (compression, primitive, claim, metric, operation, failure)
 and edge_types (grounds, attacked_by, reconciles_with, bridges, collapses_into, confounded_by, approximates,
-defends_against, projects, survives) only — anything else is QUARANTINED with a per-item
+defends_against, projects, survives, enables) only — anything else is QUARANTINED with a per-item
 details[].reason of `undeclared-node-type` (nodes) or `undeclared-edge-type` (edges). Every
 non-deterministic edge MUST carry a verbatim "span" that is a substring of the section text (§1.5), or it is
 REJECTED. Do NOT set epistemic_state to a verdict and do NOT set authored_by=human (§1.4) — those are DEMOTED

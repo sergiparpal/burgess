@@ -81,10 +81,11 @@ no-op — 0 redactions — so the examples below copy plain source text unchange
 ## The pack vocabulary (use ONLY these — anything else is QUARANTINED: `undeclared-node-type` for nodes, `undeclared-edge-type` for edges)
 - **node_type**: `compression`, `primitive`, `claim`, `metric`, `operation`, `failure`
 - **relation**: `grounds`, `attacked_by`, `reconciles_with`, `bridges`, `collapses_into`,
-  `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`
+  `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`, `enables`
 
-If the prose expresses a relation that is not in this list, do **not** coin a new type — either map it to the
-nearest pack relation if the text truly supports it, or drop it. Inventing a type does not fail loudly; it is
+If the prose expresses a relation that is not in this list, do **not** coin a new type, and do not force the
+nearest one either: leave the edge out. A claim filed under a relation that does not fit is rejected at
+grounding as `wrong-relation`. Inventing a type does not fail loudly; it is
 silently QUARANTINED (`undeclared-edge-type` for a bad relation, `undeclared-node-type` for a bad node_type)
 and never reaches the graph. (The `undeclared-type` string is only the node_type *bucket value* the boundary
 parks an undeclared node under — it is never a `details.reason`.) (Read `pack/pack.yaml` and `pack/glossary.md`
@@ -98,9 +99,10 @@ span-support 0.94 — the span is usually right; the direction/type is wrong). T
 reversed direction (only a wrong *span*), so the direction is on you. Before emitting a directed edge,
 name the HEAD by its role:
 
+<!-- relation-roles:begin (agents/grounder.md repeats this block; tests/test_fix_relation_rules.py keeps them identical) -->
 | relation         | HEAD is…                     | TAIL is…                                |
 |------------------|------------------------------|-----------------------------------------|
-| grounds          | the evidence/foundation      | the claim it supports                   |
+| grounds          | the evidence or reason       | the claim it supports                   |
 | attacked_by      | the victim (vaguer/weaker)   | the attacker (stronger/more specific)   |
 | defends_against  | the remedy/defense           | the threat/problem                      |
 | confounded_by    | the inflated metric/value    | the confound that inflates it           |
@@ -108,24 +110,32 @@ name the HEAD by its role:
 | approximates     | the cheap proxy              | the truer target it stands in for       |
 | projects         | the regenerable projection   | the source it derives from              |
 | survives         | the claim/info that persists | the operation node it survives          |
+| enables          | the precondition or means    | what it makes possible                  |
 
 (`reconciles_with` and `bridges` feel symmetric but are still typed HEAD→TAIL: for `reconciles_with`,
 HEAD is the resolution and TAIL is the intuition it rescues; for `bridges`, HEAD is the node that joins
 the two communities.)
 
+`grounds` and `enables` are not interchangeable. `grounds` is evidence or a reason: the span says the HEAD
+shows, or is why, the TAIL is true. `enables` is a precondition or a means: the span says the HEAD makes the
+TAIL possible («permite», «hace posible», «sin X no hay Y»). «Lo que lo permite son comprobadores
+deterministas» enables retiring review; it is no evidence that retiring review works.
+<!-- relation-roles:end -->
+
 ### Do NOT reach for a region-spanning relation when the prose says something narrower
 - an instance/example offered as **evidence** for a claim → `grounds` (the example is the HEAD), never
   `bridges`/`approximates`. A bare taxonomic **is-a** with no evidential role has no pack relation — drop it.
+- a precondition or means that makes something possible → `enables`, never `grounds`.
 - two merely complementary / paired concepts → emit no edge (use `reconciles_with` **only** if the prose
   states a real tension one resolves).
 - "reveals / makes detectable" → NOT `projects`.
 - complement / contrast → NOT `reconciles_with`.
 
 ### Worked reversal (from examples/source.md §2)
-The source says `Span-present provenance *grounds* a claim`: the **foundation** is span-present provenance,
+The source says `Span-present provenance *grounds* a claim`: the **evidence** is span-present provenance,
 the **claim** is what it supports — so emit `span-present grounds claim` (HEAD = the evidence, TAIL = the
 claim), never the reversed `claim grounds span-present`. Rule of thumb: when the prose says "A holds
-**because** of B", B is the foundation — emit `B grounds A`, never `A grounds B`. (The boundary verifies
+**because** of B", B is the reason — emit `B grounds A`, never `A grounds B`. (The boundary verifies
 the **span**, not the **direction**, so getting HEAD/TAIL right is on you.)
 
 ## The kg_write payload contract (Pydantic — EXTRA FIELDS FORBIDDEN)

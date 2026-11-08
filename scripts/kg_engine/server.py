@@ -37,6 +37,7 @@ from .model import (
     FAILURE_STATE_VALUES,
     GROUNDABLE_STATES,
     MIN_SPAN_CHARS,
+    NON_LIVE_STATE_VALUES,
     Node,
     Provenance,
     UNDECLARED_TYPE,
@@ -1917,10 +1918,19 @@ class KGEngine:
 
         `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
         channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
-        1–20, default 12. `hubs` are the most connected nodes (degree 3 or more, at most 5), the adversarial
-        grounder's candidates. Read-only; it never projects."""
-        from .groundplan import (DEFAULT_BATCH_SIZE, DIVERGE_MARK, batches as chunk, clamp_batch_size,
-                                 focus_matches, is_weak)
+        1–20, default 12.
+
+        `hubs` are the adversarial grounder's candidates: at most 5 nodes with 3 or more live claims, the
+        most connected first. A claim is a live edge (`model.NON_LIVE_STATE_VALUES` is not live, as on every
+        other structural surface) that is not itself a counter-edge (`groundplan.attacked_hub`). A node an
+        adversarial pass has attacked, with no claim grounded since, is left out and listed in
+        `attacked_hubs` instead (`groundplan.already_attacked`), so each pass attacks the next hubs down the
+        list and Stage 2 ends once every hub has been attacked. A `focus` skips that memory: naming a concept
+        is how a user asks for a second attack on it. Through 0.7.0 the degree counted every edge, refuted
+        ones and the attack's own counter-edges included, so every pass offered the same hubs again (field
+        report on 0.7.0). Read-only; it never projects."""
+        from .groundplan import (DEFAULT_BATCH_SIZE, DIVERGE_MARK, already_attacked, attacked_hub,
+                                 batches as chunk, clamp_batch_size, focus_matches, is_weak)
 
         size = clamp_batch_size(batch_size) if batch_size not in (None, "") else DEFAULT_BATCH_SIZE
         cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
@@ -1947,15 +1957,23 @@ class KGEngine:
 
         seen: "set[str]" = set()
         items: "list[tuple[tuple, str, str]]" = []
-        degree: "Counter[str]" = Counter()
+        degree: "Counter[str]" = Counter()        # live claims per node
+        newest_claim: "dict[str, str]" = {}       # node -> latest verdict_at among its grounded claims
+        attacks: "dict[str, list[tuple[str, str | None]]]" = {}   # hub -> (state, verdict_at) per counter-edge
         weak_edges = 0
         for n in nodes:
             for e in n.edges:
                 if e.id in seen:
                     continue
                 seen.add(e.id)
-                degree[slug(e.source)] += 1
-                degree[slug(e.target)] += 1
+                hub = attacked_hub(e.notes)
+                if hub is not None:
+                    attacks.setdefault(hub, []).append((e.epistemic_state.value, e.verdict_at))
+                elif e.epistemic_state.value not in NON_LIVE_STATE_VALUES:
+                    for end in (slug(e.source), slug(e.target)):
+                        degree[end] += 1
+                        if e.epistemic_state == EpistemicState.GROUNDED and e.verdict_at:
+                            newest_claim[end] = max(newest_claim.get(end, ""), e.verdict_at)
                 if e.epistemic_state != EpistemicState.UNVERIFIED:
                     continue
                 if focus and slug(e.source) not in in_focus and slug(e.target) not in in_focus:
@@ -1978,9 +1996,13 @@ class KGEngine:
         items.sort(key=lambda row: row[0])
         planned = chunk([{"id": i, "kind": k} for _, i, k in items], size)
         by_id = {n.id: n for n in nodes}
+        eligible = [(nid, d) for nid, d in sorted(degree.items(), key=lambda kv: (-kv[1], kv[0]))
+                    if d >= 3 and (not focus or nid in in_focus)]
+        # a focus names what to attack, so it is how a user asks for a second attack: memory applies without one
+        done = set() if focus else {nid for nid, _ in eligible
+                                    if already_attacked(attacks.get(nid, []), newest_claim.get(nid))}
         hubs = [{"id": nid, "label": by_id[nid].label if nid in by_id else nid, "degree": d}
-                for nid, d in sorted(degree.items(), key=lambda kv: (-kv[1], kv[0]))
-                if d >= 3 and (not focus or nid in in_focus)][:5]
+                for nid, d in eligible if nid not in done][:5]
         return self._scrub_egress({
             "ok": True, "focus": focus or None,
             "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
@@ -1988,6 +2010,7 @@ class KGEngine:
                       "extractor_nodes_not_queued": skipped},
             "batch_size": size, "wave_size": wave, "wave_size_from": origin,
             "batches": planned, "waves": -(-len(planned) // wave), "hubs": hubs,
+            "attacked_hubs": [nid for nid, _ in eligible if nid in done],
             # the configured files, for the adversarial grounder that searches them for counter-spans
             "source": self._source_info()})
 
@@ -1997,7 +2020,8 @@ class KGEngine:
         For an edge: the edge itself (its span among the fields), `span_in_source`, which says whether the
         span still verifies against its file now (the engine's own check, so a stale span shows as false),
         its two endpoint nodes, and `context`, the excerpt of the source section that holds the span
-        (``groundplan.span_excerpt``: the paragraph and its neighbours, at most 3000 characters). For a node:
+        (``groundplan.span_excerpt``: the paragraph and its neighbours, at most 3000 characters; rows cut out
+        of a long table keep the table's header rows, 0.8.0). For a node:
         the node and its incident edges. All free text leaves through the SESSION scrub, the same as
         kg_section, so a support span the grounder copies back to kg_ground, placeholders included, restores
         and verifies. Read-only."""
@@ -2914,9 +2938,11 @@ def _register(mcp, engine: KGEngine) -> None:
                        batch_size: int | None = None) -> dict:
         """Plan a /kg-ground: the grounding queue (every unverified edge, and every unverified
         HYPOTHESIZED node) as compact `{id, kind}` items in batches of `batch_size` (1-20, default 12), one
-        batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` (most connected nodes) for the
-        adversarial grounder. Order: [diverge] pins, other hypotheses, edges marked weak, the rest. Pass the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node
-        it names) and the `extract_wave_size` option as the command text carries it. Read-only."""
+        batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` for the adversarial grounder
+        (the nodes with the most live claims, leaving out the `attacked_hubs` an earlier pass attacked with
+        nothing grounded since). Order: [diverge] pins, other hypotheses, edges marked weak, the rest. Pass
+        the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node it names) and the
+        `extract_wave_size` option as the command text carries it. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size)
 
     @mcp.tool()
@@ -2979,7 +3005,9 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def query_graph(node_type: str | None = None, relation: str | None = None,
                     epistemic_state: str | None = None, limit: int = 50) -> dict:
-        """Query nodes/edges by type, relation, or epistemic state (ranked by precomputed degree)."""
+        """Query nodes and edges by type, relation, or epistemic state; every filter applies to both halves
+        (node_type: those nodes and the edges touching one; relation: those edges and the nodes they touch;
+        epistemic_state: nodes and edges in that state). Nodes ranked by precomputed degree, edges by id."""
         return engine.query_graph(node_type=node_type, relation=relation,
                                   epistemic_state=epistemic_state, limit=limit)
 

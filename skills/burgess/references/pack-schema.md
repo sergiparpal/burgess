@@ -55,13 +55,13 @@ node_types:
   - failure          # a recorded falsified claim (negative information)
 ```
 
-### `edge_types` (10) — relation types drawn from the source prose
+### `edge_types` (11) — relation types drawn from the source prose
 ```yaml
 edge_types:
   # Directed edges read  HEAD <relation> TAIL.  Reversing HEAD/TAIL was the dominant Stage-4 miss
   # (precision 0.61, span-support 0.94: the span is right, the direction/type is wrong). These per-type
   # comments are human-reference only — they never reach the model; agents/extractor.md is the live lever.
-  - grounds          # HEAD = evidence/foundation, TAIL = claim it supports. NOT part-of.
+  - grounds          # HEAD = evidence/reason, TAIL = claim it supports. NOT part-of, NOT a precondition (enables).
   - attacked_by      # HEAD = victim (vaguer), TAIL = attacker (stronger/more specific).
   - reconciles_with  # HEAD resolves a real tension TAIL left open. NOT mere complement/contrast.
   - bridges          # HEAD joins two separate communities. NOT instance-of/evidence-of, NOT paired maxims.
@@ -71,19 +71,25 @@ edge_types:
   - defends_against  # HEAD = remedy/defense, TAIL = threat/problem. The problem is the TAIL.
   - projects         # HEAD = regenerable projection, TAIL = source it derives from. NOT "reveals / makes-detectable".
   - survives         # HEAD = claim/info that persists, TAIL = the operation it survives (TAIL must be an `operation`).
+  - enables          # HEAD = precondition/means, TAIL = what it makes possible. NOT evidence (grounds).
 ```
 
 **Relation direction is load-bearing (§Stage 4).** Every directed edge reads `HEAD <relation> TAIL`; the
 right two endpoints in the **wrong order** score `wrong_type` and were the single largest Stage-4 miss
 (precision 0.61 at span-support 0.94 — the span verifies but the direction/type is wrong, so the boundary
 cannot catch it). The per-type comments above name the HEAD role; the authoritative, **model-facing**
-version is the HEAD/TAIL role table in `agents/extractor.md` (these YAML comments are human-reference only
-and are discarded by `yaml.safe_load`, so changing the names — never the comments — is what changes the
-boundary's allow-list).
+version is the HEAD/TAIL role table in `agents/extractor.md`, which `agents/grounder.md` repeats row for
+row so the claim is judged by the rule it was written under (0.8.0; a test keeps the two identical and
+complete). These YAML comments are human-reference only and are discarded by `yaml.safe_load`, so
+changing the names — never the comments — is what changes the boundary's allow-list.
 
-Each edge type is grounded in a verbatim relation in `source.md` (§1, span-present invariant). The
-relation words are wrapped in markdown emphasis in the source, and `normalize_text` does not strip the
-`*`, so a verbatim span must include the asterisks exactly — e.g. the real substrings
+Each of the first ten edge types is grounded in a verbatim relation in `source.md` (§1, span-present
+invariant). `enables` (0.8.0) comes from a field corpus instead: its prose said "X permite Y" (X makes Y
+possible) again and again, extractors filed those claims under `grounds`, and grounders split on whether
+a precondition is evidence.
+
+The relation words of those ten are wrapped in markdown emphasis in the source, and `normalize_text`
+does not strip the `*`, so a verbatim span must include the asterisks exactly — e.g. the real substrings
 `is therefore *attacked_by* specificity`, `it is *confounded_by*`, and `plain **degree** is the honest
 advisory that *approximates* importance`. (An asterisk-free paraphrase such as "Generality is attacked by
 specificity" is *not* a verifiable span.)

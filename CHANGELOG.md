@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.8.0 — 2026-11-08
+
+The first full `/kg-ground` on 0.7.0, on the Windows install's 8-file corpus, judged all 168 claims with no
+shell command and no permission prompt. Its report showed four defects: the grounders, running in parallel,
+split on two rules; a long table reached them without its header; `query_graph` answered a different question
+in each half of its result; and the hub attack would have repeated on every pass. The pack gains one relation,
+`enables`. The write boundary, the verdict rules and the canon format do not change.
+
+### Why the grounders disagreed
+
+- **The grounder had no definition of the relations.** The extractor writes each claim by a HEAD/TAIL table,
+  but the grounder contract had none, and the pack's definitions are YAML comments that never reach a model.
+  Four grounders accepted "X permite Y" (X makes Y possible) as `grounds`, and one rejected it.
+- **A long table lost its header.** `kg_ground_item` cut the 60-line mechanism matrix of one document (8 346
+  characters) down to the rows around each span. One grounder guessed what the columns meant and grounded
+  three rows; another judged the fourth row "two bare cells" and rejected it. The command's grounder template
+  also listed "a table cell" among the spans that state no relation.
+- **They browsed the graph to calibrate.** Eight of the 14 grounders called `query_graph` 15 times, to see how
+  other edges used a relation or to look for duplicates. Five of the answers, 62 to 89 KB, were saved to
+  files, and four grounders searched them with Grep.
+
+### Fixed
+
+- **The hub attack would never have ended.** Hub degree counted every edge, including refuted ones and the
+  adversarial grounder's own counter-edges, and nothing recorded an attack. On a copy of the canon, the next
+  plan offered the five hubs just attacked, so each pass would have ended with about ten new unverified
+  counter-edges against them. Now:
+  - degree counts live claims only (`NON_LIVE_STATE_VALUES`, as on every other structural surface), and no
+    counter-edge;
+  - the adversarial grounder opens each counter-edge's notes with
+    `counter-edge (adversarial pass, hub <hub-id>)`, the form it already wrote on all ten of that pass's
+    counter-edges;
+  - without a focus, the plan leaves out a hub whose counter-edge awaits its verdict, or whose newest
+    counter-edge verdict is no older than its newest grounded claim, and lists it in `attacked_hubs`.
+
+  Each pass attacks the next hubs down the list, and Stage 2 ends once every hub has been attacked. A focus
+  still attacks the hubs it names: that is how you ask for a second attack. On the reporting canon, 4 of its 9
+  hubs now count as attacked, and the next pass attacks the other 5. `conjunto-oculto` drops out, because two
+  of its claims were rejected.
+- **`query_graph` filters apply to both halves.** `node_type` and `epistemic_state` used to filter only the
+  nodes, and `relation` only the edges.
+  - `query_graph(epistemic_state="grounded")`, which `/kg-query` offered as the trustworthy subgraph, returned
+    8 rejected edges among 50 on the reporting canon. It now returns 50 grounded ones.
+  - A node type that does not exist returned 100 unrelated edges. It now returns nothing.
+- **An excerpt cut out of a long table keeps the table's header and rule rows,** with a `…` line where rows
+  were skipped. All four matrix rows of the reporting canon now arrive under `| Mecanismo | Cubre | … |`.
+- **The adversarial contract taught the wrong direction and the wrong target.**
+  - Its payload example wrote `specificity attacked_by generality-confound`, and its worked example
+    `generality-confound confounded_by betweenness`: both reversed against the pack.
+  - The worked example then grounded its own counter-edge `failed`, which records the counter-claim as false.
+
+  This pass's adversarial grounder did neither. The examples now read victim first and fail the refuted claim.
+- **The extractor said two things.** "Map it to the nearest pack relation" sat beside "leave the edge out
+  instead of approximating it". It now says only to leave the edge out.
+
+### Added
+
+- **`enables`**, the pack's eleventh relation: HEAD = the precondition or means, TAIL = what it makes
+  possible. `grounds` is now evidence or a reason, and no longer covers a precondition.
+- **`attacked_hubs`** in `kg_ground_plan`'s result.
+
+### Changed
+
+- **The grounder judges by the extractor's relation table,** repeated word for word between `relation-roles`
+  markers in both contracts. It also gets a rule for tables: a row states a relation when the table's header
+  says what each cell is.
+- **Neither grounder has `query_graph` any more.** The grounder judges from `kg_ground_item`, checks a
+  suspected duplicate with `get_node`, and names duplicate pairs in its report. The adversarial grounder
+  attacks the hubs its prompt lists and adds none of its own.
+- **The adversarial grounder declares the nodes it creates,** with one of the pack's node types, which its
+  contract now lists, instead of leaving untyped placeholders.
+- **`/kg-ground` takes Stage 2's hubs from the last progress probe,** after the claims are judged, and skips
+  Stage 2 when no hub is left. Its grounder template points at the relation table.
+- **Every text that lists the relations lists `enables`,** and `grounds` reads "evidence or reason" in the
+  pack, the extractor and the references.
+
+### Tests
+
+- **46 new tests in four files:**
+  - `tests/test_fix_attack_once.py` (16): the mark, in the forms the field pass wrote; the attack rule; a
+    pending and a judged attack; a hub coming back after a new grounded claim; the focus; counter-edges and
+    every non-live state adding no degree; the contract examples.
+  - `tests/test_fix_relation_rules.py` (18): `enables` accepted at the boundary; the two relation tables
+    identical and complete; `grounds` against `enables`; the grounder's tools and table rule; the command
+    template; every text that lists the relations listing all of them; the adversarial contract naming the
+    pack's node types.
+  - `tests/test_fix_table_header_excerpt.py` (6): the header kept far down a table and right under it; the
+    cap; a header too wide for it; text with no rule row; `kg_ground_item` end to end.
+  - `tests/test_fix_query_graph_filters.py` (6): each filter on both halves, combined filters, a node type
+    that does not exist.
+- 1554 → 1600 passed, 3 skipped.
+- **Checked on a copy of the reporting canon:** the four matrix rows arrive under their header; all ten
+  counter-edges are recognized; the next plan offers the five hubs not yet attacked; and the grounded query
+  returns only grounded edges. The canon was left untouched.
+- **Checked end to end,** headless in auto mode with Claude Code 2.1.316 and the plugin loaded from this tree,
+  on `examples/source.md`:
+  - **A `/kg-build`, then a `/kg-ground`:** 11 claims judged, 9 grounded and 2 rejected. Both rejected claims
+    were `claim`'s, which left it 2 live claims, so it was no hub and Stage 2 was skipped.
+  - **A short section added, with three claims about one node, then a second `/kg-ground`:** the three were
+    grounded. The adversarial grounder attacked the node and wrote two counter-edges carrying the mark, victim
+    first, and failed nothing, since the counter-span limits the claims without refuting them. The plan then
+    listed the node under `attacked_hubs` and offered no hub; a focus on it still offered it.
+  - **No pass ran a shell command or was denied a permission.** The adversarial grounder's one file read was
+    the source, inside the project folder. Its first write typed a node `concept` and was quarantined, which
+    is why its contract now lists the node types.
+  - **Cost:** $0.80 for the build, then $0.60 and $0.71 for the two passes.
+
 ## 0.7.0 — 2026-11-07
 
 `/kg-ground` no longer runs a shell command, so auto mode no longer stops it on permission prompts. Reported

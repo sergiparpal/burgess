@@ -17,7 +17,7 @@ edge_types:
   # Directed edges read  HEAD <relation> TAIL.  Reversing HEAD/TAIL was the dominant Stage-4 miss
   # (precision 0.61, span-support 0.94: the span is right, the direction/type is wrong). These per-type
   # comments are human-reference only — they never reach the model; agents/extractor.md is the live lever.
-  - grounds          # HEAD = evidence/foundation, TAIL = claim it supports. NOT part-of.
+  - grounds          # HEAD = evidence/reason, TAIL = claim it supports. NOT part-of, NOT a precondition (enables).
   - attacked_by      # HEAD = victim (vaguer), TAIL = attacker (stronger/more specific).
   - reconciles_with  # HEAD resolves a real tension TAIL left open. NOT mere complement/contrast.
   - bridges          # HEAD joins two separate communities. NOT instance-of/evidence-of, NOT paired maxims.
@@ -27,6 +27,9 @@ edge_types:
   - defends_against  # HEAD = remedy/defense, TAIL = threat/problem. The problem is the TAIL.
   - projects         # HEAD = regenerable projection, TAIL = source it derives from. NOT "reveals / makes-detectable".
   - survives         # HEAD = claim/info that persists, TAIL = the operation it survives (TAIL must be an `operation`).
+  # 0.8.0: a precondition or means is not evidence. With no relation for it, extractors filed "X permite Y"
+  # under `grounds` and grounders split on whether that held (field report on 0.7.0).
+  - enables          # HEAD = precondition/means, TAIL = what it makes possible. NOT evidence (grounds).
 
 glossary:
   compression: "A single idea that stands in for many observations; earns its keep only when it predicts."
