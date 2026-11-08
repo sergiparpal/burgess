@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.10.0 — 2026-11-08
+
+The fourth `/kg-ground` on the Windows corpus, the first on 0.9.0, judged the ten leads `/kg-build --leads` had
+written, and grounded nine. It also showed two gaps. An attack that found nothing to write left no mark, so the
+plan would have offered the same hub to an attack on every later pass. And two grounders ruled one span two ways,
+one of them by a cue from the user's memory notes that no contract has.
+
+### Added
+
+- **`kg_record_attack(hub_id, question, reason)`.** The adversarial grounder calls it for each hub it attacked
+  without writing a counter-edge, with the falsifying question its attack ended with and its decline tag
+  (`no-span` or `vague`). The engine appends one line to `<project>/.kg-hub-attacks.jsonl`, and `kg_ground_plan`
+  counts the record like a counter-edge judged at that time: the hub stays in `attacked_hubs` until it gains a
+  newer grounded claim. The record sets no state. The ledger is git-excluded engine state, read fail-open, so
+  losing it only offers those hubs again. The MCP surface goes from 31 to 32 tools.
+
+### Fixed
+
+- **A hub attacked without a counter-edge came back on every pass.** Since 0.8.0 the plan remembers an attack
+  by the mark on each counter-edge, and 0.8.0 accepted that an attack with nothing to write leaves none. The
+  0.9.0 leads made that common. The grounders had rejected both counter-edges on `escribir-codigo-parte-pequena`,
+  one of them with a lead whose span is the source's own support for the hub. Once that lead was written and
+  grounded, the plan offered the hub again. The re-attack searched eight documents, found nothing and, again,
+  left no mark. The adversarial contract and `/kg-ground`'s template now ask for the record.
+- **Grounders split on «por eso».** One grounder sealed «O puedes bajar la variedad del entorno hasta que el
+  controlador que sí puedes construir sea suficiente. Por eso funcionan los robots industriales» as a `grounds`
+  lead. The next one rejected that edge for `enables`. The relation block now says that a connective does not
+  decide between the two: «por eso», «porque» or «así que» says that the HEAD explains the TAIL, and what the
+  HEAD does for the TAIL decides. A reason to believe the TAIL is `grounds`; the means that makes it possible,
+  or makes it work, is `enables`. The block's gloss of `grounds`, "the HEAD shows, or is why, the TAIL is true",
+  let a causal «por eso» read as evidence. It now reads "a reason to think it is".
+- **A memory note reached a grounder directly.** The grounder that sealed that lead had opened the user's note
+  on grounder rules by itself. The note lists «porque», «por eso» and «muestra» as cues for `grounds`, a list no
+  contract has. Claude Code gives every subagent the project's memory index, so a note can reach an agent even
+  when the orchestrator pastes nothing into its prompt, the channel 0.8.1 closed. The grounder,
+  adversarial-grounder and extractor contracts now say that their rules are the contract: an agent takes no rule
+  from a note, and where a note disagrees with the contract, the contract wins.
+
+### Changed
+
+- The adversarial contract: item 5 and Output B say how the record marks a hub, and the bounded-run paragraph
+  and the report no longer say that such a hub "carries no mark".
+- `/kg-ground`'s Stage 3 summary counts the hubs recorded, and lists their falsifying questions.
+
+### Tests
+
+- `tests/test_fix_attack_record.py` (20): a record moves the plan to the next hub, and its hub comes back with
+  a newer grounded claim. Also covered: the field case (rejected counter-edges, a claim grounded later, then
+  the record), a focus, a record on a node that is not a hub yet, the ledger line, no state changed, every
+  refusal, a damaged, lost or unreadable ledger, a plan that never creates the ledger, the git exclude, and the
+  contract and command texts.
+- `tests/test_fix_connective_and_notes.py` (3): the connective rule, the extractor's shortcut list, and the
+  contract-first paragraph in all three contracts.
+- 1639 → 1662 passed, 3 skipped. `tests/fusion/test_diverge_surface.py` counts 32 tools, and
+  `tests/test_fix_session_start.py`'s excluded patterns include the ledger. A 0.8.1 test pinned an Output B
+  sentence that now goes on.
+- **Checked end to end:** one headless `/kg-ground`, in auto mode with Claude Code 2.1.316 and the plugin loaded
+  from this tree. It ran on scratch copies of the two documents the cases cite, with seven field edges written
+  fresh. The hub `escribir-codigo-parte-pequena` was set up as the field left it: its two counter-edges
+  rejected, then three claims grounded after them, so the plan offered it.
+  - **The grounder:** it rejected the robot span as `grounds` (`wrong-relation`, with the lead `enables`) and
+    grounded it as `enables`. The control «…así que el techo de ahorro es modesto» stayed `grounds`, a reason to
+    believe the claim.
+  - **The adversarial grounder:** it found no counter-span in either document, wrote nothing, and recorded the
+    attack with its falsifying question (`no-span`). The report counted "1 recorded with none". The next plan
+    offered no hub and listed the hub in `attacked_hubs`.
+  - **No shell command ran and no permission was denied.** Cost: $0.87. The copies were deleted.
+
 ## 0.9.0 — 2026-11-08
 
 The third `/kg-ground` on the Windows corpus, the first on 0.8.1, went by the book: the queue is empty and

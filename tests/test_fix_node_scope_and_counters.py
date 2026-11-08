@@ -79,7 +79,8 @@ def test_the_counter_must_be_the_sources():
     flat = _flat(ADVERSARIAL)
     assert "**the counter must be the source's (0.8.1).**" in flat
     assert "A contradiction that no single span states is not an edge: list it in your report." in flat
-    assert ("If no span sets itself against the hub or one of its claims, emit a falsifying question (Output B)."
+    # 0.10.0 goes on: "… and record the attack with `kg_record_attack`" (tests/test_fix_attack_record.py)
+    assert ("If no span sets itself against the hub or one of its claims, emit a falsifying question (Output B)"
             in flat)
     assert "Contradictions you found that no single span states" in flat   # report back
 

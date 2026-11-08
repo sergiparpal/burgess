@@ -15,10 +15,13 @@ new has come since; and an excerpt cut out of a long table keeps the table's hea
 
 0.9.0: a rejected claim can carry a lead, the edge its span does state, which `/kg-build --leads` writes.
 
+0.10.0: an attack that writes no counter-edge is recorded too, so the plan stops offering that hub as well.
+
 Pure stdlib + `model`/`buildplan`; no I/O. `KGEngine.kg_ground_plan` / `kg_ground_item` assemble around these.
 """
 from __future__ import annotations
 
+import json
 import re
 
 from .buildplan import _forms, _words
@@ -42,6 +45,18 @@ WEAK_SCORE = 0.5
 # already wrote on all ten of that pass's counter-edges, so they count.
 ATTACK_MARK = "counter-edge (adversarial pass, hub "
 _ATTACK_HUB = re.compile(r"counter-edge \(adversarial pass, hub ([a-z0-9][a-z0-9-]*)")
+# An attack that writes no counter-edge (0.10.0). When no span in the source sets itself against a hub or one
+# of its claims, the adversarial grounder ends with a falsifying question instead (its contract's Output B),
+# and through 0.9.0 that left nothing behind: no counter-edge, so no mark. A hub that had gained a grounded
+# claim since its last mark was then offered on every later pass, and each attack searched the source for
+# nothing again (field report on 0.9.0: a lead written from one of the hub's own rejected counter-edges was
+# grounded on it, which reopened the hub, and the re-attack found nothing in eight documents). The grounder
+# now records such an attack with `kg_record_attack`: one line in the ledger beside the canon
+# (`canon.HUB_ATTACKS`), which the plan counts like a counter-edge judged at the time of the record. The
+# ledger is engine state, not canon: a lost or unreadable one only offers those hubs again, as before 0.10.0.
+ATTACK_REASONS = ("no-span", "vague")     # the decline tags of the adversarial contract's Output B
+ATTACK_RECORDED = "recorded"              # what a ledger record stands for among `already_attacked`'s marks
+MAX_QUESTION_CHARS = 2000
 # A lead (0.9.0): the edge a rejected claim's span does state instead, when a grounder rejects it as
 # `wrong-relation` or `wrong-node`. `kg_ground(..., lead=...)` appends it to the rejected edge's notes as the
 # segment `lead: <head> <relation> <tail>`, `/kg-build --leads` has an extractor write it, and the written
@@ -88,7 +103,8 @@ def already_attacked(marks: "list[tuple[str, str | None]]", newest_claim: "str |
     test: one of its counter-edges still waits for a verdict, or the newest counter-edge verdict is no older
     than the hub's newest grounded claim.
 
-    `marks` are the `(epistemic_state, verdict_at)` of the counter-edges that name the hub, `newest_claim` the
+    `marks` are the `(epistemic_state, verdict_at)` of the counter-edges that name the hub, plus one
+    `(ATTACK_RECORDED, at)` for each attack the ledger records against it (0.10.0); `newest_claim` is the
     latest `verdict_at` among its grounded claims (ISO-8601 UTC, so they compare as strings). A hub with no
     mark has never been attacked."""
     if not marks:
@@ -96,6 +112,27 @@ def already_attacked(marks: "list[tuple[str, str | None]]", newest_claim: "str |
     if any(state == EpistemicState.UNVERIFIED.value for state, _ in marks):
         return True
     return (newest_claim or "") <= max(at or "" for _, at in marks)
+
+
+def attack_record(hub: str, at: str, reason: str, question: str) -> str:
+    """One ledger line (0.10.0): the hub, when the attack was recorded, why it wrote no counter-edge
+    (`ATTACK_REASONS`), and the falsifying question it ended with."""
+    return json.dumps({"hub": hub, "at": at, "reason": reason, "question": question}, ensure_ascii=False)
+
+
+def attack_records(lines) -> "dict[str, list[str]]":
+    """hub id -> the times of the attacks recorded against it, from the ledger's lines. A line that is not
+    such a record (a torn last line, a hand edit, another shape) is skipped, never an error."""
+    out: "dict[str, list[str]]" = {}
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        hub, at = (rec.get("hub"), rec.get("at")) if isinstance(rec, dict) else (None, None)
+        if isinstance(hub, str) and hub and isinstance(at, str) and at:
+            out.setdefault(hub, []).append(at)
+    return out
 
 
 def parse_lead(text: "str | None", edge_types) -> "tuple[tuple[str, str, str] | None, str]":

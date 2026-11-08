@@ -458,3 +458,45 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Leads the adversarial grounder names without a span, and contradictions between documents, stay in the reports.
 - **Pinned in:** `tests/test_fix_leads_path.py`.
   - **Checked end to end:** three headless passes, in auto mode with Claude Code 2.1.316, over five field edges written fresh on scratch copies of their documents. `/kg-ground` rejected four with a lead each. `/kg-build --leads` wrote all four through one extractor per section, with ids only in the prompts, and the next `/kg-ground` grounded them. No pass ran a shell command or was denied a permission.
+
+## An attack that writes no counter-edge is recorded, so its hub is not offered again (2026-11-08)
+
+- **Decision:** a new tool, `kg_record_attack(hub_id, question, reason)`. The adversarial grounder calls it for each hub it attacked where `kg_write` accepted no counter-edge (its contract's Output B), with the falsifying question its attack ended with and its decline tag, `no-span` or `vague`. The engine appends one fsync'd JSON line, `{hub, at, reason, question}`, to `<project>/.kg-hub-attacks.jsonl` (`canon.HUB_ATTACKS`) under the writer lease. `kg_ground_plan` reads the ledger fail-open (`groundplan.attack_records`), and `groundplan.already_attacked` counts each record as a counter-edge judged at the time of the record. A focus still skips the memory.
+- **Bug it fixes:** a hub whose attack found nothing was offered to an attack on every later pass (field report on 0.9.0).
+  - The grounders had rejected both counter-edges on `escribir-codigo-parte-pequena`. One of them got a lead whose span is the source's own support for the hub («Solo el 21 % pasa más de media semana escribiendo código nuevo»), and the next pass grounded that lead. Its newest grounded claim was then newer than its marks, so the plan offered it again. That is the rule working: a new claim can be attacked.
+  - The re-attack searched eight documents and wrote nothing, so it left no mark. Nothing would ever have changed that, and every later `/kg-ground` would have attacked the hub again for nothing, on Opus.
+  - 0.8.0 accepted this as a trade-off for a rare case (see "A hub is attacked once until it gains a grounded claim", above). The 0.9.0 leads make it common: an attacker that misreads the source's support as a counter gets its counter-edge rejected with a lead, and that lead becomes a grounded claim on the hub, which reopens it.
+- **Why a ledger beside the canon:** the record says what the engine did, not what the source says, as the verdict audit log does. The canon has no place for it that costs nothing:
+  - a counter-edge written only to carry the mark is a permanent rejected edge (0.8.1's reason);
+  - a line in the hub node's body would enter what `kg_ground_item` shows a grounder as the concept the node names, which the `wrong-node` check reads, and what search and context read;
+  - a node field would change the canon format, its merge driver and the reconciler, for a fact that is not about the source.
+- **Why this reverses 0.8.0's rejected alternative (a):** that one rejected "a new tool and a new state file, and its loss would bring the repeats back silently". The field shows that the repeat is now the common case, so the tool pays for itself. And losing the ledger brings back only 0.9.0's behaviour, which shows up in the open: the plan offers the hub, and the command reports that it attacked it. 0.9.0 rejected a ledger for leads because the canon could hold them (the rejected edge's notes); an attack that wrote nothing has no edge to hold it.
+- **Rejected alternatives:**
+  - (a) *Leave a hub out when its newest claim is a lead taken from its own counter-edge:* it fixes the field case only. A hub that gains a claim from a new build, and whose re-attack finds nothing, would still come back on every pass.
+  - (b) *Have the orchestrator record the attack:* it would have to read the record out of the adversarial grounder's report. The grounder knows which hubs it attacked, and why it wrote nothing.
+  - (c) *Write the falsifying question through `kg_propose`:* a question is not a claim. It would enter the grounding queue, and no grounder could ever ground it.
+- **Accepted trade-offs:**
+  - The record depends on the adversarial grounder calling the tool. A hub whose attack skips it is offered again, as in 0.9.0.
+  - A record vouches for nothing: the hub's claims keep their verdicts, and a focused `/kg-ground <hub>` attacks it again.
+  - The ledger is per machine, like the audit log: a clone without it offers those hubs to one more attack.
+  - A record names the hub's id at the time, as the counter-edge mark does, so after `kg_rename` or `kg_merge` it no longer applies to the renamed hub.
+  - Hubs attacked before 0.10.0 without a counter-edge have no record. The field hub `escribir-codigo-parte-pequena` is one, so the first 0.10.0 pass attacks it once more, unless a record is written for it by hand from the last report's question.
+- **Pinned in:** `tests/test_fix_attack_record.py`.
+  - **Checked end to end:** a headless `/kg-ground`, in auto mode with Claude Code 2.1.316, over the field hub set up as the field left it (its counter-edges rejected, then three claims grounded after them) on scratch copies of its document. The adversarial grounder found no counter-span, wrote nothing, and called `kg_record_attack` with its question. The next plan listed the hub in `attacked_hubs` and offered none. No pass ran a shell command or was denied a permission.
+
+## A connective does not decide between `grounds` and `enables`, and each contract is its agent's rulebook (2026-11-08)
+
+- **Decision:** the relation block that the extractor and grounder contracts share now glosses `grounds` as evidence or a reason to believe ("the span offers the HEAD as what shows the TAIL is true, or as a reason to think it is"), and `enables` as what makes the TAIL possible or makes it work. It says that a connective does not decide between the two, with the field span as its example. The extractor's shortcut list says the same. The grounder, adversarial-grounder and extractor contracts each open with "**Your rules are this contract.**": a project's memory notes can reach the agent, an agent takes no rule from them, and where a note disagrees with the contract, the contract wins.
+- **Bug it fixes:** grounders ruled one span two ways (field report on 0.9.0).
+  - The span was «O puedes bajar la variedad del entorno hasta que el controlador que sí puedes construir sea suficiente. Por eso funcionan los robots industriales». The grounder that re-stamped the pre-0.9.0 leads sealed `bajar-la-variedad-del-entorno grounds robot-industrial`, because «por eso» gives a reason. The next pass's grounder rejected that edge as `wrong-relation`, for `enables`, since lowering the variety is the means that makes the robots work. It noted that the block's gloss, "the HEAD shows, or is why, the TAIL is true", also fits «por eso».
+  - The first grounder had opened the user's memory note on grounder rules by itself. Its prompt was a one-time custom task, not the `/kg-ground` template, which says "Do not read files". The note lists «porque», «por eso» and «muestra» as cues for `grounds`, a list no contract has. Claude Code attaches the project's memory index to every subagent, so a note can reach an agent with nothing pasted into its prompt. 0.8.1 closed only the orchestrator's channel.
+- **Why the HEAD's role, not the connective:** «por eso», «porque» and «así que» introduce an explanation either way. It can be a reason to believe a claim, as in «…así que el techo de ahorro es modesto», grounded in the field as `grounds`. Or it can be the means that makes a thing work. A rule that "the TAIL of `grounds` must be a claim node" was considered and dropped: on the field canon, 9 grounded `grounds` edges have a failure or an operation as their TAIL, most of them evidence that a failure happens («muestran que ocurre»). That rule would have reversed sound verdicts.
+- **Why a line in each contract:** the note was corrected too, with the user's approval, but the plugin cannot see a user's notes, and the next stale one would look like a plugin bug again.
+- **Rejected alternatives:**
+  - (a) *Cue words per relation in the contract:* a list of cues is what went stale, and a connective fits both relations.
+  - (b) *Forbid agents to read files:* the adversarial grounder must read the sources, the `/kg-ground` grounder template already says "Do not read files", and an agent still sees the memory index.
+- **Accepted trade-offs:**
+  - An agent may still open a note. The contract can only say which one wins.
+  - The headless extraction backend (`kg_engine.backend`) has its own short prompt, with no relation table, and is unchanged.
+- **Pinned in:** `tests/test_fix_connective_and_notes.py`.
+  - **Checked end to end:** in the same run, the grounder rejected the robot span as `grounds` (`wrong-relation`, lead `enables`), grounded it as `enables`, and kept «…así que el techo de ahorro es modesto» as `grounds`.
