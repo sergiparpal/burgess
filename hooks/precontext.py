@@ -48,7 +48,8 @@ def emit(ctx: str) -> None:
 _CONTEXT_BUDGET = 800          # token budget passed to kg_context (a fraction of a normal read)
 _MAX_ITEMS = 6                 # grounded items rendered
 _MAX_BRIDGES = 3               # advisory bridge labels rendered
-_MAX_HOOK_REPROJECT_NOTES = 400  # ~the scale where pure-Python betweenness nears the 5s kill cap
+_MAX_HOOK_REPROJECT_NOTES = 400  # ~the scale where pure-Python betweenness nears the 5s kill cap; above it
+                                 # the hook serves only a fresh index (0.10.1)
 # The hook's short canon-lease TTL: precontext.mjs kills us at 5s, a killed hook leaves its lease
 # behind, and on Windows a dead pid can't be probed — so the lease must expire well inside the
 # writers' 30s acquire budget (review-r4: hook-kill-wedges-windows-writers). While the hook is ALIVE
@@ -107,11 +108,18 @@ def main() -> int:
         # (guarded above), so this is a cheap incremental reproject, never a side-effecting cold build.
         # SIZE-GATED: this hook runs on every Grep/Glob/Read and is killed at 5s, and a projection's
         # betweenness pass is O(V·E) — on a large canon it can NEVER finish inside the cap, so every
-        # read tool would burn 5s of CPU and get killed again, forever, while serving nothing. Above
-        # the gate, serve the existing (stale) index instead — the same one-projection-lag the server
-        # already tolerates elsewhere (R3/Q3); the server's own next read reprojects for real
+        # read tool would burn 5s of CPU and get killed again, forever, while serving nothing
         # (review-r4: hook-reprojects-doomed-on-large-canons).
-        if len(proj.canon.note_paths()) <= _MAX_HOOK_REPROJECT_NOTES and proj.is_stale():
+        # Above the gate the hook injects NOTHING while the index is stale (0.10.1), and the server's own
+        # next read reprojects. Through 0.10.0 it served the stale index there, and on a canon of 410
+        # notes a Grep made right after six kg_merge calls was shown the edges of two nodes those
+        # merges had retired; the session took it for a bug (field report on 0.10.0). `is_stale()`
+        # needs no projection: past its O(dir-listing) pre-gate it re-parses only the notes whose stat
+        # moved, and an mtime-only touch re-arms the pre-gate, so the hook falls silent only when the
+        # canon or the source really changed.
+        if proj.is_stale():
+            if len(proj.canon.note_paths()) > _MAX_HOOK_REPROJECT_NOTES:
+                return 0
             proj.project()
         ti = payload.get("tool_input", {})
         query = ti.get("pattern") or ti.get("query") \

@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1662 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1668 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

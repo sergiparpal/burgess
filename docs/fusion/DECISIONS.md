@@ -500,3 +500,21 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The headless extraction backend (`kg_engine.backend`) has its own short prompt, with no relation table, and is unchanged.
 - **Pinned in:** `tests/test_fix_connective_and_notes.py`.
   - **Checked end to end:** in the same run, the grounder rejected the robot span as `grounds` (`wrong-relation`, lead `enables`), grounded it as `enables`, and kept «…así que el techo de ahorro es modesto» as `grounds`.
+
+## Above its reproject gate, the precontext hook serves only a fresh index (2026-11-08)
+
+- **Decision:** `hooks/precontext.py` runs the projector's `is_stale()` on every call. Up to `_MAX_HOOK_REPROJECT_NOTES` (400) notes it reprojects a stale index, as before. Above that it injects nothing while the index is stale, and serves the index again once the server's next read has reprojected it.
+- **Bug it fixes:** the hook showed retired nodes (field report on 0.10.0). On a canon of 410 notes, a Grep made 13 s after six `kg_merge` calls was shown the edges of `reward-hacking` and `sensibilidad-al-formato`, two nodes those merges had retired, while `get_node` no longer found them. The session took the hook for a copy that is never updated.
+  - Write tools leave the derived index stale until the server's next read reprojects it (`_ensure_projected`). The hook reprojects by itself only up to 400 notes, because it is killed at 5 s, and a projection's betweenness pass cannot finish inside that on a large canon (review-r4: hook-reprojects-doomed-on-large-canons). Above the gate it served the stale index, "the same one-projection-lag the server already tolerates elsewhere".
+  - The field canon crossed the gate in its first `/kg-ground`, when the first hub attack's counter-edges took it from 399 notes to 406. From then on, after any verdict, merge or rename, the hook could show a node that no longer exists or a verdict that has changed, without saying so. Its own comment names that harm: "a raw kg_context read off a stale projection would inject obsolete provenance / epistemic labels".
+- **Why silence:** the hook is best-effort context, and its contract is to fail silent. A stale block carries wrong values for the labels it exists to report, provenance and epistemic state, and nothing in it says it is stale. Silence costs a few Greps without context, until any server read reprojects.
+- **Why `is_stale()` is affordable there:** it computes no centrality. Its pre-gate is O(dir-listing), and past it only the notes whose stat moved are re-parsed (review-r6). An mtime-only touch re-arms the pre-gate, so the hook does not fall silent for one.
+- **Rejected alternatives:**
+  - (a) *Raise or re-base the gate:* the server reprojected the 410-note canon in 0.3 s in WSL, so the gate is conservative for a sparse canon. But a gate measured on Linux does not bound the cost on Windows, where the hook is killed, and a canon past any gate would still be served stale.
+  - (b) *Label the block as stale:* it would still put retired ids and old verdicts in front of the session, with nothing better to act on.
+  - (c) *Reproject after every write:* writes stay fast by design ("Writes never pass through this seam"), and a `/kg-ground` pass writes many times.
+- **Accepted trade-offs:**
+  - Above the gate, after a write, the hook stays silent until a server read reprojects. A session that only greps files gets no context until then.
+  - A source edit silences it the same way, since the source signature is part of `is_stale()`.
+- **Pinned in:** `tests/test_fix_precontext_stale.py`.
+  - **Checked on a copy of the field canon** (410 notes): the hook served the fresh index, fell silent after a rename, and served the renamed node once a server read had reprojected. The 0.10.0 hook showed the retired id at the same step. A hook call took 0.13 s in WSL, against 0.08 s before. The copy was deleted.
