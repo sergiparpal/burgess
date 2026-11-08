@@ -35,10 +35,17 @@ _TRAILING_WAVE = re.compile(r"(.*\S)\s+([0-9]+)", re.DOTALL)
 class BuildArguments:
     """What the typed line asks for. ``subset`` is ``""`` for the whole configured source; ``wave_size``
     is the typed wave size, ``""`` when none was typed. A non-empty ``problem`` means the line cannot be
-    read as one subset, and the plan stops on it."""
+    read as one subset, and the plan stops on it. ``leads`` is true for ``--leads``: write the leads
+    grounders recorded instead of extracting the uncovered sections (0.9.0)."""
     subset: str
     wave_size: str
     problem: str = ""
+    leads: bool = False
+
+
+# `--leads` first on the line: the /kg-build mode that writes the leads grounders recorded (0.9.0). Matched
+# case-insensitively and only as a whole first word, so a file named `leads.md` is still a subset.
+_LEADS_FLAG = re.compile(r"--leads(?:\s+|$)", re.IGNORECASE)
 
 
 def parse_arguments(raw: "str | None") -> BuildArguments:
@@ -55,8 +62,13 @@ def parse_arguments(raw: "str | None") -> BuildArguments:
     - Matched surrounding quotes are dropped, repeatedly, the way ``envconfig.clean`` drops them from a
       configured path. Two separately quoted parts (``"a.md" "b.md"``) are refused: one subset is one
       file, folder or glob.
+    - ``--leads`` as the first word asks for the leads mode (0.9.0); the rest of the line reads as above.
     """
     line = (raw or "").strip()
+    m = _LEADS_FLAG.match(line)
+    if m:
+        rest = parse_arguments(line[m.end():])
+        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=True)
     if not line:
         return BuildArguments("", "")
     if line.isascii() and line.isdigit():

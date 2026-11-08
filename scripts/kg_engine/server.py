@@ -1140,7 +1140,7 @@ class KGEngine:
         return out
 
     def kg_ground(self, target_id: str, verdict: str, *, by: str = "agent", kind: str = "edge",
-                  note: str = "", support_span: str = "", support_note: str = "") -> dict:
+                  note: str = "", support_span: str = "", support_note: str = "", lead: str = "") -> dict:
         """Apply a grounding verdict (the ONLY path that may set a verdict state). Stamps the verdict
         and appends an audit record so the reconciler treats the transition as legitimate (§1.8).
 
@@ -1154,7 +1154,13 @@ class KGEngine:
         field). `support_*` are ignored for non-hypothesized items and for any verdict other than `grounded`.
 
         `note` is appended to the EDGE's `notes` and is **edge-only**: a Node has no notes field, so a
-        `note` passed with `kind='node'` is ignored (the verdict's audit record still captures `by`)."""
+        `note` passed with `kind='node'` is ignored (the verdict's audit record still captures `by`).
+
+        `lead` (0.9.0) goes with a `rejected` edge: the edge its span does state instead, typed
+        `<head-id> <relation> <tail-id>` (`groundplan.parse_lead`), which `/kg-build --leads` later has an
+        extractor write. It is appended to the notes as `lead: <head> <relation> <tail>`, after `note`. A
+        lead that is malformed, names a relation the pack does not declare, joins a node to itself, or
+        repeats the rejected edge is refused before any state change, like an unsupported promotion."""
         # Strip/normalize inputs like kg_rename/kg_merge do, so a stray-whitespace verdict (" grounded ")
         # isn't mis-classified as invalid and a stray-whitespace `kind` is canonicalized before dispatch.
         verdict = verdict.strip().lower()
@@ -1166,6 +1172,17 @@ class KGEngine:
         kind = kind.strip()
         if kind not in ("node", "edge"):
             return {"ok": False, "error": f"invalid kind {kind!r}; expected node|edge"}
+        triple = None
+        if lead and lead.strip():
+            from .groundplan import parse_lead
+            if kind != "edge" or verdict != "rejected":
+                return {"ok": False, "error": "a lead goes with a rejected edge: the edge its span does state "
+                                              "instead"}
+            if self.pack is None:
+                return {"ok": False, "error": "a lead needs the pack's relations, and no pack is loaded"}
+            triple, problem = parse_lead(lead, self.pack.edge_types)
+            if problem:
+                return {"ok": False, "error": f"lead: {problem}"}
         # `by` is provenance, not a free-text field: clamp to the known actors so a stray value can't
         # masquerade as a verdict author (the MCP tool surface already pins this to "agent").
         by = by if by in VALID_ACTORS else "agent"
@@ -1206,6 +1223,8 @@ class KGEngine:
                 if node is None:
                     return {"ok": False, "error": "edge not found"}
                 edge = next(e for e in node.edges if e.id == target_id)
+                if triple and edge_id(*triple) == edge.id:  # decided before any state change, like the gate below
+                    return {"ok": False, "error": "lead: it repeats the edge being rejected"}
                 # the hypothesized→grounded promotion gate: a span-less proposal earns grounding only with
                 # support, which upgrades its provenance. Decided BEFORE any state change so a refusal leaves
                 # the edge untouched (no audit record, no write).
@@ -1219,6 +1238,9 @@ class KGEngine:
                 edge.verdict_at = utcnow()
                 if note:
                     edge.notes = self._append_note(edge.notes, note)
+                if triple:
+                    from .groundplan import LEAD_MARK
+                    edge.notes = self._append_note(edge.notes, LEAD_MARK + " ".join(triple))
                 key = edge.id
             # Append the audit record BEFORE persisting the verdict (a CRASH between the two leaves an
             # audit record with no state change — harmless, unconsumed — rather than a verdict with no
@@ -1241,6 +1263,8 @@ class KGEngine:
             out = {"ok": True, "key": key, "from": frm, "to": verdict, "by": by}
             if promoted_to:  # a hypothesis was promoted — its provenance was upgraded (PLAN Stage 8)
                 out["provenance_upgraded_to"] = promoted_to
+            if triple:
+                out["lead"] = " ".join(triple)
             return out
         finally:
             self.canon.release_lock()
@@ -1809,7 +1833,11 @@ class KGEngine:
 
         ``ok: false`` means do not build, with ``error`` (and ``problems`` for a subset that reaches past
         the configured source) saying why: nothing configured, nothing readable, or a subset naming files
-        outside it. A subset only narrows the configured source; it never replaces it."""
+        outside it. A subset only narrows the configured source; it never replaces it.
+
+        ``--leads`` first on the line (0.9.0) plans the leads mode instead (``_leads_plan``): ``mode:
+        "leads"`` and ``leads[]``, the sections holding the spans of rejected edges whose leads no edge has
+        taken yet, covered or not, for an extractor to write those leads and nothing else."""
         args = parse_arguments(arguments)
         cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
         wave, origin = explain_wave_size(args.wave_size, cfg)
@@ -1835,6 +1863,8 @@ class KGEngine:
         else:
             names = [p.name for p in declared if p.name in texts]
             skipped = [p.name for p in declared if p.name not in texts]
+        if args.leads:
+            return self._scrub_egress(self._leads_plan(out, names, texts, wave))
         named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
         files, total, uncovered = [], 0, 0
         for name in names:
@@ -1860,7 +1890,7 @@ class KGEngine:
             plan["note"] = "skipped files could not be read as UTF-8 text"
         return self._scrub_egress(plan)
 
-    def kg_section(self, source_file: str, section: "int | str") -> dict:
+    def kg_section(self, source_file: str, section: "int | str", leads: bool = False) -> dict:
         """One section of the configured source, cut and egress-scrubbed by the engine: what a
         `kg-extractor` launched by `/kg-build` extracts from (0.5.0). ``source_file`` is a basename and
         ``section`` a number, both from ``kg_build_plan``; the cut is ``sources.plan_sections``, the same
@@ -1872,7 +1902,10 @@ class KGEngine:
         meant permission prompts; a copy that changed one character also cost the section its spans. The
         text here is the source's own bytes, heading line included, through the session scrub
         (``kg_scrub``): consistent placeholders, recorded so ``kg_write`` restores a placeholder span to
-        the original. ``redactions``/``categories``/``sensitivity`` are kg_scrub's, for this text."""
+        the original. ``redactions``/``categories``/``sensitivity`` are kg_scrub's, for this text.
+
+        ``leads=True`` (0.9.0, the extractor `/kg-build --leads` launches) adds ``leads``: the pending leads
+        whose rejected edge's span lies in this section (``_section_leads``)."""
         texts = self.source_set().texts
         name = SourceSet._key(source_file or "")
         if name not in texts:
@@ -1894,6 +1927,8 @@ class KGEngine:
                "text": scrubbed["scrubbed"], "redactions": scrubbed["redactions"],
                "categories": scrubbed["categories"], "sensitivity": scrubbed["sensitivity"]}
         out.update(self._known_nodes(s.text))
+        if leads:
+            out["leads"] = self._section_leads(name, idx, texts)
         return out
 
     # ---- the /kg-ground plan (0.7.0) -------------------------------------------------------------------
@@ -2007,7 +2042,10 @@ class KGEngine:
             "ok": True, "focus": focus or None,
             "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
                       "nodes": sum(1 for _, _, k in items if k == "node"),
-                      "extractor_nodes_not_queued": skipped},
+                      "extractor_nodes_not_queued": skipped,
+                      # leads rejected claims carry that no edge has taken yet (0.9.0): `/kg-build --leads`
+                      # writes them; the whole canon's, whatever the focus
+                      "leads_pending": len(self._pending_leads(nodes))},
             "batch_size": size, "wave_size": wave, "wave_size_from": origin,
             "batches": planned, "waves": -(-len(planned) // wave), "hubs": hubs,
             "attacked_hubs": [nid for nid, _ in eligible if nid in done],
@@ -2108,6 +2146,95 @@ class KGEngine:
         listed = [{"id": n.id, "label": n.label, "node_type": n.node_type,
                    **({"untyped": True} if n.node_type == UNDECLARED_TYPE else {})} for n in shown]
         return {"known_nodes": self._scrub_egress(listed), "known_nodes_more": total - len(shown)}
+
+    # ---- leads (0.9.0) ----------------------------------------------------------------------------------
+    def _pending_leads(self, nodes) -> "list[tuple[Edge, tuple[str, str, str]]]":
+        """The leads still to write, as ``(rejected edge, (head, relation, tail))``: each rejected edge's
+        latest lead (``groundplan.lead_of``), unless an edge's notes open with ``lead (from <its id>)``,
+        which marks the lead taken, or the lead's own edge already exists in any state. So a lead is
+        written once, and a lead edge rejected in turn is failure memory like any other."""
+        from .groundplan import lead_from, lead_of
+        edges: "dict[str, Edge]" = {}
+        for n in nodes:
+            for e in n.edges:
+                edges.setdefault(e.id, e)
+        taken = {lead_from(e.notes) for e in edges.values()} - {None}
+        out = []
+        for e in edges.values():
+            if e.epistemic_state != EpistemicState.REJECTED or e.id in taken:
+                continue
+            lead = lead_of(e.notes)
+            if lead is not None and edge_id(*lead) not in edges:
+                out.append((e, lead))
+        return out
+
+    @staticmethod
+    def _lead_section(edge, texts: dict, cache: dict) -> "tuple[str, object] | None":
+        """``(file, section)`` holding a rejected edge's span, by the rule ``kg_ground_plan`` orders spans
+        with (its named file, else any configured file); None when the span verifies in no section, which
+        happens once the source changed under it. ``cache`` keeps each file's normalized sections."""
+        if not (edge.span and edge.span.strip()):
+            return None
+        name = SourceSet._key(edge.source_file) if edge.source_file else ""
+        nspan = normalize_text(edge.span)
+        for fname in ([name] if name in texts else list(texts)):
+            if fname not in cache:
+                cache[fname] = [(s, normalize_text(s.text)) for s in plan_sections(texts[fname])[1]]
+            for s, norm in cache[fname]:
+                if nspan in norm:
+                    return fname, s
+        return None
+
+    def _leads_plan(self, out: dict, names: "list[str]", texts: dict, wave: int) -> dict:
+        """``kg_build_plan`` for ``--leads``: the pending leads of the files to build, grouped by the section
+        that holds each rejected edge's span, one extractor per section. ``leads[]`` carries ids only (the
+        rejected edge and the lead): the extractor reads each lead's span from ``kg_section(..., leads=True)``.
+        A lead whose span no longer verifies in any section goes to ``leads_unlocated``: its rejected edge has
+        to be grounded again against the changed source first."""
+        nodes = list(self._canon_baseline().values())
+        rank = {name: i for i, name in enumerate(names)}
+        groups: "dict[tuple[str, int], dict]" = {}
+        unlocated: "list[str]" = []
+        cache: dict = {}
+        for e, lead in self._pending_leads(nodes):
+            named = SourceSet._key(e.source_file) if e.source_file else ""
+            if named in texts and named not in rank:
+                continue  # a file the subset leaves out
+            where = self._lead_section(e, texts, cache)
+            if where is None:
+                unlocated.append(e.id)
+                continue
+            fname, s = where
+            if fname not in rank:
+                continue
+            group = groups.setdefault((fname, s.index), {"source_file": fname, "section": s.index,
+                                                         "title": s.title or "(whole file)", "leads": []})
+            group["leads"].append({"from_edge": e.id, "lead": " ".join(lead)})
+        ordered = [groups[k] for k in sorted(groups, key=lambda k: (rank[k[0]], k[1]))]
+        plan = {**out, "ok": True, "mode": "leads", "leads": ordered,
+                "leads_total": sum(len(g["leads"]) for g in ordered), "waves": -(-len(ordered) // wave)}
+        if unlocated:
+            plan["leads_unlocated"] = unlocated
+            plan["note"] = "leads_unlocated: the rejected edge's span is no longer in the source"
+        return plan
+
+    def _section_leads(self, name: str, index: int, texts: dict) -> list:
+        """The pending leads whose rejected edge's span lies in section ``index`` of ``name``, for the
+        extractor ``/kg-build --leads`` launches: each with that span through the SESSION scrub (the
+        placeholders of kg_section's own text, so the extractor finds it there and kg_write restores it)
+        and whether each end is a node the canon already holds."""
+        nodes = list(self._canon_baseline().values())
+        ids = {n.id for n in nodes}
+        cache: dict = {}
+        out = []
+        for e, (head, relation, tail) in self._pending_leads(nodes):
+            where = self._lead_section(e, texts, cache)
+            if where is None or where[0] != name or where[1].index != index:
+                continue
+            out.append({"from_edge": e.id, "head": head, "relation": relation, "tail": tail,
+                        "head_known": head in ids, "tail_known": tail in ids,
+                        "span": self.kg_scrub(e.span)["scrubbed"]})
+        return out
 
     def _failure_ids(self, G=None) -> set:
         """Forward edge ids in failure memory (rejected/failed). The generators also check the reverse,
@@ -2873,16 +3000,18 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_ground(target_id: str, verdict: str, kind: str = "edge", note: str = "",
-                  support_span: str = "", support_note: str = "") -> dict:
+                  support_span: str = "", support_note: str = "", lead: str = "") -> dict:
         """Apply a grounding verdict (grounded|rejected|failed|obsolete) to an edge or node. Verdicts
         applied via this tool are always attributed to the agent — a human verdict cannot be forged
         through the tool surface (§1.4). To PROMOTE a hypothesized edge OR node to grounded you MUST supply
         support, which upgrades its provenance: `support_span` (a verbatim source substring → span-present)
         or `support_note` (an external citation → inferred); without either, the promotion is refused with
         `hypothesis-needs-support`. `note` is appended to the edge's `notes` and is **edge-only** — it is
-        ignored for kind='node' (a Node has no notes field)."""
+        ignored for kind='node' (a Node has no notes field). `lead`, with verdict='rejected' only: the edge
+        the span does state instead, as '<head-id> <relation> <tail-id>' (a pack relation; a new node gets a
+        new slug id), which `/kg-build --leads` writes; a bad lead is refused before any state change."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
-                                support_span=support_span, support_note=support_note)
+                                support_span=support_span, support_note=support_note, lead=lead)
 
     @mcp.tool()
     @_tool_result
@@ -2929,7 +3058,9 @@ def _register(mcp, engine: KGEngine) -> None:
         command's typed `$ARGUMENTS` VERBATIM as `arguments` — the engine splits it: an optional subset
         (a file, folder or glob inside the configured source_path) and an optional trailing wave size —
         and the `extract_wave_size` option as the command text carries it as `configured_wave_size`.
-        `ok: false` means do not build; `error`/`problems` say why. Read-only, projection-free."""
+        `ok: false` means do not build; `error`/`problems` say why. With `--leads` first on the line, the
+        plan is `mode: "leads"`: `leads[]`, the sections holding the leads rejected claims carry, one
+        extractor per section. Read-only, projection-free."""
         return engine.kg_build_plan(arguments, configured_wave_size)
 
     @mcp.tool()
@@ -2942,7 +3073,8 @@ def _register(mcp, engine: KGEngine) -> None:
         (the nodes with the most live claims, leaving out the `attacked_hubs` an earlier pass attacked with
         nothing grounded since). Order: [diverge] pins, other hypotheses, edges marked weak, the rest. Pass
         the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node it names) and the
-        `extract_wave_size` option as the command text carries it. Read-only."""
+        `extract_wave_size` option as the command text carries it. `queue.leads_pending` counts the leads
+        rejected claims carry that `/kg-build --leads` has yet to write. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size)
 
     @mcp.tool()
@@ -2956,12 +3088,14 @@ def _register(mcp, engine: KGEngine) -> None:
 
     @mcp.tool()
     @_tool_result
-    def kg_section(source_file: str, section: int) -> dict:
+    def kg_section(source_file: str, section: int, leads: bool = False) -> dict:
         """The text of ONE section to extract, cut from the configured source and egress-scrubbed by the
         engine: `source_file` and `section` come from kg_build_plan. Returns `text` (the section's heading
-        line and body, verbatim but for ⟦CAT:N⟧ placeholders) and its `title`. Copy spans from `text`
-        exactly, placeholders included — kg_write restores them to the original."""
-        return engine.kg_section(source_file, section)
+        line and body, verbatim but for ⟦CAT:N⟧ placeholders), its `title`, and `known_nodes`, the canon
+        nodes the section names. Copy spans from `text` exactly, placeholders included — kg_write restores
+        them to the original. `leads=true` (for `/kg-build --leads`) adds `leads`: the edges grounders found
+        stated by spans of this section under claims they rejected, each with that span."""
+        return engine.kg_section(source_file, section, leads)
 
     @mcp.tool()
     @_tool_result

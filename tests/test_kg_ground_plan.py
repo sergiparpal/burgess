@@ -120,7 +120,8 @@ def test_the_queue_is_the_unverified_edges_in_source_order(eng):
     plan = eng.kg_ground_plan("", "")
     assert plan["ok"]
     assert _ids(plan) == [(RADAR, "edge"), (MUTACION, "edge"), (CLAVE, "edge")]   # §Riesgo, §Calidad, §Clave
-    assert plan["queue"] == {"edges": 3, "weak_edges": 0, "nodes": 0, "extractor_nodes_not_queued": 6}
+    assert plan["queue"] == {"edges": 3, "weak_edges": 0, "nodes": 0, "extractor_nodes_not_queued": 6,
+                             "leads_pending": 0}                                   # 0.9.0
     assert plan["source"]["files"] == ["doc.md"]
 
 

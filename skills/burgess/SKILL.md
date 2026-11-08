@@ -58,7 +58,10 @@ afterward. The portico moved from the door of imagination to after generation.
    `/kg-diverge` pin is a hypothesized node — often with no incident edge — groundable via
    `kg_ground(kind="node")`; "no edge → can't ground" is false). **kg-grounder** confirms or
    rejects on the merits and stamps verdicts via `kg_ground`; **kg-adversarial-grounder** tries to
-   *falsify* surviving edges, recording `attacked_by` edges + `kg_ground(verdict="failed")`.
+   *falsify* surviving edges, recording `attacked_by` edges + `kg_ground(verdict="failed")`. A claim
+   rejected as `wrong-relation` or `wrong-node` carries a **lead**, the edge its span does state
+   (`kg_ground(..., lead=...)`); **`/kg-build --leads`** has an extractor write the leads, and the next
+   `/kg-ground` judges them (0.9.0).
 3. **`/kg-generate [mechanism] [k]`** — turn the graph into an idea generator. `kg_generate` runs the
    deterministic discovery mechanisms (bridge §2/§4, seed §3, compression §7, regroup §8, transplant §5,
    ensemble §9, periphery §5 — low-degree sources) over the derived graph and emits ranked structural

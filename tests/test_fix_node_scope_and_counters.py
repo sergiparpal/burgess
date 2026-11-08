@@ -121,4 +121,6 @@ def test_the_report_lists_the_leads():
     report = _flat(_between(CMD, "## Stage 3", "## §Stage 6"))
     assert "Then list the leads the grounders named for an extractor" in report
     assert "an `enables` edge from the same span" in report
-    assert "`/kg-build` skips every section that already has one" in report
+    # 0.8.1 said nothing could write them, since `/kg-build` skips every section that has edges; 0.9.0 records
+    # each lead on its rejected edge and `/kg-build --leads` writes it (tests/test_fix_leads_path.py)
+    assert "`/kg-build --leads` writes them" in report

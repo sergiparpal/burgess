@@ -31,6 +31,7 @@ mcp__plugin_burgess_burgess__kg_ground(
   verdict   = "grounded" | "rejected",   # (failed/obsolete exist but are the ADVERSARIAL grounder's job, not yours)
   kind      = "edge",
   note      = "<one line: WHY — quote the deciding span, or name the failure: vague | no-support | wrong-relation | wrong-node>"
+  lead      = "<head-id> <relation> <tail-id>"   # only with a wrong-relation / wrong-node rejection (0.9.0)
 )
 ```
 
@@ -180,7 +181,8 @@ for what those two nodes name, not for something narrower or broader than one of
 alone |` states that protected tests defend against test tampering. It does not ground
 `protected-tests defends_against cheating-on-tests`, whose node names cheating at large: the row's own "Fails on"
 cell names the cheating they miss. Read each node's label and body against what the span names, reject a
-mismatch as `wrong-node`, and say which concept the span does name, so that an extractor can add that node.
+mismatch as `wrong-node`, and pass the edge to the concept the span does name as the lead, so that an
+extractor can add that node.
 This is about what each node names, not about evidence being particular: one company's figures still ground a
 general claim when the span offers them as evidence for it. The extractor keeps the same rule when it reuses a
 node the canon already holds. (0.8.1: in the field, grounders running in parallel split on two such edges from
@@ -208,6 +210,14 @@ concept as another node, `get_node` the id you suspect.
       actually says, e.g. the enables edge it states>"`; nor one that states the relation for a concept
       narrower or broader than one of the nodes (see **Each end is the concept its span names**) →
       `rejected`, note `"wrong-node: <the concept the span names instead>"`.
+      **For a `wrong-relation` or `wrong-node` rejection, pass the edge the span does state as `lead`**
+      (0.9.0): its head id, a pack relation and its tail id, as in `kg_ground(target_id=…, verdict="rejected",
+      note="wrong-node: …", lead="tests-protegidos defends_against manipulacion-de-tests")`. Use the canon's id
+      where the node exists (`kg_ground_item` shows the edge's two nodes, and `get_node` checks another id), and a
+      new slug id for a concept the canon lacks. `/kg-build --leads` has an extractor write the lead with the same
+      span, and the next pass judges it like any other claim. A span that states no other edge gets no lead. The
+      engine refuses a lead whose relation the pack does not declare, before it changes anything: fix the lead
+      and call again.
    c. **The relation is SPECIFIC, not generic (the generality confound, §1.6).** Reject an edge that is "true"
       only because it is vague or unfalsifiable — where `source`/`target` is so general that the relation
       could connect it to almost anything, or where the span makes no checkable, defeasible claim. Such edges
@@ -228,9 +238,9 @@ concept as another node, `get_node` the id you suspect.
    non-`[diverge]` node with no support is `rejected`. "No edge → can't be grounded" is false — ground the node.
 4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation /
    wrong-node), K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason.
-   For each `wrong-relation` or `wrong-node` rejection, name the edge its span does state (`X enables Y`, or
-   the edge to the node it names): the command reports these as leads for an extractor. Name any pair of nodes
-   you found to be one concept under two ids: the command may offer to merge them.
+   For each `wrong-relation` or `wrong-node` rejection, name the edge its span does state, the lead you passed
+   (`X enables Y`, or the edge to the node it names): the command reports these, and `/kg-build --leads` writes
+   them. Name any pair of nodes you found to be one concept under two ids: the command may offer to merge them.
 
 ## Invariants you enforce
 

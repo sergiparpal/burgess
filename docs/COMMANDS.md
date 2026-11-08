@@ -205,6 +205,7 @@ in the lane until you add one.
 
 ```
 /kg-build [subset] [wave_size]
+/kg-build --leads [subset] [wave_size]
 ```
 
 **What it does.** Reads your source document section by section, launching one extractor subagent
@@ -225,8 +226,19 @@ permission, so those commands could stop the build on a prompt.)
 
 | Argument | Required | Accepted values | Default |
 | --- | --- | --- | --- |
+| `--leads` | No | The literal word, first on the line | build the sections no claim covers yet |
 | `subset` | No | A file, a directory, or a glob of `.md` / `.txt` files **inside your configured `source_path`** | the whole configured source |
 | `wave_size` | No | Integer `1`–`10` | the `extract_wave_size` option, else `6` |
+
+### `--leads` — writing what `/kg-ground` found
+
+When `/kg-ground` rejects a claim because its quoted text states another relation (a precondition filed
+as evidence is an `enables` claim), or relates a broader or narrower concept than one of its nodes, the
+grounder records the claim the text does state: a **lead**. A build skips every section that already has
+claims, so it never writes them. `/kg-build --leads` does: one extractor per section that holds leads,
+which writes those claims with the same quoted text and nothing else. They land `unverified`, and the
+next `/kg-ground` judges them like any other. Each lead is written once. `/kg-ground`'s plan counts the
+ones still waiting (`leads_pending`), and its report says when to run this.
 
 ### `subset` — what each form does
 
@@ -308,6 +320,13 @@ Build all of it at maximum parallelism:
 /kg-build 10
 ```
 
+Write the leads the last `/kg-ground` recorded, then judge them:
+
+```text
+/kg-build --leads
+/kg-ground
+```
+
 ### Reading the report
 
 The build starts by telling you what it is about to build: the files, the number of sections, and the
@@ -359,7 +378,8 @@ same hubs again and left new unverified counter-arguments behind, so the queue n
 
 **The report lists leads.** When a claim is rejected because its quoted text states another relation (a
 precondition filed as evidence is an `enables` claim), or relates a broader or narrower concept than one
-of its nodes, the report gives the claim the text does state. Nothing writes those claims for you yet:
+of its nodes, the grounder records the claim the text does state on the rejected one. `/kg-build --leads`
+writes those claims, and the next `/kg-ground` judges them. Through 0.8.1 nothing could write them:
 `/kg-build` skips every section that already has claims.
 
 Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.

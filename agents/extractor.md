@@ -21,6 +21,8 @@ rest.
 
 ## What you receive
 - Under `/kg-build`: a `section` number and `title`, whose text you fetch with `kg_section` (below).
+- Under `/kg-build --leads`: a section and the leads grounders recorded for it, which you write and nothing
+  else (see **Leads mode**).
   Invoked directly: a path to a **scrubbed** source document (PII/secrets already redacted by the scrub pass).
 - The **basename** of the file the section came from, to record in `edge.source_file` (e.g. `source.md`).
   With a **multi-file** build (the orchestrator hands you one file at a time from a directory/glob of
@@ -221,6 +223,27 @@ with `authored_by: deterministic` and `provenance: span-present` by construction
 needed**. But the demo corpus (`examples/source.md`) is **pure prose**, so the in-process parser has nothing to parse:
 **every** edge here is `authored_by: agent` and **every** edge here needs a verbatim span from you. Do not mark
 prose edges `deterministic`.
+
+## Leads mode (`/kg-build --leads`, 0.9.0)
+
+When your prompt says you are writing the LEADS of a section, you do not extract the section. You write the
+edges grounders found its spans state, under claims they rejected as the wrong relation or the wrong node.
+Call `kg_section(source_file, section, leads=true)`: besides `text` and `known_nodes`, it returns `leads[]`,
+each `{from_edge, head, relation, tail, head_known, tail_known, span}`. That is the rejected edge, the edge its
+span does state, whether the canon already holds each end, and the span. For each lead:
+
+- **Find its span in `text`,** and check that it states `head relation tail` as **Relation DIRECTION** and the
+  relation table define the relation. Copy the tightest verbatim span that does: normally that same one.
+- **The ends.** A known end (`head_known` / `tail_known` true) keeps its id. For a new end, look in
+  `known_nodes` first: the same concept under another id means you use that id. Otherwise declare the node in
+  `nodes[]` with the lead's id, a label and body from the text, and its pack `node_type`.
+- **Open the edge's `notes` with `lead (from <from_edge>)`,** the rejected edge's id exactly. That mark tells the
+  engine the lead is taken, whatever id the edge ends up with.
+- **If the text does not state the lead,** write nothing for it and say why in your report. A later run offers
+  it again.
+
+Put all of the section's leads in one payload, under the same retry policy as a build, and write nothing else:
+no other edge from the section, and no known node redeclared. The next `/kg-ground` judges what you wrote.
 
 ## Procedure
 1. Get your text. Under `/kg-build`: `kg_section(source_file, section)` → its `text` is your one section.

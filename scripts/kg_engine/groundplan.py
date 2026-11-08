@@ -13,6 +13,8 @@ neither ever reads a file.
 counter-edge with the hub it attacks, so the plan stops offering a hub it has already attacked and nothing
 new has come since; and an excerpt cut out of a long table keeps the table's header rows.
 
+0.9.0: a rejected claim can carry a lead, the edge its span does state, which `/kg-build --leads` writes.
+
 Pure stdlib + `model`/`buildplan`; no I/O. `KGEngine.kg_ground_plan` / `kg_ground_item` assemble around these.
 """
 from __future__ import annotations
@@ -20,7 +22,7 @@ from __future__ import annotations
 import re
 
 from .buildplan import _forms, _words
-from .model import Confidence, EpistemicState, normalize_text, span_present_in
+from .model import Confidence, EpistemicState, normalize_text, slug, span_present_in
 
 # Items per grounder. The grounder contract caps a run at 20 items, so a batch never exceeds that; 12 keeps
 # one grounder's context to about a dozen excerpts.
@@ -40,6 +42,16 @@ WEAK_SCORE = 0.5
 # already wrote on all ten of that pass's counter-edges, so they count.
 ATTACK_MARK = "counter-edge (adversarial pass, hub "
 _ATTACK_HUB = re.compile(r"counter-edge \(adversarial pass, hub ([a-z0-9][a-z0-9-]*)")
+# A lead (0.9.0): the edge a rejected claim's span does state instead, when a grounder rejects it as
+# `wrong-relation` or `wrong-node`. `kg_ground(..., lead=...)` appends it to the rejected edge's notes as the
+# segment `lead: <head> <relation> <tail>`, `/kg-build --leads` has an extractor write it, and the written
+# edge opens its notes with `lead (from <rejected-edge-id>)`, which marks the lead taken. Through 0.8.1 a lead
+# was only named in a report: `/kg-build` skips every section that already has edges, so nothing could write
+# it (field report on 0.8.1: thirteen leads, two of them `enables` edges the 0.8.0 pack added).
+LEAD_MARK = "lead: "
+LEAD_FROM_MARK = "lead (from "
+_LEAD = re.compile(r"(?:^|\s\|\s)lead: ([\w-]+) ([a-z_]+) ([\w-]+)(?=\s\|\s|\s*$)")
+_LEAD_FROM = re.compile(r"lead \(from (e_[\w-]+)\)")
 # The most source text one excerpt carries. A grounder judges whether a span states a relation, which needs
 # the sentence and its neighbours, not the whole section (one section of the field corpus is 44 000 chars).
 EXCERPT_CHARS = 3000
@@ -84,6 +96,35 @@ def already_attacked(marks: "list[tuple[str, str | None]]", newest_claim: "str |
     if any(state == EpistemicState.UNVERIFIED.value for state, _ in marks):
         return True
     return (newest_claim or "") <= max(at or "" for _, at in marks)
+
+
+def parse_lead(text: "str | None", edge_types) -> "tuple[tuple[str, str, str] | None, str]":
+    """A lead as a grounder types it, `<head-id> <relation> <tail-id>`: the ids slugged, the relation one of
+    the pack's (`defends-against` names `defends_against`). Returns ``(triple, "")``, or ``(None, problem)``.
+    The lead is the edge a rejected claim's span does state (0.9.0); its span is that claim's own."""
+    parts = (text or "").split()
+    if len(parts) != 3:
+        return None, "write a lead as '<head-id> <relation> <tail-id>'"
+    head, relation, tail = slug(parts[0]), parts[1].lower().replace("-", "_"), slug(parts[2])
+    if relation not in edge_types:
+        return None, f"the pack declares no relation {parts[1]!r}"
+    if head == tail:
+        return None, "a lead joins two different nodes"
+    return (head, relation, tail), ""
+
+
+def lead_of(notes: "str | None") -> "tuple[str, str, str] | None":
+    """The latest lead recorded in an edge's notes (the ``lead: <head> <relation> <tail>`` segment
+    `kg_ground` appends), or None. A later lead replaces an earlier one."""
+    found = _LEAD.findall(notes or "")
+    return tuple(found[-1]) if found else None
+
+
+def lead_from(notes: "str | None") -> "str | None":
+    """The rejected edge an edge was written from as its lead: its notes open with
+    ``lead (from <edge-id>)``. None for any other edge."""
+    m = _LEAD_FROM.match((notes or "").lstrip())
+    return m.group(1) if m else None
 
 
 def focus_matches(focus: str, node_id: str, label: str) -> bool:
