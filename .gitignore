@@ -20,6 +20,7 @@ uv.lock
 .kg-session-lock*
 .kg-reconcile-state.json
 .kg-ground-audit.jsonl*
+.kg-hub-attacks.jsonl
 .tmp-*
 /derived/
 **/derived/lightrag/

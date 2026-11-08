@@ -25,7 +25,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__, envconfig
-from .canon import Canon
+from .canon import HUB_ATTACKS, Canon
 from .groundaudit import GroundAuditLog
 from .model import (
     AuthoredBy,
@@ -1960,12 +1960,14 @@ class KGEngine:
         other structural surface) that is not itself a counter-edge (`groundplan.attacked_hub`). A node an
         adversarial pass has attacked, with no claim grounded since, is left out and listed in
         `attacked_hubs` instead (`groundplan.already_attacked`), so each pass attacks the next hubs down the
-        list and Stage 2 ends once every hub has been attacked. A `focus` skips that memory: naming a concept
-        is how a user asks for a second attack on it. Through 0.7.0 the degree counted every edge, refuted
-        ones and the attack's own counter-edges included, so every pass offered the same hubs again (field
-        report on 0.7.0). Read-only; it never projects."""
-        from .groundplan import (DEFAULT_BATCH_SIZE, DIVERGE_MARK, already_attacked, attacked_hub,
-                                 batches as chunk, clamp_batch_size, focus_matches, is_weak)
+        list and Stage 2 ends once every hub has been attacked. An attack that wrote no counter-edge counts
+        once the adversarial grounder records it with `kg_record_attack` (0.10.0): the record stands for a
+        counter-edge judged at its time. A `focus` skips that memory: naming a concept is how a user asks
+        for a second attack on it. Through 0.7.0 the degree counted every edge, refuted ones and the
+        attack's own counter-edges included, so every pass offered the same hubs again (field report on
+        0.7.0). Read-only; it never projects."""
+        from .groundplan import (ATTACK_RECORDED, DEFAULT_BATCH_SIZE, DIVERGE_MARK, already_attacked,
+                                 attacked_hub, batches as chunk, clamp_batch_size, focus_matches, is_weak)
 
         size = clamp_batch_size(batch_size) if batch_size not in (None, "") else DEFAULT_BATCH_SIZE
         cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
@@ -2030,6 +2032,9 @@ class KGEngine:
             items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
         items.sort(key=lambda row: row[0])
         planned = chunk([{"id": i, "kind": k} for _, i, k in items], size)
+        # attacks that wrote no counter-edge (0.10.0), each counted like a counter-edge judged at its time
+        for hub, times in self._hub_attacks().items():
+            attacks.setdefault(hub, []).extend((ATTACK_RECORDED, at) for at in times)
         by_id = {n.id: n for n in nodes}
         eligible = [(nid, d) for nid, d in sorted(degree.items(), key=lambda kv: (-kv[1], kv[0]))
                     if d >= 3 and (not focus or nid in in_focus)]
@@ -2051,6 +2056,61 @@ class KGEngine:
             "attacked_hubs": [nid for nid, _ in eligible if nid in done],
             # the configured files, for the adversarial grounder that searches them for counter-spans
             "source": self._source_info()})
+
+    def _hub_attacks(self) -> "dict[str, list[str]]":
+        """The attacks the ledger records by hub (`groundplan.attack_records`). Fail-open, like the
+        reconcile cache: a missing or unreadable ledger is no record, and a bad byte only spoils its line.
+        Never creates the ledger or the canon directory (the plan is read-only)."""
+        from .groundplan import attack_records
+        try:
+            with open(self.canon.root / HUB_ATTACKS, encoding="utf-8", errors="replace") as f:
+                return attack_records(f)
+        except OSError:
+            return {}
+
+    def kg_record_attack(self, hub_id: str, question: str, reason: str = "no-span") -> dict:
+        """Record an adversarial attack that wrote no counter-edge (0.10.0), so `kg_ground_plan` stops
+        offering the hub until it gains a newer grounded claim, as a counter-edge's mark already does.
+
+        `question` is the falsifying question the attack ended with (the adversarial contract's Output B),
+        `reason` its decline tag: `no-span` (a counter is plausible but no span states it) or `vague`. The
+        record goes to the ledger beside the canon (`canon.HUB_ATTACKS`), one fsync'd JSON line under the
+        writer lease. It sets no state: no node, edge or verdict changes, so it cannot vouch for the hub,
+        only say that an attack found nothing to write. Through 0.9.0 such an attack left nothing behind,
+        and the plan offered the hub again on every pass (field report on 0.9.0)."""
+        from .atomicio import fsync_dir
+        from .groundplan import ATTACK_REASONS, MAX_QUESTION_CHARS, attack_record
+        if not (hub_id or "").strip():
+            return {"ok": False, "error": "name the hub the attack was on"}
+        hub = slug(hub_id.strip())
+        reason = (reason or "").strip().lower()
+        if reason not in ATTACK_REASONS:
+            return {"ok": False, "error": f"invalid reason {reason!r}; expected {'|'.join(ATTACK_REASONS)}",
+                    "hub": hub}
+        question = " ".join((question or "").split())
+        if not question:
+            return {"ok": False, "error": "an attack record carries the falsifying question the attack ended "
+                                          "with", "hub": hub}
+        if len(question) > MAX_QUESTION_CHARS:
+            return {"ok": False, "error": f"the question is over {MAX_QUESTION_CHARS} characters", "hub": hub}
+        if not self._try_writer_lease():
+            return {"ok": False, "error": self._LOCKED_ERROR, "hub": hub}
+        try:
+            if not self.canon.exists(hub):
+                return {"ok": False, "error": "node not found", "hub": hub}
+            at = utcnow()
+            path = self.canon.root / HUB_ATTACKS
+            try:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(attack_record(hub, at, reason, question) + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                fsync_dir(path.parent)
+            except OSError as e:
+                return {"ok": False, "error": self._scrub_error(f"attack not recorded: {e}"), "hub": hub}
+        finally:
+            self.canon.release_lock()
+        return {"ok": True, "hub": hub, "at": at, "reason": reason}
 
     def kg_ground_item(self, target_id: str, kind: str = "edge") -> dict:
         """Everything a grounder judges ONE queued item by (0.7.0), so it never reads a file.
@@ -3070,8 +3130,9 @@ def _register(mcp, engine: KGEngine) -> None:
         """Plan a /kg-ground: the grounding queue (every unverified edge, and every unverified
         HYPOTHESIZED node) as compact `{id, kind}` items in batches of `batch_size` (1-20, default 12), one
         batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` for the adversarial grounder
-        (the nodes with the most live claims, leaving out the `attacked_hubs` an earlier pass attacked with
-        nothing grounded since). Order: [diverge] pins, other hypotheses, edges marked weak, the rest. Pass
+        (the nodes with the most live claims, leaving out the `attacked_hubs` an earlier pass attacked, with a
+        counter-edge or a `kg_record_attack` record, and nothing grounded since). Order: [diverge] pins, other
+        hypotheses, edges marked weak, the rest. Pass
         the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node it names) and the
         `extract_wave_size` option as the command text carries it. `queue.leads_pending` counts the leads
         rejected claims carry that `/kg-build --leads` has yet to write. Read-only."""
@@ -3085,6 +3146,16 @@ def _register(mcp, engine: KGEngine) -> None:
         `context`, the excerpt of the source that holds the span. For a node (`kind="node"`): the node and
         its incident edges. Text is egress-scrubbed with the session's placeholders. Read-only."""
         return engine.kg_ground_item(target_id, kind)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_record_attack(hub_id: str, question: str, reason: str = "no-span") -> dict:
+        """Record an adversarial attack on a hub that wrote no counter-edge, because no span in the source
+        sets itself against the hub or its claims. `question` is the falsifying question the attack ended
+        with; `reason` is `no-span` or `vague`. `kg_ground_plan` then leaves the hub out of `hubs` (it is
+        listed in `attacked_hubs`) until it gains a newer grounded claim, as a counter-edge's mark does.
+        Writes only the attack ledger beside the canon: no node, edge or verdict changes."""
+        return engine.kg_record_attack(hub_id, question, reason)
 
     @mcp.tool()
     @_tool_result

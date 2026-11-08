@@ -114,6 +114,10 @@ GROUND_AUDIT = ".kg-ground-audit.jsonl"
 # (the cleanup/git-exclude patterns below reference it) and consumed by reconciler's default
 # state_path (review-r5: the filename was re-typed in both files).
 RECONCILE_STATE_NAME = ".kg-reconcile-state.json"
+# The adversarial grounder's attacks that wrote no counter-edge (0.10.0), one JSON line each, appended by
+# `kg_record_attack` and read by `kg_ground_plan` (`groundplan.attack_records`). Engine state, not canon:
+# named here for the git-exclude patterns below, like the two files above.
+HUB_ATTACKS = ".kg-hub-attacks.jsonl"
 
 
 # --------------------------------------------------------------------------- git helpers
@@ -708,8 +712,10 @@ class Canon:
         # vault gets) did not (review-r11).
         # The lease's ticket queue is per-session runtime state exactly like the lease itself, and it is
         # a DIRECTORY, so it needs its own trailing-slash pattern (LOCK_NAME matches the lock file only).
+        # The attack ledger (0.10.0) is per-machine engine state like the reconcile cache: a clone without
+        # it only offers its hubs to one more attack.
         patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
-                    f"{GROUND_AUDIT}*"]
+                    f"{GROUND_AUDIT}*", HUB_ATTACKS]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""

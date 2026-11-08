@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-four graph tools (§1), then the seven divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-five graph tools (§1), then the seven divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,19 +17,20 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-four** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-five** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
-the `/kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), and the `/kg-ground` pair
-`kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22).
-The seven **divergence-surface** tools (§1B) complete the server's **thirty-one**.
+the `/kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), the `/kg-ground` pair
+`kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22), and `kg_record_attack` (§1.23), the mark an
+adversarial attack leaves when it writes no counter-edge.
+The seven **divergence-surface** tools (§1B) complete the server's **thirty-two**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/kg-build`, …) that *orchestrate* these tools.
 
 Mutation tools (`kg_write`, `kg_propose`, `kg_ground`, `kg_rename`, `kg_merge`) write the **canon** (human-editable Markdown,
 the single source of truth) — `kg_propose` (§1.12) is the hypothesized write lane and `kg_operate` (§1.14) writes
-through it. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, never the canon. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -770,7 +771,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   claims was grounded since (0.8.0), most connected first. A counter-edge is one whose `notes` open with
   `counter-edge (adversarial pass, hub <hub-id>)`, the mark the adversarial grounder writes. A hub counts as
   attacked while one of its counter-edges awaits a verdict, or when the newest counter-edge verdict is no
-  older than its newest grounded claim. So each pass attacks the next hubs down the list, and Stage 2 ends
+  older than its newest grounded claim. An attack that wrote no counter-edge counts once the adversarial
+  grounder records it with `kg_record_attack` (§1.23, 0.10.0), as a counter-edge judged at the time of the
+  record. So each pass attacks the next hubs down the list, and Stage 2 ends
   once every hub has been attacked. A `focus` skips this memory (and leaves `attacked_hubs` empty): naming a
   concept is how a user asks for a second attack on it. Through 0.7.0 nothing recorded an attack and the
   degree counted every edge, so every pass offered the same five hubs and left ten new unverified
@@ -805,6 +808,32 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
   placeholders included, restores and verifies.
 - `ok: false` for an unknown id, or a `kind` other than `edge`/`node`.
+
+### 1.23 `mcp__plugin_burgess_burgess__kg_record_attack(hub_id, question, reason="no-span")`
+
+The mark an adversarial attack leaves when it writes no counter-edge (0.10.0), because no span in the source
+sets itself against the hub or one of its claims. The adversarial grounder calls it once per such hub, with
+the falsifying question its attack ended with (its contract's Output B). `kg_ground_plan` (§1.21) counts the
+record like a counter-edge judged at the time of the record: the hub stays out of `hubs`, in
+`attacked_hubs`, until it gains a newer grounded claim. Through 0.9.0 such an attack left nothing behind, so
+the plan offered that hub to every later pass, and each attack searched the source for nothing again.
+
+- `hub_id` — the node attacked (slugged); it must exist.
+- `question` — the falsifying question, up to 2000 characters, whitespace collapsed.
+- `reason` — the decline tag: `no-span` (a counter is plausible, but no span states it) or `vague` (the hub is
+  unfalsifiably general).
+
+```json
+{"ok": true, "hub": "escribir-codigo-parte-pequena", "at": "2026-11-08T10:30:00+00:00", "reason": "no-span"}
+```
+
+- It appends one fsync'd JSON line, `{hub, at, reason, question}`, to `<project>/.kg-hub-attacks.jsonl`, under
+  the writer lease. It sets no state: no node, edge or verdict changes, so a record vouches for nothing. It
+  only says that this attack found nothing to write.
+- The ledger is engine state, not canon. It is git-excluded like the audit log, and read fail-open: a lost or
+  unreadable ledger only offers those hubs again, and a damaged line is skipped.
+- `ok: false` for an empty or unknown hub, a reason outside the two, or an empty or overlong question; nothing
+  is written then.
 
 ---
 

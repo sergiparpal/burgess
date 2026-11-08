@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (31 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (32 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -278,7 +278,7 @@ clean band separation. Candidates route through `kg_propose`; the four endo oper
 scores, per node grounded from a hypothesis, how long it stayed perturbing before the graph
 renormalized (`fertile | absorbed | isolated`).
 
-## 5. The MCP tool surface (31 tools)
+## 5. The MCP tool surface (32 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -293,8 +293,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   with their spans), `kg_ground_plan` (the `/kg-ground`
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
   grounders, plus the wave size and the hubs no adversarial pass has attacked since their last grounded
-  claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge, and the
-  count of pending leads),
+  claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge and from the
+  attack ledger `kg_record_attack` writes, and the count of pending leads),
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
   reads no file), `query_graph` (every filter applies to nodes and edges alike), `get_node`,
@@ -306,8 +306,10 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   (budgeted, falsification-aware; grounded `items[]` never mixed with `hypotheses[]`), `kg_agenda`
   (structural suggested questions, `answerable_now` vs `blocked_on_grounding`), `kg_export`
   (offline `graph.html` + `GRAPH_REPORT.md`; the three axes on independent visual channels).
-- **Write/ground (6):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
-  `kg_rename` (strict), `kg_merge` (deliberate merge; negative information sticky), `kg_operate`.
+- **Write/ground (7):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
+  `kg_rename` (strict), `kg_merge` (deliberate merge; negative information sticky), `kg_operate`,
+  `kg_record_attack` (0.10.0: an adversarial attack that wrote no counter-edge, with its falsifying
+  question, so the plan stops offering that hub; it writes only the attack ledger and sets no state).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (7):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`.
@@ -540,6 +542,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-session-lock(.q/)         single-writer lease + its FIFO waiter queue (gitignored)
   .kg-ground-audit.jsonl(.ckpt) verdict audit ledger (gitignored engine state)
   .kg-reconcile-state.json      reconciler cache (gitignored)
+  .kg-hub-attacks.jsonl         attacks that wrote no counter-edge (gitignored engine state, 0.10.0)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
   .kg/constructions/<slug>/     /kg-perturb second construction (alt canon/ + derived/; ephemeral)
 <data dir>/                     $KG_DATA (or <project>/.kg-data)

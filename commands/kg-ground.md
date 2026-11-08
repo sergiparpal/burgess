@@ -182,7 +182,9 @@ that has was attacked with nothing grounded since (it is in `attacked_hubs`). Ot
 constructs the strongest counter-edges and falsifying questions, emits them as typed `attacked_by` edges (the
 declared edge type — see `pack/pack.yaml`), and marks any existing claim it genuinely falsifies as `failed`.
 This is bounded by a per-run cap so a vague hub cannot spawn unbounded attacks, and the mark on each
-counter-edge keeps a later pass from attacking the same hub again before it gains a new grounded claim.
+counter-edge keeps a later pass from attacking the same hub again before it gains a new grounded claim. A hub
+it attacks without writing a counter-edge gets the same mark from `kg_record_attack` (0.10.0); through 0.9.0
+such a hub was offered again on every pass.
 
 ```
 Task(
@@ -199,11 +201,14 @@ Task(
       2. For any existing edge your counter genuinely refutes, call
          kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>) on THAT edge, never on
          your own counter-edge, which stays unverified for the next pass's grounders.
+      3. For each hub where kg_write accepted no counter-edge, record the attack with
+         kg_record_attack(hub_id=<hub-id>, question=<your falsifying question>, reason=<no-span|vague>).
     Write a counter-edge only when its span, in its own context, sets itself against the claim it attacks.
     A contradiction that no single span states goes in your report, not into an edge.
     Respect the per-run attack cap. A `failed` edge is negative information (§1.7): never pruned,
-    surfaced later as a falsification counter. Report: counter-edges written, edges failed, any hub you
-    could not attack, and the contradictions no single span states.
+    surfaced later as a falsification counter. Report: counter-edges written, edges failed, each hub you
+    attacked without a counter-edge and whether you recorded it, and the contradictions no single span
+    states.
   """
 )
 ```
@@ -229,8 +234,11 @@ Grounding pass complete.
   queue drained : unverified  N → M
   verdicts      : grounded +g, rejected +r, failed +f
   memory        : falsification_counters.failed_or_rejected_edges = K  (never pruned, §1.7)
-  hubs attacked : <hub list> → C attacked_by counter-edges
+  hubs attacked : <hub list> → C attacked_by counter-edges, R recorded with none
 ```
+
+For each hub attacked without a counter-edge, give its falsifying question: it is for a human, and its
+record keeps the hub out of the next plan until the hub gains a newer grounded claim.
 
 Then list the leads the grounders named for an extractor: for each `wrong-relation` rejection, the relation its
 span does state (a precondition filed as `grounds` is an `enables` edge from the same span), and for each

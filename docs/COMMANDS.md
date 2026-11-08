@@ -372,9 +372,12 @@ queue at once, and on a large graph read it back with scripts, which in auto mod
 permission prompts.
 
 **Each hub is attacked once.** The adversarial grounder marks every counter-argument it writes with
-the hub it attacks, and the next pass moves on to the next hubs down the list. A hub comes back once it
-gains a newly grounded claim, or when you name it as the focus. Through 0.7.0 every pass attacked the
-same hubs again and left new unverified counter-arguments behind, so the queue never emptied.
+the hub it attacks, and the next pass moves on to the next hubs down the list. When it finds nothing to
+write against a hub, it records the attack and the question that would settle the hub, and that record
+counts as the mark. A hub comes back once it gains a newly grounded claim, or when you name it as the
+focus. Through 0.7.0 every pass attacked the same hubs again and left new unverified counter-arguments
+behind, so the queue never emptied. Through 0.9.0 an attack that found nothing left no mark, so the plan
+offered that hub to every later pass.
 
 **The report lists leads.** When a claim is rejected because its quoted text states another relation (a
 precondition filed as evidence is an `enables` claim), or relates a broader or narrower concept than one
@@ -940,7 +943,7 @@ a `graph`-wins verdict.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **31 MCP tools** exposed by the `burgess`
+The nine slash commands are a thin language layer over **32 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 
