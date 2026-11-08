@@ -50,15 +50,21 @@ Find what is actually pending before spending any subagent budget.
      queued.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
-   - `hubs[]`: the most connected nodes, the candidates for Stage 2.
+   - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
+     do not count). A node an earlier pass attacked, with no claim grounded since, is not among them: it is
+     listed in `attacked_hubs` instead, so each pass attacks the next hubs down the list. With a focus, the
+     hubs it names are offered even if attacked before: that is how a user asks for a second attack. A hub
+     still needs 3 or more live claims, focus or not.
    - `source`: the configured source files, for the adversarial grounder.
 3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
    its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
    honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to
-   the hub candidates.
+   the hub candidates, except any the plan lists in `attacked_hubs`.
 
 Stop and report "queue empty — nothing to ground" **only if** the plan has **no** `batches` **and** there are
-no hub candidates. Otherwise tell the user in a line what this pass covers: items, batches, waves and hubs.
+no hub candidates; when `attacked_hubs` is not empty, add that every hub has been attacked and none has gained
+a grounded claim since. Otherwise tell the user in a line what this pass covers: items, batches, waves and
+hubs.
 
 > **Alternative prioritization (optional).** `mcp__plugin_burgess_burgess__kg_agenda()`'s
 > `blocked_on_grounding[]` lane is a read-only structural shortlist of what grounding would unblock. You may
@@ -136,10 +142,12 @@ For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
 of the source. Do not read files. Then apply ONE verdict with
 mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note), per your contract:
-  - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction, and
-    the relation is specific and falsifiable.
-  - rejected: span_in_source is false, the span does not state the relation (a bare label, a table cell, or
-    its opposite), or the edge is true only by being vague (note reason `vague`).
+  - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction, as
+    your contract's relation table defines it, and the relation is specific and falsifiable. A table row
+    states a relation when the table's header says what its cells are.
+  - rejected: span_in_source is false, the span does not state the relation (a bare label, a cell its header
+    relates to nothing, another relation such as a precondition filed as grounds, or its opposite), or the
+    edge is true only by being vague (note reason `vague`).
   - a hypothesized item is grounded only with support (a support_span copied from the context, placeholders
     included, or a support_note); a [diverge]-pinned item without support stays unverified.
 Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
@@ -158,28 +166,34 @@ do not re-launch it, report it.
 
 ## Stage 2 — Attack the hubs (kg-adversarial-grounder)
 
-After the last wave returns, launch the `kg-adversarial-grounder` over the hub candidates (the plan's `hubs[]`
-plus any Stage 0 advisory nodes). For each hub it constructs the strongest counter-edges and falsifying
-questions, emits them as typed `attacked_by` edges (the declared edge type — see `pack/pack.yaml`), and marks
-any edge it genuinely falsifies as `failed`. This is bounded by a per-run cap so a vague hub cannot spawn
-unbounded attacks.
+After the last wave returns, take the hub candidates from the **last progress probe** (its `hubs[]`, computed
+once the claims are verdicted, so a rejected claim no longer counts) plus any Stage 0 advisory nodes not in
+its `attacked_hubs`. If there are none, skip this stage and say why: no node has 3 live claims, or every one
+that has was attacked with nothing grounded since (it is in `attacked_hubs`). Otherwise launch the
+`kg-adversarial-grounder` over them. For each hub it
+constructs the strongest counter-edges and falsifying questions, emits them as typed `attacked_by` edges (the
+declared edge type — see `pack/pack.yaml`), and marks any existing claim it genuinely falsifies as `failed`.
+This is bounded by a per-run cap so a vague hub cannot spawn unbounded attacks, and the mark on each
+counter-edge keeps a later pass from attacking the same hub again before it gains a new grounded claim.
 
 ```
 Task(
   subagent_type: "kg-adversarial-grounder",
   description: "Attack hub candidates",
   prompt: """
-    Hub candidates: <the plan's hubs[] ids, plus the advisory nodes>.
+    Hub candidates: <the last probe's hubs[] ids, plus the advisory nodes>.
     Source files to search for counter-spans: <the plan's source.files>, in <source.path>.
     For each hub, inspect its incident edges (get_neighbors, then kg_ground_item for one edge's span and
     excerpt) and generate the strongest falsifying counter-edges:
       1. Write attacked_by counter-edges (relation: attacked_by) via the extraction/kg_write path, each
          carrying a VERBATIM span from those source files (§1.5 — no span => REJECTED), with its file's
-         basename as source_file.
+         basename as source_file, and notes opening with `counter-edge (adversarial pass, hub <hub-id>)`.
       2. For any existing edge your counter genuinely refutes, call
-         kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>).
+         kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>) on THAT edge, never on
+         your own counter-edge, which stays unverified for the next pass's grounders.
     Respect the per-run attack cap. A `failed` edge is negative information (§1.7): never pruned,
-    surfaced later as a falsification counter. Report: counter-edges written, edges failed.
+    surfaced later as a falsification counter. Report: counter-edges written, edges failed, and any hub
+    you could not attack.
   """
 )
 ```
@@ -231,6 +245,9 @@ deliberate node-merge tool: it rewrites + dedups the colliding edges (negative i
   only from the two grounder subagents via `kg_ground`.
 - It uses only the declared vocabulary: edge type `attacked_by`, `epistemic_state` values
   `unverified|grounded|rejected|failed`, verdict reason `vague` for generality-confound rejections (§1.6).
+- An unfocused pass attacks each hub once until the hub gains a grounded claim: the counter-edges carry the
+  hub's mark, and the plan leaves an attacked hub out of `hubs[]` (0.8.0). So the passes end; through 0.7.0
+  every pass attacked the same hubs again and left new unverified counter-edges behind.
 - Rejected and failed edges are kept forever and reported as `falsification_counters.failed_or_rejected_edges`
   (§1.7); this command surfaces that count rather than pruning anything.
 

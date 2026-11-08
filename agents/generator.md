@@ -81,7 +81,7 @@ Assemble ONE `kg_propose` payload. Every item is hypothesized; **never** emit `s
 - `provenance` MUST be `hypothesized` (the propose lane forces it and REFUSES `span-present`/`inferred`
   with reason `propose-lane-text-claim`).
 - `relation`/`node_type` MUST be a pack type (`grounds, attacked_by, reconciles_with, bridges,
-  collapses_into, confounded_by, approximates, defends_against, projects, survives`; nodes:
+  collapses_into, confounded_by, approximates, defends_against, projects, survives, enables`; nodes:
   `compression, primitive, claim, metric, operation, failure`) — anything else QUARANTINES.
 - Use the candidate's `source`/`target`/`relation` verbatim. Your contribution is `label`, `body`, `notes`.
 

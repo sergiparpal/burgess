@@ -102,8 +102,10 @@ silently leave a consumer behind on the older form: `VERDICT_STATES = {grounded,
 That last set is **what is not live topology**, and every structural surface reads it: a refuted
 relation and a superseded one are both dead, so neither may confer degree/community/betweenness
 weight (`projector._live_subgraph`), carry a path (`DerivedReader.shortest_path`), be walked by the
-generators (`generate._live_undirected`), answer a query (`kg_context`'s answer lane), or count as a
-live relation in `kg_agenda`'s detectors and its edgeless-communities crossing test. A surface left
+generators (`generate._live_undirected`), answer a query (`kg_context`'s answer lane), count as a
+live relation in `kg_agenda`'s detectors and its edgeless-communities crossing test, or make a node a
+hub for the adversarial grounder (`kg_ground_plan`, 0.8.0; 0.7.0 counted every edge there, so a node
+whose claims had all been rejected could still be attacked as a hub). A surface left
 on the narrower failure-only set presents connectivity every other surface calls dead — which is
 exactly what `shortest_path` and `kg_agenda` did after `obsolete` joined the vocabulary, and what
 `tests/test_review_r12.py` now pins. Nodes are never dropped, only edges: an attacked hub whose
@@ -285,9 +287,12 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
   nodes the section names, so the extractor can reuse their ids), `kg_ground_plan` (the `/kg-ground`
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
-  grounders, plus hubs and the wave size), `kg_ground_item` (one queued item's evidence: the edge,
-  whether its span still verifies, its nodes and the excerpt of the source around the span, so a
-  grounder reads no file), `query_graph`, `get_node`, `get_neighbors`,
+  grounders, plus the wave size and the hubs no adversarial pass has attacked since their last grounded
+  claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge),
+  `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
+  and the excerpt of the source around the span, a long table's rows under its header, so a grounder
+  reads no file), `query_graph` (every filter applies to nodes and edges alike), `get_node`,
+  `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
   (grounded-edges-only chain + advisory `leap`; capped at
   `pathing.MAX_EXPLAIN_NODES` distinct nodes — its closure is quadratic in that count, so an uncapped

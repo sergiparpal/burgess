@@ -234,9 +234,16 @@ Cheap summary counts straight off the canon (no projection). No args.
 
 ### 1.7 `mcp__plugin_burgess_burgess__query_graph(node_type=None, relation=None, epistemic_state=None, limit=50)`
 
-Filtered read of the derived index. Nodes filtered by `node_type` and/or `epistemic_state`, **ordered by
-precomputed `degree` DESC** (the honest MVP advisory, §1.6), capped at `limit`. Edges filtered by `relation` and **ordered by `id` ASC** (a deterministic, byte-stable top-N),
-capped at `limit`. All filters optional.
+Filtered read of the derived index. **Every filter applies to both halves** (0.8.0): `node_type` keeps the
+nodes of that type and the edges that touch one; `relation` keeps the edges of that relation and the nodes
+they touch; `epistemic_state` keeps the nodes and the edges in that state, each by its own state. Nodes are
+**ordered by precomputed `degree` DESC** (the honest MVP advisory, §1.6), edges **by `id` ASC** (a
+deterministic, byte-stable top-N), each half capped at `limit`. All filters optional.
+
+Through 0.7.0 `node_type`/`epistemic_state` filtered only the nodes and `relation` only the edges, so
+`query_graph(epistemic_state="grounded")` returned rejected edges beside the grounded ones (8 of 50 on a
+field canon) and a node-type query returned edges that touched none of its nodes. The claims are the edges:
+an extractor's nodes are never verdicted, so `epistemic_state="grounded"` returns few or no nodes.
 
 ```json
 {
@@ -262,7 +269,7 @@ columns — `betweenness`, the confound-corrected `spec_betweenness`, per-node `
 — trusted as a ranking signal only when the specificity gate is ON (§1.6); until then they are advisory.
 Valid `node_type` filters are the pack's declared types
 (`compression|primitive|claim|metric|operation|failure`); `relation` filters the declared edge types
-(`grounds|attacked_by|reconciles_with|bridges|collapses_into|confounded_by|approximates|defends_against|projects|survives`).
+(`grounds|attacked_by|reconciles_with|bridges|collapses_into|confounded_by|approximates|defends_against|projects|survives|enables`).
 
 ### 1.8 `mcp__plugin_burgess_burgess__get_node(node_id)`
 
@@ -720,10 +727,22 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
  "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
  "waves": 3,
  "hubs": [{"id": "radar-meta", "label": "RADAR de Meta", "degree": 9}],
+ "attacked_hubs": [],
  "source": {"path": "C:/docs/fuente", "exists": true, "files": ["Fábricas de software.md"]}}
 ```
 
-- `hubs` — up to 5 nodes of degree 3 or more (within the focus), the adversarial grounder's candidates.
+- `hubs` — the adversarial grounder's candidates: up to 5 nodes (within the focus) with 3 or more live claims,
+  the most connected first. `degree` counts live claims only: a refuted or obsolete edge
+  (`NON_LIVE_STATE_VALUES`, as on every structural surface) does not count, and neither does a counter-edge.
+- `attacked_hubs` — the nodes left out of `hubs` because an adversarial pass attacked them and none of their
+  claims was grounded since (0.8.0), most connected first. A counter-edge is one whose `notes` open with
+  `counter-edge (adversarial pass, hub <hub-id>)`, the mark the adversarial grounder writes. A hub counts as
+  attacked while one of its counter-edges awaits a verdict, or when the newest counter-edge verdict is no
+  older than its newest grounded claim. So each pass attacks the next hubs down the list, and Stage 2 ends
+  once every hub has been attacked. A `focus` skips this memory (and leaves `attacked_hubs` empty): naming a
+  concept is how a user asks for a second attack on it. Through 0.7.0 nothing recorded an attack and the
+  degree counted every edge, so every pass offered the same five hubs and left ten new unverified
+  counter-edges behind.
 - `source` — the configured source, as in `kg_status`, for the adversarial grounder's searches.
 - An item leaves the plan once it carries a verdict, so calling it again between waves is the progress probe.
 
@@ -747,7 +766,8 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
   stale or broken span; `null` for a span-less (hypothesized) edge.
 - `context` — the excerpt of the source section that holds the span (`groundplan.span_excerpt`), or `null`.
   It is the paragraph and its neighbours, at most 3000 characters, and for a long table the rows around the
-  span.
+  span under the table's header and rule rows, with a `…` line where rows were skipped (0.8.0: before, a row
+  reached the grounder without the header that names its columns).
 - For `kind="node"`: `{node, edges}`, the node with its body (where a `[diverge]` marker shows) and up to 20
   incident edges.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,

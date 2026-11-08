@@ -60,7 +60,7 @@ _ERROR_SNIPPET_CHARS = 200
 _FALLBACK_NODE_TYPES = ["compression", "primitive", "claim", "metric", "operation", "failure"]
 _FALLBACK_EDGE_TYPES = [
     "grounds", "attacked_by", "reconciles_with", "bridges", "collapses_into",
-    "confounded_by", "approximates", "defends_against", "projects", "survives",
+    "confounded_by", "approximates", "defends_against", "projects", "survives", "enables",
 ]
 
 SYSTEM_PROMPT = """\

@@ -352,6 +352,11 @@ still in your source, and the paragraph around it. Through 0.6.1 the orchestrato
 queue at once, and on a large graph read it back with scripts, which in auto mode stopped on
 permission prompts.
 
+**Each hub is attacked once.** The adversarial grounder marks every counter-argument it writes with
+the hub it attacks, and the next pass moves on to the next hubs down the list. A hub comes back once it
+gains a newly grounded claim, or when you name it as the focus. Through 0.7.0 every pass attacked the
+same hubs again and left new unverified counter-arguments behind, so the queue never emptied.
+
 Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.
 
 ### Arguments

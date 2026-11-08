@@ -354,3 +354,56 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Against the 0.6.1 engine the test file stops at import, because `kg_engine.groundplan` does not exist, so it cannot fail informatively there.
   - **Checked on a copy of the field canon:** the plan is 16 602 characters instead of 300 000: 14 batches of 12 in 3 waves, the 7 weak edges first. All 168 spans verified and had an excerpt.
   - **Checked end to end:** a headless `/kg-build` and two `/kg-ground` passes of the demo, in auto mode with Claude Code 2.1.316. They ran no shell command and were denied no permission. The adversarial grounder's one file read was the source, inside the project folder.
+
+## A precondition is `enables`, not `grounds`, and the grounder judges by the extractor's relation table (2026-11-08)
+
+- **Decision:** the pack gains an eleventh relation, `enables`: HEAD = the precondition or means, TAIL = what it makes possible. `grounds` becomes evidence or a reason, and stops being "evidence/foundation". The grounder contract repeats the extractor's HEAD/TAIL table word for word, between `relation-roles` markers, so a claim is judged by the rule it was written under. The grounder also gets a rule for tables, and loses `query_graph`.
+- **Bug it fixes:** the first full `/kg-ground` on 0.7.0 (406 nodes, 168 claims) ran 14 grounders in parallel, and they split on two rules (field report on 0.7.0).
+  - **"X permite Y" as `grounds`:** four grounders accepted it, one rejected it. The grounder contract defined no relation; the pack's per-type definitions are YAML comments that never reach a model, and the extractor's table did not reach the grounders. The pack had no relation for a precondition, and the extractor contract said both "map it to the nearest pack relation" and "leave the edge out instead of approximating it", so «permite» claims were filed under `grounds`.
+  - **Table rows:** three rows of a 60-line matrix (8 346 characters) were grounded, and a fourth from the same matrix was rejected as "two bare cells". `span_excerpt` cut the table to the rows around each span and dropped the header that names the columns (`| Mecanismo | Cubre | … |`), so each grounder guessed what the columns meant. The command's grounder template also listed "a table cell" among the spans that state no relation.
+  - **Browsing to calibrate:** eight grounders called `query_graph` 15 times to see how other edges used a relation, or to look for duplicates. Five answers, 62 to 89 KB, were saved to files, and four grounders searched them with Grep.
+- **Why a relation and not only a stricter `grounds`:** that corpus is about practice, and "what makes X possible" is among its central claims. Under a strict `grounds` and no relation for them, extractors would have to drop those claims.
+- **Why the table is repeated rather than served by the engine:** the extractor's table is the live lever (the pack comments say so), and moving it into the engine would change how the extractor gets it too. A test keeps the two copies identical and covering every pack relation, and another checks that every text listing the relations lists all of them.
+- **The table rule:** a row states a relation when the table's header says what each cell is. The excerpt now keeps the header and rule rows on top of the rows it kept, with a `…` line where it skipped rows, and leaves them out only when the header alone is too wide for the cap.
+- **Rejected alternatives:**
+  - (a) *Settle the two rules in the grounders' prompts:* the command gives each grounder its item ids and nothing else, and the rule belongs where every pass reads it.
+  - (b) *Keep `query_graph` for the grounder, fixed:* even filtered, a listing of a real canon runs to tens of kilobytes, and the other edges' verdicts are not the grounder's rule. A suspected duplicate is checked with `get_node`.
+  - (c) *Define the relations in `pack.yaml` as data:* a schema change for every pack and both contracts, for the same effect as the pinned copy.
+- **Accepted trade-offs:**
+  - The verdicts already given stand, including the edges the two splits decided either way: an edge with a verdict leaves the queue.
+  - The pack-schema note that every edge type is grounded in a sentence of `examples/source.md` now holds for the first ten: `enables` comes from the field corpus, and the demo source does not change.
+- **Pinned in:** `tests/test_fix_relation_rules.py` and `tests/test_fix_table_header_excerpt.py`.
+  - **Checked on a copy of the field canon:** all four matrix rows now arrive under `| Mecanismo | Cubre | I/D/R | … |`.
+
+## A hub is attacked once until it gains a grounded claim (2026-11-08)
+
+- **Decision:** `kg_ground_plan` ranks hubs by their live claims: no edge in `model.NON_LIVE_STATE_VALUES`, the set every other structural surface reads, and no counter-edge. The adversarial grounder opens each counter-edge's notes with `counter-edge (adversarial pass, hub <hub-id>)`, read by `groundplan.attacked_hub`. Without a focus, the plan leaves out a hub whose counter-edge still awaits its verdict, or whose newest counter-edge verdict is no older than its newest grounded claim (`groundplan.already_attacked`), and lists it in a new `attacked_hubs` field. `/kg-ground` takes Stage 2's hubs from the last progress probe, and skips Stage 2 when none is left.
+- **Bug it fixes:** the hub attack would never have ended (field report on 0.7.0).
+  - The degree counted every edge, refuted ones and the attack's own counter-edges included, and nothing recorded an attack. On a copy of the canon, the next plan offered the same five hubs the pass had just attacked. Each pass would have ended with about ten new unverified counter-edges against them, and the queue would never have emptied.
+  - It also broke an invariant the architecture states: a refuted relation confers no degree on any structural surface. A node whose three claims were all rejected still qualified as a hub.
+- **Why a mark in the notes:** it follows the `[diverge] pinned` lineage marker the plan already reads, and needs no new tool, field or file. The form is the one the adversarial grounder wrote on all ten of that pass's counter-edges, so they count with no migration.
+- **Why the verdict times:** `verdict_at` already exists on every judged edge. A pending counter-edge means the attack is still being judged; a judged one counts until the hub gains a newer grounded claim, after which the hub can be attacked again.
+- **Why a focus skips the memory:** the user guide says a focused `/kg-ground compression` is how to ask for a second attack on a concept you do not trust, so naming a hub attacks it.
+- **Fixed with it:** the adversarial contract taught the reverse of the pack. Its payload example read `specificity attacked_by generality-confound`, its worked example `generality-confound confounded_by betweenness`, and that example then grounded its own counter-edge `failed`, which records the counter-claim as false. The field pass's adversarial grounder did none of this; the examples now read victim first and fail the refuted claim. The adversarial grounder also stops adding hubs of its own from `kg_context` or `query_graph`: it attacks the ones its prompt lists.
+- **Rejected alternatives:**
+  - (a) *A ledger of attacks in `.kg/`, written by a new tool:* exact, including hubs attacked with no counter-edge, but a new tool and a new state file, and its loss would bring the repeats back silently.
+  - (b) *Fix only the degree:* the same hubs still lead the ranking (radar-meta keeps 7 live claims), so the attack still repeats.
+  - (c) *Skip Stage 2 when the queue holds only counter-edges:* the final probe of every pass has an empty queue, so it would skip every attack.
+- **Accepted trade-offs:**
+  - A hub the adversarial grounder could not attack (no counter-span, so no counter-edge) carries no mark and may be offered again. The contract asks it to say so.
+  - A claim grounded in the same pass as the attack's verdict may be counted as already attacked. The hub comes back with its next grounded claim.
+  - A counter-edge without the mark leaves its hub looking unattacked, as everything did before 0.8.0.
+- **Pinned in:** `tests/test_fix_attack_once.py`, which runs the dead-claim case over every state in `NON_LIVE_STATE_VALUES`.
+  - **Checked on a copy of the field canon:** all ten counter-edges are recognized. Four of the nine hubs count as attacked; the next plan offers the other five. `conjunto-oculto` drops out, because two of its claims were rejected.
+  - **Checked end to end:** in a headless `/kg-ground` of the demo, in auto mode with Claude Code 2.1.316, the adversarial grounder wrote its two counter-edges with the mark, victim first, and failed nothing. The plan then left the attacked node out of `hubs` and listed it in `attacked_hubs`. In the pass before, a node whose two rejected claims left it with two live ones was no hub, and Stage 2 was skipped. No pass ran a shell command or was denied a permission.
+  - **Found by that check:** asked now to declare the nodes it creates, the adversarial grounder typed one `concept`, which the pack does not declare, and the write was quarantined. Its contract now lists the pack's node types.
+
+## `query_graph` applies every filter to both nodes and edges (2026-11-08)
+
+- **Decision:** `node_type` keeps the nodes of that type and the edges that touch one; `relation` keeps the edges of that relation and the nodes they touch; `epistemic_state` keeps the nodes and the edges in that state, each by its own state.
+- **Bug it fixes:** through 0.7.0 `node_type` and `epistemic_state` filtered only the nodes, and `relation` only the edges, so the two halves of one answer replied to different questions (field report on 0.7.0).
+  - `query_graph(epistemic_state="grounded")`, which `/kg-query` presented as the trustworthy subgraph, returned 8 rejected edges and 1 unverified among 50 on the field canon.
+  - A grounder that asked for `node_type="hypothesis"`, a type that does not exist, got 0 nodes and 100 unrelated edges, 62 KB.
+- **Why it is safe:** every caller that existed before it, in the commands, agents and tests, gives at most one filter. A `node_type` or `epistemic_state` filter returns the nodes it returned before, and a `relation` filter the edges; only the other half changes, to match. The extractor's nodes are never verdicted, so a state filter returns few or no nodes, and `/kg-query` now says so.
+- **Pinned in:** `tests/test_fix_query_graph_filters.py`.
+  - **Checked on a copy of the field canon:** `epistemic_state="grounded"` now returns 50 grounded edges, and `node_type="hypothesis"` returns nothing.

@@ -1799,6 +1799,18 @@ class DerivedReader:
 
     def query_graph(self, *, node_type: str | None = None, relation: str | None = None,
                     epistemic_state: str | None = None, limit: int = 50) -> dict:
+        """The nodes and the edges that match every filter given; each filter applies to both halves (0.8.0).
+
+        `node_type` keeps the nodes of that type and the edges that touch one. `relation` keeps the edges of
+        that relation and the nodes they touch. `epistemic_state` keeps the nodes and the edges in that state,
+        each judged by its own. Nodes rank by degree (pins first in the unverified queue), edges by id, and
+        each half stops at `limit`.
+
+        Through 0.7.0 `node_type` and `epistemic_state` filtered only the nodes and `relation` only the
+        edges, so the two halves answered different questions. `query_graph(epistemic_state="grounded")`,
+        which /kg-query reads as the trustworthy subgraph, returned rejected edges beside grounded ones (8 of
+        50 on the field canon), and a grounder that asked for a node type that does not exist got 0 nodes and
+        100 unrelated edges, 62 KB that Claude Code saved to a file (field report on 0.7.0)."""
         limit = max(0, min(int(limit), MAX_QUERY_LIMIT))  # a negative LIMIT is unbounded in SQLite
         con = self._ro()
         try:
@@ -1808,6 +1820,10 @@ class DerivedReader:
                 conds.append("node_type=?"); na.append(node_type)
             if epistemic_state:
                 conds.append("epistemic_state=?"); na.append(epistemic_state)
+            if relation:
+                conds.append("id IN (SELECT source FROM edges WHERE relation=? "
+                             "UNION SELECT target FROM edges WHERE relation=?)")
+                na += [relation, relation]
             if conds:
                 nq += " WHERE " + " AND ".join(conds)
             if epistemic_state == EpistemicState.UNVERIFIED.value:
@@ -1821,8 +1837,17 @@ class DerivedReader:
             na.append(limit)
             nodes = [dict(r) for r in con.execute(nq, na)]
             eq, ea = "SELECT * FROM edges", []
+            econds = []
             if relation:
-                eq += " WHERE relation=?"; ea.append(relation)
+                econds.append("relation=?"); ea.append(relation)
+            if epistemic_state:
+                econds.append("epistemic_state=?"); ea.append(epistemic_state)
+            if node_type:
+                econds.append("(source IN (SELECT id FROM nodes WHERE node_type=?) "
+                              "OR target IN (SELECT id FROM nodes WHERE node_type=?))")
+                ea += [node_type, node_type]
+            if econds:
+                eq += " WHERE " + " AND ".join(econds)
             eq += " ORDER BY id ASC LIMIT ?"; ea.append(limit)  # deterministic top-N (mirror the nodes query)
             edges = [dict(r) for r in con.execute(eq, ea)]
             return {"nodes": nodes, "edges": edges}
