@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.8.1 — 2026-11-08
+
+The second `/kg-ground` on the Windows corpus, the first on 0.8.0, ended the hub attack as planned: it
+attacked the five hubs left, and the next plan offers none. It also showed three gaps in the texts the agents
+read. The engine, the pack and the canon format do not change.
+
+### Fixed
+
+- **Grounders split on what a node names.** Two `defends_against` edges from one document mapped a narrower
+  phrase onto the broad node for cheating on tests. One is a matrix row whose «Cubre» cell reads «Manipulación
+  de tests» and whose «Falla por» cell names the cheating it misses; the other a bullet that says «Resuelve la
+  manipulación de tests visibles». Grounders running in parallel rejected the first and grounded its twin. The
+  extractor's contract has said since 0.6.0 never to reuse a node for a broader or narrower concept, and the
+  grounder now checks the same rule: each end of an edge is the concept its span names. An edge that breaks it
+  is rejected with a new reason, `wrong-node`. The rule says outright that one company's figures can still
+  ground a general claim.
+- **The adversarial grounder wrote counters the source does not make.** Of the first ten counter-edges written
+  in the field, the grounders rejected four. They rested on a premise the attacker supplied, on a figure the
+  source gives as support, on a counter the source sets against another claim, or on a link between two
+  documents. Its contract now says a counter-edge's span must itself set it against the claim it attacks, and
+  a contradiction that no single span states goes in its report. Until now that lesson lived only in the
+  user's memory notes.
+- **A stale rule reached a grounder.** The orchestrator pasted rules from those notes into a grounder's prompt,
+  among them "the pack has no `enables` relation", about twenty minutes after 0.8.0 was installed.
+  `/kg-ground` never named `enables`, so nothing it read contradicted the note. It now names it, and says to
+  send each grounder its item ids and nothing else: the rules are in the grounders' contracts.
+
+### Added
+
+- **Leads in the `/kg-ground` report.** For each `wrong-relation` or `wrong-node` rejection, the grounder names
+  the edge its span does state, and the report lists them. In the field pass, two claims rejected as `grounds`
+  state an `enables` edge, and nobody proposed it. Nothing writes leads yet: `/kg-build` skips every section
+  that already has edges.
+
+### Tests
+
+- `tests/test_fix_node_scope_and_counters.py` (10): the node rule in the grounder, its exception for evidence
+  about one case, and the leads it reports; the extractor's rule pointing at the check; the adversarial
+  contract's new item and its numbering; the command sending ids and no rules, naming every reason the
+  grounder contract defines, and listing the leads.
+- 1600 → 1610 passed, 3 skipped.
+- **Checked end to end,** headless in auto mode with Claude Code 2.1.316 and the plugin loaded from this tree,
+  on scratch copies of three documents of the reporting corpus, with seven of its edges written fresh:
+  - **First pass:** 3 grounded, 4 rejected.
+    - Both edges onto the broad test-cheating node were rejected as `wrong-node`, each naming the narrower node
+      its span names. The matrix row whose cell names its node's concept was grounded.
+    - The precondition filed as `grounds` was rejected as `wrong-relation`, naming
+      `verificacion-automatica enables autonomia-alta`.
+    - The two edges that offer one company's figures as evidence for a general claim were grounded. The rule
+      also rejected an edge whose node's label bundles Meta's figure with Vercel's, while its span cites only
+      Meta's.
+    - The orchestrator sent the template as written, and the report listed the four leads. With one of its
+      claims rejected, the hub had two live claims left, so Stage 2 was skipped.
+  - **Second pass,** with that last lead written as a Meta-only node: the edge was grounded. The adversarial
+    grounder attacked the hub with one counter-edge, carrying the mark, whose span sits under the source's own
+    «El mejor argumento contra cada conclusión». It failed nothing, and reported three contradictions between
+    documents instead of writing them as edges. In the field, the same hub had drawn a counter-edge that the
+    adversarial grounder itself rated the weakest: its span sets no word against the claim.
+  - **No pass ran a shell command or was denied a permission.** Cost: $0.67, then $0.83. The copies were
+    deleted.
+
 ## 0.8.0 — 2026-11-08
 
 The first full `/kg-ground` on 0.7.0, on the Windows install's 8-file corpus, judged all 168 claims with no

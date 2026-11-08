@@ -357,6 +357,11 @@ the hub it attacks, and the next pass moves on to the next hubs down the list. A
 gains a newly grounded claim, or when you name it as the focus. Through 0.7.0 every pass attacked the
 same hubs again and left new unverified counter-arguments behind, so the queue never emptied.
 
+**The report lists leads.** When a claim is rejected because its quoted text states another relation (a
+precondition filed as evidence is an `enables` claim), or relates a broader or narrower concept than one
+of its nodes, the report gives the claim the text does state. Nothing writes those claims for you yet:
+`/kg-build` skips every section that already has claims.
+
 Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.
 
 ### Arguments
@@ -407,7 +412,7 @@ Ground the fresh output of a generation pass:
 | Verdict | Meaning |
 | --- | --- |
 | `grounded` | The span verifies verbatim against the source **and** the relation is specific and falsifiable. |
-| `rejected` | No supporting span, the span is not in the source, or the claim is "true" only because it is vague. Recoverable — add sources and it can be reconsidered. |
+| `rejected` | No supporting span, the span is not in the source, the span states another relation or relates a broader or narrower concept than one of the nodes, or the claim is "true" only because it is vague. Recoverable — add sources and it can be reconsidered. |
 | `failed` | Actively **falsified** by a counter-argument. Permanent. |
 
 Two advisories may surface, both strictly read-only — neither ever changes a verdict on its own:

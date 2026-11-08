@@ -30,7 +30,7 @@ mcp__plugin_burgess_burgess__kg_ground(
   target_id = "<edge.id>",       # the deterministic edge id, see below
   verdict   = "grounded" | "rejected",   # (failed/obsolete exist but are the ADVERSARIAL grounder's job, not yours)
   kind      = "edge",
-  note      = "<one line: WHY — quote the deciding span, or name the failure: vague | no-support | wrong-relation>"
+  note      = "<one line: WHY — quote the deciding span, or name the failure: vague | no-support | wrong-relation | wrong-node>"
 )
 ```
 
@@ -174,6 +174,18 @@ a `…` line where it skipped rows. Under the header `| Mechanism | Covers | Mod
 overfitting-to-visible-tests`. A cell on its own, or a row whose header relates none of its cells to another,
 states nothing.
 
+**Each end is the concept its span names.** An edge relates two nodes, and its span must state the relation
+for what those two nodes name, not for something narrower or broader than one of them. Under the header
+`| Mechanism | Covers | Fails on |`, the row `| Protected tests | Test tampering | Cheating that leaves the tests
+alone |` states that protected tests defend against test tampering. It does not ground
+`protected-tests defends_against cheating-on-tests`, whose node names cheating at large: the row's own "Fails on"
+cell names the cheating they miss. Read each node's label and body against what the span names, reject a
+mismatch as `wrong-node`, and say which concept the span does name, so that an extractor can add that node.
+This is about what each node names, not about evidence being particular: one company's figures still ground a
+general claim when the span offers them as evidence for it. The extractor keeps the same rule when it reuses a
+node the canon already holds. (0.8.1: in the field, grounders running in parallel split on two such edges from
+one document, and rejected one while grounding its twin.)
+
 **Judge from the evidence, not from the graph.** What you rule on comes from `kg_ground_item`, and a relation
 means what the table above says. Do not list the graph to see how other edges use a relation: their verdicts
 are not your rule, and a listing of a real canon runs to tens of thousands of characters (in 0.7.0's field
@@ -186,13 +198,16 @@ concept as another node, `get_node` the id you suspect.
    failure:
    a. **Span is real.** `span_in_source` must be `true`. If it is `false`, the span no longer verifies (or never
       did) → `rejected`, note `"no-support: span not in source"`.
-   b. **Span actually asserts THIS relation, in this direction.** Read the span inside `context`. It must state
-      `source <relation> target` as **What each relation asserts** defines the relation, HEAD and TAIL in
-      their roles, not merely mention both nodes, and not its opposite: a sentence such as
-      «counting interventions does not prove safety» refutes `approximates`, it does not support it. A span
-      that names two terms in passing, a bare label, or a table cell that states no relation (see **Tables**)
-      does **not** ground the edge; nor does a span that states another relation, such as a precondition
-      (`enables`) filed as `grounds` → `rejected`, note `"wrong-relation: <what the span actually says>"`.
+   b. **Span actually asserts THIS relation, in this direction, between THESE nodes.** Read the span inside
+      `context`. It must state `source <relation> target` as **What each relation asserts** defines the
+      relation, HEAD and TAIL in their roles, not merely mention both nodes, and not its opposite: a sentence
+      such as «counting interventions does not prove safety» refutes `approximates`, it does not support it. A
+      span that names two terms in passing, a bare label, or a table cell that states no relation (see
+      **Tables**) does **not** ground the edge; nor does a span that states another relation, such as a
+      precondition (`enables`) filed as `grounds` → `rejected`, note `"wrong-relation: <what the span
+      actually says, e.g. the enables edge it states>"`; nor one that states the relation for a concept
+      narrower or broader than one of the nodes (see **Each end is the concept its span names**) →
+      `rejected`, note `"wrong-node: <the concept the span names instead>"`.
    c. **The relation is SPECIFIC, not generic (the generality confound, §1.6).** Reject an edge that is "true"
       only because it is vague or unfalsifiable — where `source`/`target` is so general that the relation
       could connect it to almost anything, or where the span makes no checkable, defeasible claim. Such edges
@@ -211,9 +226,11 @@ concept as another node, `get_node` the id you suspect.
    `support_note="<external citation>"` if the support is off-source); if it is a `[diverge]`-lineage pin with no
    support yet, **leave it `unverified`** (triage — a novel idea has no in-source span by construction); only a
    non-`[diverge]` node with no support is `rejected`. "No edge → can't be grounded" is false — ground the node.
-4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation),
-   K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason. Name any pair
-   of nodes you found to be one concept under two ids: the command may offer to merge them.
+4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation /
+   wrong-node), K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason.
+   For each `wrong-relation` or `wrong-node` rejection, name the edge its span does state (`X enables Y`, or
+   the edge to the node it names): the command reports these as leads for an extractor. Name any pair of nodes
+   you found to be one concept under two ids: the command may offer to merge them.
 
 ## Invariants you enforce
 
