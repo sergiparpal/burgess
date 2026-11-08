@@ -145,7 +145,7 @@ A write may never set a non-`unverified` state or claim parser/human authorship:
 `agent` (`human-claim-stripped`); `deterministic` → `agent` (`deterministic-claim-stripped`, so an
 extractor can't dodge span-present by self-declaring parser authorship). None are accepted as-is.
 
-### 1.4 `mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind="edge", note="", support_span="", support_note="")`
+### 1.4 `mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind="edge", note="", support_span="", support_note="", lead="")`
 
 **The ONLY path that may set a verdict** (§1.4/§1.8). Stamps the epistemic_state and appends a `ground.audit`
 record so the reconciler treats the transition as legitimate.
@@ -159,6 +159,12 @@ record so the reconciler treats the transition as legitimate.
   `hypothesized` edge to `grounded` you MUST supply one, and it **upgrades the edge's provenance**:
   `support_span` (a verbatim source substring, span-verified) → `span-present`; `support_note` (an external
   citation, no span) → `inferred`. Ignored for non-hypothesized edges and for any verdict other than `grounded`.
+- `lead: str = ""` (0.9.0) — with `verdict="rejected"` on an edge only: the edge the rejected span does state
+  instead, `"<head-id> <relation> <tail-id>"` (`groundplan.parse_lead`: the ids slugged, the relation a pack
+  edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
+  `lead: <head> <relation> <tail>`, and echoed as `"lead"` in the return. `/kg-build --leads` writes it (§1.19).
+  A malformed lead, an undeclared relation, a self-loop, a lead that repeats the rejected edge, or a lead with
+  another verdict or `kind="node"` is refused before any state change.
 
 ```json
 {"ok": true, "key": "e_generality-confound__attacked-by__specificity",
@@ -663,7 +669,27 @@ source only.
 `source_path` configured, nothing readable at it, two quoted parts, or a subset reaching past the
 configured files. The `source`, `wave_size` and `arguments` fields are present either way.
 
-### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section)`
+**`--leads` first on the line (0.9.0)** plans the leads mode instead: the leads `kg_ground` recorded on rejected
+edges (§1.4), for extractors to write. The rest of the line still reads as a subset and a wave size.
+
+```json
+{"ok": true, "mode": "leads", "arguments": "--leads", "wave_size": 6, "wave_size_from": "default",
+ "leads": [{"source_file": "Retirar revisión humana.md", "section": 5, "title": "Mecanismos",
+            "leads": [{"from_edge": "e_tests-protegidos__defends-against__hacer-trampas-con-los-tests",
+                       "lead": "tests-protegidos defends_against manipulacion-de-tests"}]}],
+ "leads_total": 1, "waves": 1}
+```
+
+- `leads[]` — one entry per section, in source order: the section that holds each rejected edge's span (the
+  file its `source_file` names, else any configured file), covered or not. Ids only: the extractor reads each
+  lead's span from `kg_section(..., leads=True)` (§1.20).
+- **Pending** means: the rejected edge's latest lead (`groundplan.lead_of`), unless an edge's notes open with
+  `lead (from <that edge's id>)` (`groundplan.lead_from`), or the lead's own edge exists in any state. So each
+  lead is written once.
+- `leads_unlocated` (+ `note`) — rejected edges whose span no longer verifies in any section: the claim has to be
+  grounded again against the changed source first.
+
+### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section, leads=False)`
 
 One section of the configured source, **cut and egress-scrubbed by the engine**: what a `kg-extractor`
 launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `section` a number, both from
@@ -693,6 +719,9 @@ launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `
 - `untyped: true` on a known node (0.6.1) — it has no pack type: a placeholder an edge created without
   declaring it (an off-pack type is QUARANTINED and never written). The contract lets the section that
   defines it declare it, the one exception to "never redeclare a known node".
+- `leads` (0.9.0, only with `leads=True`) — the pending leads (§1.19) whose rejected edge's span lies in this
+  section, as `{from_edge, head, relation, tail, head_known, tail_known, span}`. The span passes the session
+  scrub, so it matches `text`'s placeholders; `head_known`/`tail_known` say whether the canon holds that node.
 
 `ok: false` with `error` for a file that is not a configured source file (`files[]` lists the configured
 basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of
@@ -708,6 +737,8 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 - **The queue:** every `unverified` edge (any lane) and every `unverified` HYPOTHESIZED node (a `/kg-diverge`
   pin or a generated proposal). The extractor's own unverified nodes are not queued: each names a concept the
   text uses, and the claims about it are its edges. They are counted in `queue.extractor_nodes_not_queued`.
+- **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
+  for `/kg-build --leads`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
   extractor marked weak (`confidence: AMBIGUOUS`, or a `confidence_score` under 0.5; counted in
   `queue.weak_edges`), then the other text edges. Inside each group the order is the source's (file, then the
@@ -722,7 +753,8 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 
 ```json
 {"ok": true, "focus": null,
- "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "extractor_nodes_not_queued": 399},
+ "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "extractor_nodes_not_queued": 399,
+           "leads_pending": 0},
  "batch_size": 12, "wave_size": 6, "wave_size_from": "default",
  "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
  "waves": 3,

@@ -438,3 +438,23 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The orchestrator still holds whatever its session remembers. The command can only say where the rules are.
 - **Pinned in:** `tests/test_fix_node_scope_and_counters.py`.
   - **Checked end to end:** on the same copies, the adversarial grounder attacked the field hub `aprobacion-humana-se-erosiona` with one counter-edge whose span sits under the source's «El mejor argumento contra cada conclusión». It reported three contradictions between documents instead of writing them. The orchestrator sent both templates as written.
+
+## A rejected claim carries a lead, and /kg-build --leads writes it (2026-11-08)
+
+- **Decision:** when a grounder rejects a claim as `wrong-relation` or `wrong-node`, it passes the edge the span does state to `kg_ground` as `lead="<head-id> <relation> <tail-id>"`. The engine checks the relation against the pack and appends `lead: <head> <relation> <tail>` to the rejected edge's notes. `kg_build_plan("--leads")` lists the pending leads by the section that holds each rejected span. `/kg-build --leads` launches one extractor per section, and `kg_section(..., leads=True)` hands it the leads with their spans. The extractor writes each lead as an ordinary `unverified` claim, its notes opening with `lead (from <rejected-edge-id>)`, and the next `/kg-ground` judges it. `kg_ground_plan` counts what waits in `queue.leads_pending`.
+- **Gap it closes:** the grounding loop converged on the field canon, but over three passes the grounders' reports had named thirteen leads, and none could be written (field report on 0.8.1). Among them were two `enables` edges, the relation the 0.8.0 pack added, and the narrower `manipulacion-de-tests` node. `/kg-build` skips every section that already has edges, and a lead lived only in a report and the user's memory notes.
+- **Why the rejected edge's notes:** they are canon, so a lead survives a reprojection, and the engine already reads marks there: `[diverge] pinned` and the adversarial mark. The canon format does not change. A lead sets no state, so the verdict monopoly is untouched.
+- **Why an extractor writes it:** a lead often names a node the canon lacks. Choosing that node's id, type and label against the section's `known_nodes` is extraction, and a grounder that wrote it would also be judging its own proposal. Its span is the rejected edge's own, since a lead is by definition what that span states.
+- **Why "taken" is a mark, not an id:** the extractor may reuse a known node for the lead's new end, so the edge it writes need not have the lead's id. A lead counts as taken once an edge's notes open with `lead (from <its rejected edge>)`, or once the lead's own edge exists in any state. Each lead is so written once, and a lead edge rejected in turn is failure memory like any other.
+- **Rejected alternatives:**
+  - (a) *Re-extract the whole section:* it rewrites every edge of the section, a changed span reopens its verdict, and the extractor may miss the lead again.
+  - (b) *Let the grounder write the lead:* it breaks the judge's single responsibility, and without the section's `known_nodes` it coins near-duplicates, the failure that produced `manipulacion-de-tests` in the first place.
+  - (c) *The propose lane (`kg_propose`):* a lead has a verbatim span, so it is no hypothesis. It would enter `hypothesized` and need a promotion it does not need.
+  - (d) *A ledger in `.kg/`:* engine state rather than canon, lost on a clean, and one more file that says what the canon could.
+- **Accepted trade-offs:**
+  - A lead its extractor declines (the text does not state it) is offered again on the next `/kg-build --leads`. The command re-launches its section at most once in a run.
+  - A lead whose rejected span left the source is reported in `leads_unlocated` and not written: the claim has to be judged again first.
+  - Leads recorded before 0.9.0 are prose in reports and notes; the engine cannot read them. A one-time pass can re-stamp those rejected edges with a lead, verdict unchanged.
+  - Leads the adversarial grounder names without a span, and contradictions between documents, stay in the reports.
+- **Pinned in:** `tests/test_fix_leads_path.py`.
+  - **Checked end to end:** three headless passes, in auto mode with Claude Code 2.1.316, over five field edges written fresh on scratch copies of their documents. `/kg-ground` rejected four with a lead each. `/kg-build --leads` wrote all four through one extractor per section, with ids only in the prompts, and the next `/kg-ground` grounded them. No pass ran a shell command or was denied a permission.

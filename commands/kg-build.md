@@ -1,6 +1,6 @@
 ---
 description: Build the grounded knowledge graph from a source document — extract section-by-section into the canon (bounded parallel waves), then project.
-argument-hint: "[subset] [wave_size]"
+argument-hint: "[--leads] [subset] [wave_size]"
 allowed-tools: Task, mcp__plugin_burgess_burgess__kg_build_plan, mcp__plugin_burgess_burgess__kg_status, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph
 ---
 
@@ -33,6 +33,8 @@ Do not split that line yourself: pass it to `kg_build_plan` exactly as it appear
 - **Quotes** around the subset are dropped. Quote a name that itself ends in a number (`"capítulo 3"`), or
   that number is read as the wave size. Two separately quoted paths are refused: one subset is one file,
   folder or glob.
+- **`--leads` as the first word** (0.9.0) writes the leads `/kg-ground` recorded instead of building: see
+  **Leads mode**, below. The rest of the line still reads as a subset and a wave size: `/kg-build --leads 4`.
 
 The two arguments:
 
@@ -81,7 +83,8 @@ never fall back to the demo corpus:
 - **A subset problem:** the subset names files outside the configured source, or nothing at all. Report it,
   and tell the user to move the files into the configured source or to change `source_path`.
 
-**`ok: true`** → the plan holds:
+**`ok: true`** → the plan holds the following. (With `--leads` it is `mode: "leads"` instead: go to **Leads
+mode**, below.)
 
 - `files[]`, one per file to build, in source order. Each has its `sections[]` (`section` number, `title`,
   `chars`, `covered`), its `heading_level` and any `note`.
@@ -236,6 +239,55 @@ Summarize the build back to the user:
   edges (a forged verdict or human claim was stripped back to `unverified` / `agent`).
 - **Falsification counters** — from `kg_context`: `falsification_counters.failed_or_rejected_edges` (expected 0 at
   build; non-zero only after grounding).
+
+## Leads mode (`/kg-build --leads`, 0.9.0)
+
+A grounder that rejects a claim because its span states another relation (`wrong-relation`) or relates a
+narrower or broader concept than one of its nodes (`wrong-node`) records the edge the span does state, the
+**lead**, on the rejected edge. A build skips every section that already has edges, so this mode is the one
+path a lead takes into the canon. It writes each lead once, as an `unverified` claim with the same span, and
+the next `/kg-ground` judges it like any other.
+
+1. **The plan** (`kg_build_plan` with the arguments as typed) is `mode: "leads"`:
+   - `leads[]`, one entry per section, in source order: `source_file`, `section`, `title`, and its `leads[]`,
+     each `{from_edge, lead}`: the rejected edge's id and the lead as `<head> <relation> <tail>`;
+   - `leads_total`, `wave_size`, `wave_size_from` and `waves`;
+   - `leads_unlocated`, when a rejected edge's span is no longer in the source. Report those ids: `/kg-ground`
+     has to judge the claim again against the changed source before its lead can be written.
+
+   `leads_total` 0 → report "no pending leads" and stop. Otherwise tell the user in a line how many leads, in
+   how many sections, at what wave size.
+2. **Launch one extractor per section,** `wave_size` launches in a single message, as for a build, and wait for
+   each wave. Give each one its section and its leads' ids, and nothing else: it fetches the spans itself.
+
+   ```
+   Task(
+     subagent_type: "kg-extractor",
+     description: "Write the leads of §1 Mecanismos",
+     prompt: """
+   You are writing the LEADS of ONE section into the canon via mcp__plugin_burgess_burgess__kg_write (leads
+   mode, in your contract).
+
+   source_file: doc.md      # this section's file, from the plan
+   section: 1               # the plan's section number
+   title: "Mecanismos"
+   leads (the rejected edge each came from, then the edge it names):
+   - e_tests-protegidos__defends-against__hacer-trampas-con-los-tests: tests-protegidos defends_against manipulacion-de-tests
+
+   Get the section with mcp__plugin_burgess_burgess__kg_section(source_file: "<file>", section: <n>, leads: true):
+   its leads[] give each lead's span and say which ends the canon already holds. Write each lead as one edge
+   with a verbatim span from the section's text, its notes opening with `lead (from <from_edge>)`, and declare
+   a new end in nodes[] unless known_nodes holds the same concept. Write nothing else: no other edge, and no
+   known node redeclared. Return the kg_write result, and say why for any lead you did not write.
+   """
+   )
+   ```
+3. **Progress probe:** call `kg_build_plan` again with the same arguments. A written lead drops out of it. A lead
+   its extractor declined stays in the plan: re-launch its section at most once, then report the lead with the
+   extractor's reason instead of looping.
+4. **Report:** the leads written (the new edge ids) and the ones declined, with why; the summed dispositions, as
+   for a build; and `kg_metrics()`'s counts. End by telling the user to run `/kg-ground`: the new edges wait in
+   its queue as `unverified`.
 
 ## Worked example (against `examples/source.md`)
 

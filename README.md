@@ -57,7 +57,7 @@ With `source_path` configured, the primary workflow is:
 ```
 
 1. **Build** — `/kg-build` extracts the configured source section by section. Accepted edges carry verbatim spans and begin `unverified`; the build never assigns verdicts.
-2. **Ground** — `/kg-ground` is the only workflow that can assign a verdict. It checks the pending graph, challenges vague hubs, and retains rejected or falsified relationships as negative information.
+2. **Ground** — `/kg-ground` is the only workflow that can assign a verdict. It checks the pending graph, challenges vague hubs, and retains rejected or falsified relationships as negative information. When a rejected claim's span states a different relationship, the grounder records it as a lead, and `/kg-build --leads` writes those for the next `/kg-ground` to judge.
 3. **Query** — `/kg-query <question>` answers against the graph, leads with grounded relationships, quotes available spans, and labels unverified hypotheses separately. If the graph does not contain an answer, it says so.
 4. **View** — `/kg-view` renders an offline `graph.html` and `GRAPH_REPORT.md`.
 
@@ -216,7 +216,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 
 | Command | What it does | The detail in brackets |
 | --- | --- | --- |
-| `/kg-build [subset] [wave_size]` | Extract a span-anchored graph from the configured source, one section per extractor | *Optional:* a file, folder or glob inside the configured source, to build only that part; concurrent sections per wave |
+| `/kg-build [--leads] [subset] [wave_size]` | Extract a span-anchored graph from the configured source, one section per extractor | *Optional:* `--leads`, to write the leads `/kg-ground` recorded instead; a file, folder or glob inside the configured source, to build only that part; concurrent sections per wave |
 | `/kg-ground [query-or-node-filter]` | Drain the grounding queue, challenge hubs, and assign verdicts through the sole verdict path | *Optional:* limit the run to one topic or node area |
 | `/kg-query <question>` | Answer from the grounded graph, with provenance and falsification counters attached | **Required:** your question |
 | `/kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1610 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1639 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

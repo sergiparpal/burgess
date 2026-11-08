@@ -162,11 +162,14 @@ re-parse the whole canon per write.
 
 ### 3.4 Verdict monopoly
 
-Only `kg_ground(target_id, verdict, kind, note, support_span, support_note)` sets epistemic
+Only `kg_ground(target_id, verdict, kind, note, support_span, support_note, lead)` sets epistemic
 states. `verdict ∈ {grounded, rejected, failed, obsolete}`. Promoting a `hypothesized` item to
 `grounded` **requires support**, which upgrades provenance: `support_span` (verbatim, span-verified)
 → `span-present`, or `support_note` (external citation) → `inferred`; neither →
-`hypothesis-needs-support`. Every legitimate transition appends one record to the append-only audit
+`hypothesis-needs-support`. A `rejected` edge may carry a `lead` (0.9.0): the edge its span does state
+instead, checked against the pack and appended to the notes as `lead: <head> <relation> <tail>`. It sets
+no state: `/kg-build --leads` has an extractor write it as an ordinary `unverified` claim, whose notes open
+with `lead (from <rejected-edge-id>)`, and the next `/kg-ground` judges it. Every legitimate transition appends one record to the append-only audit
 ledger `<project>/.kg-ground-audit.jsonl` (with a `.ckpt` sidecar for O(1) recovery).
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
@@ -283,12 +286,15 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   status + section coverage, where a span counts toward the file its edge's `source_file` names, as
   span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/kg-build` plan:
   files, sections at each file's heading level, per-section coverage, the wave size; it reads the
-  typed arguments and the option text it is handed, so the command needs no shell), `kg_section`
+  typed arguments and the option text it is handed, so the command needs no shell; with `--leads`,
+  the sections holding the leads rejected claims carry), `kg_section`
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
-  nodes the section names, so the extractor can reuse their ids), `kg_ground_plan` (the `/kg-ground`
+  nodes the section names, so the extractor can reuse their ids, and on request its pending leads
+  with their spans), `kg_ground_plan` (the `/kg-ground`
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
   grounders, plus the wave size and the hubs no adversarial pass has attacked since their last grounded
-  claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge),
+  claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge, and the
+  count of pending leads),
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
   reads no file), `query_graph` (every filter applies to nodes and edges alike), `get_node`,

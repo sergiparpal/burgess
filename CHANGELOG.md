@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.9.0 — 2026-11-08
+
+The third `/kg-ground` on the Windows corpus, the first on 0.8.1, went by the book: the queue is empty and
+every hub has been attacked. Over three passes the grounders' reports had named thirteen leads, edges the
+source does state under claims they rejected, two of them `enables` edges. None could be written, because
+`/kg-build` skips every section that already has edges. A lead now has a path into the canon.
+
+### Added
+
+- **`kg_ground(..., lead=...)`.** A grounder that rejects a claim as `wrong-relation` or `wrong-node` passes the
+  edge the span does state, as `"<head-id> <relation> <tail-id>"`. The engine checks the relation against the
+  pack and appends `lead: <head> <relation> <tail>` to the rejected edge's notes. A bad lead is refused before
+  the verdict changes anything.
+- **`/kg-build --leads`.** The plan lists the pending leads by the section that holds each rejected span,
+  covered or not, and the command launches one extractor per section. `kg_section(..., leads=True)` hands it
+  the leads with their spans, and it writes each one as an `unverified` claim with the same span, declaring a
+  new node unless the section's known nodes hold the concept. The edge's notes open with
+  `lead (from <rejected-edge-id>)`, which marks the lead taken, so each lead is written once. The next
+  `/kg-ground` judges it like any other claim.
+- **`queue.leads_pending`** in `kg_ground_plan`. `/kg-ground` says how many leads wait, and its report tells
+  you when to run `/kg-build --leads`.
+
+### Changed
+
+- The grounder passes a lead with every `wrong-relation` or `wrong-node` rejection whose span states another
+  edge, and `/kg-ground`'s template says so.
+- The extractor contract has a leads mode: write the section's leads and nothing else.
+- A test from 0.8.1 pinned the report saying that nothing could write the leads. It now pins `/kg-build
+  --leads`.
+
+### Tests
+
+- `tests/test_fix_leads_path.py` (29): reading and writing a lead, and every refusal; the plan grouping
+  leads by section, a subset, an unlocated span; `kg_section`'s leads; a written lead taken by its mark,
+  under its own id or another; a lead whose edge already exists; the latest of two leads; the typed line;
+  the contract and command texts.
+- 1610 → 1639 passed, 3 skipped. `tests/test_kg_ground_plan.py`'s exact queue now includes `leads_pending`.
+- **Checked end to end,** headless in auto mode with Claude Code 2.1.316 and the plugin loaded from this tree,
+  on scratch copies of two documents of the reporting corpus, with five of its field edges written fresh:
+  - **`/kg-ground`:** 1 grounded, 4 rejected, each with its lead. The two preconditions filed as `grounds` led
+    to `enables` edges, and the two test-cheating edges to a new `manipulacion-de-tests` node.
+    `queue.leads_pending` read 4, and the report said to run `/kg-build --leads`.
+  - **`/kg-build --leads`:** one wave of four extractors, one per section, each prompt carrying ids only. All
+    four leads were written with their mark and the rejected edge's span. Two extractors running at once
+    declared the same new node, which deduped to one. The plan then listed no lead.
+  - **`/kg-ground` again:** all four lead edges were grounded.
+  - **No pass ran a shell command or was denied a permission.** Cost: $0.59, $0.64 and $0.40. The copies were
+    deleted.
+
 ## 0.8.1 — 2026-11-08
 
 The second `/kg-ground` on the Windows corpus, the first on 0.8.0, ended the hub attack as planned: it

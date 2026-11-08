@@ -47,7 +47,8 @@ Find what is actually pending before spending any subagent budget.
      edges their extractor marked weak, then the rest, each group in source order. Keep it.
    - `queue`: the counts, including `weak_edges` and `extractor_nodes_not_queued`. The extractor's own nodes
      are not queued: each names a concept the text uses, and the claims about it are its edges, which are
-     queued.
+     queued. `leads_pending` (0.9.0) counts the leads rejected claims carry that no edge has taken yet: they
+     are not this command's work, but `/kg-build --leads`'s.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
    - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
@@ -63,7 +64,8 @@ Find what is actually pending before spending any subagent budget.
 
 Stop and report "queue empty — nothing to ground" **only if** the plan has **no** `batches` **and** there are
 no hub candidates; when `attacked_hubs` is not empty, add that every hub has been attacked and none has gained
-a grounded claim since. Otherwise tell the user in a line what this pass covers: items, batches, waves and
+a grounded claim since, and when `queue.leads_pending` is not 0, that that many leads wait for
+`/kg-build --leads`. Otherwise tell the user in a line what this pass covers: items, batches, waves and
 hubs.
 
 > **Alternative prioritization (optional).** `mcp__plugin_burgess_burgess__kg_agenda()`'s
@@ -144,7 +146,7 @@ items:
 For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>", kind: "<edge|node>") and
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
 of the source. Do not read files. Then apply ONE verdict with
-mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note), per your contract:
+mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), per your contract:
   - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction,
     between what the two nodes name, as your contract's relation table defines it, and the relation is
     specific and falsifiable. A table row states a relation when the table's header says what its cells are.
@@ -152,7 +154,8 @@ mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note), per your
     header relates to nothing, or its opposite); it states another relation, such as a precondition
     (`enables`) filed as `grounds` (note reason `wrong-relation`); it states the relation for a concept
     narrower or broader than one of the nodes (`wrong-node`); or the edge is true only by being vague
-    (`vague`). For `wrong-relation` and `wrong-node`, name the edge the span does state.
+    (`vague`). For `wrong-relation` and `wrong-node`, pass the edge the span does state as kg_ground's
+    `lead`: "<head-id> <relation> <tail-id>".
   - a hypothesized item is grounded only with support (a support_span copied from the context, placeholders
     included, or a support_note); a [diverge]-pinned item without support stays unverified.
 Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
@@ -231,8 +234,10 @@ Grounding pass complete.
 
 Then list the leads the grounders named for an extractor: for each `wrong-relation` rejection, the relation its
 span does state (a precondition filed as `grounds` is an `enables` edge from the same span), and for each
-`wrong-node` rejection, the concept its span names. They are leads for the user, not work for this pass: this
-command writes no edge, and `/kg-build` skips every section that already has one.
+`wrong-node` rejection, the concept its span names. Each lead is recorded on its rejected edge (0.9.0), and the
+last probe's `queue.leads_pending` counts the ones no edge has taken yet: tell the user that `/kg-build --leads`
+writes them, as unverified edges with the same span, and that the next `/kg-ground` judges them. This command
+writes no edge itself.
 
 ## §Stage 6 — Merge checkpoint (NON-BLOCKING)
 
