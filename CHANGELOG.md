@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.11.0 — 2026-11-09
+
+On 0.10.2 the Windows corpus judged again the 142 grounded edges of its first pass, under the current
+contract: first a sample of 20, then the other 122. 20 changed: 14 as `wrong-node`, 4 as `wrong-relation`, 1 as
+`vague` and 1 as `no-support`. The 122 that stayed grounded kept their times, as 0.10.2 intended, so no attacked
+hub came back. The pass also showed that grounders read `confounded_by` more widely than its definition.
+
+### Changed
+
+- **`confounded_by` is a confound that biases a figure.**
+  - The relation table said "the inflated metric/value | the confound that inflates it". Grounders in several
+    batches ratified eight `confounded_by` edges whose confound does not inflate the figure: equivalent mutants
+    lower a mutation score, a denominator moves a usage figure both ways, and a share taken over comments
+    instead of reviews counts something other than what it claims to.
+  - The pack has no other relation for such confounds, so a literal reading would have rejected true claims as
+    `wrong-relation`, with no lead.
+  - The table that the extractor and the grounder share now reads "the biased metric/value | the confound that
+    biases it", and says that a confound may inflate the figure, lower it, or make it count something else. The
+    pack comment, its schema reference and the adversarial contract say the same.
+  - The generality confound still inflates betweenness: inflation stays one case of a confound.
+
+### Tests
+
+- `tests/test_fix_confounded_by_bias.py` (10):
+  - Both contracts' table row, and the sentence on a confound that lowers a figure or changes what it counts.
+  - No contract or pack text says that a confound only inflates.
+  - The pack comment and its schema reference agree.
+  - The adversarial contract's worked counter-edge still reads the generality confound as inflation.
+  - Against the 0.10.2 texts, all ten fail.
+- 1677 → 1687 passed, 3 skipped.
+
 ## 0.10.2 — 2026-11-09
 
 The Windows corpus converged on 0.10.1: 416 nodes and 203 edges, every edge with a verdict. But 142 of its 162

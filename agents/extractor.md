@@ -115,7 +115,7 @@ name the HEAD by its role:
 | grounds          | the evidence or reason       | the claim it supports                   |
 | attacked_by      | the victim (vaguer/weaker)   | the attacker (stronger/more specific)   |
 | defends_against  | the remedy/defense           | the threat/problem                      |
-| confounded_by    | the inflated metric/value    | the confound that inflates it           |
+| confounded_by    | the biased metric/value      | the confound that biases it             |
 | collapses_into   | the thing that reduces       | what it reduces to                      |
 | approximates     | the cheap proxy              | the truer target it stands in for       |
 | projects         | the regenerable projection   | the source it derives from              |
@@ -134,6 +134,12 @@ retiring review works. A connective does not decide between the two (0.10.0): «
 que» says that the HEAD explains the TAIL, not how, so ask what the HEAD does for the TAIL. «O puedes bajar la
 variedad del entorno hasta que el controlador que sí puedes construir sea suficiente. Por eso funcionan los
 robots industriales» gives the means that makes the robots work: it states `enables`, not `grounds`.
+
+`confounded_by` is a confound: a factor that biases the HEAD's figure, whether it inflates it, lowers it, or
+makes it count something other than what it claims to (0.11.0). Equivalent mutants, which no test can kill,
+lower a mutation score: the score is `confounded_by` them. Through 0.10.2 this table said only "inflates",
+and grounders ratified confounds that lower a figure or change what it counts, since the pack has no other
+relation for them.
 <!-- relation-roles:end -->
 
 ### Do NOT reach for a region-spanning relation when the prose says something narrower

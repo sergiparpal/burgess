@@ -109,7 +109,7 @@ claim. Prefer depth on the vaguest hubs over breadth across many.
    b. Search the source (`Grep`/`Read`) for a span that asserts a stronger/more specific claim defeating the
       hub or one of its claims, and that, in its own context, sets itself against that claim (contract item
       2). The pack edge vocabulary names the weapon: `attacked_by` (more-specific
-      defeats vaguer), `confounded_by` (apparent value is inflated), `collapses_into` (reduces to a known
+      defeats vaguer), `confounded_by` (a confound biases its figure), `collapses_into` (reduces to a known
       failure).
    c. If a real defeating span exists → build the counter-edge (Output A, its `notes` opening with the mark),
       `kg_write` it.
@@ -178,8 +178,8 @@ suspect). `get_neighbors("betweenness")` shows a claim that treats it as the bri
 1. Find the defeating span. `Grep` the source → §3 contains, verbatim:
    `"it is *confounded_by* the generality confound, because a vague node sits on many paths for empty reasons"`.
    That is a stronger, more specific claim that *defeats* raw betweenness as a bridge metric.
-2. Write the counter-edge (lands `unverified`). `confounded_by` reads HEAD = the inflated metric, TAIL = the
-   confound that inflates it, so `betweenness` is the HEAD:
+2. Write the counter-edge (lands `unverified`). `confounded_by` reads HEAD = the biased metric, TAIL = the
+   confound that biases it (here it inflates it), so `betweenness` is the HEAD:
    ```json
    {
      "nodes": [],
