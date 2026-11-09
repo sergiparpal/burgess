@@ -63,9 +63,15 @@ MAX_QUESTION_CHARS = 2000
 # edge opens its notes with `lead (from <rejected-edge-id>)`, which marks the lead taken. Through 0.8.1 a lead
 # was only named in a report: `/kg-build` skips every section that already has edges, so nothing could write
 # it (field report on 0.8.1: thirteen leads, two of them `enables` edges the 0.8.0 pack added).
+# A lead belongs to the rejection that recorded it (0.11.1). A verdict that changes the edge's state and
+# records no lead of its own appends `lead: none`, which withdraws the lead the notes held. Through 0.11.0 a
+# lead outlived the rejection it came from: an edge rejected with a lead, grounded again by the user's
+# decision and later rejected once more without a lead offered the overturned lead again as pending (field
+# report on 0.11.0: the three edges the user grounded again each carry a lead the user had ruled out).
 LEAD_MARK = "lead: "
+LEAD_NONE = LEAD_MARK + "none"
 LEAD_FROM_MARK = "lead (from "
-_LEAD = re.compile(r"(?:^|\s\|\s)lead: ([\w-]+) ([a-z_]+) ([\w-]+)(?=\s\|\s|\s*$)")
+_LEAD = re.compile(r"(?:^|\s\|\s)lead: (?:([\w-]+) ([a-z_]+) ([\w-]+)|(none))(?=\s\|\s|\s*$)")
 _LEAD_FROM = re.compile(r"lead \(from (e_[\w-]+)\)")
 # The most source text one excerpt carries. A grounder judges whether a span states a relation, which needs
 # the sentence and its neighbours, not the whole section (one section of the field corpus is 44 000 chars).
@@ -153,9 +159,13 @@ def parse_lead(text: "str | None", edge_types) -> "tuple[tuple[str, str, str] | 
 
 def lead_of(notes: "str | None") -> "tuple[str, str, str] | None":
     """The latest lead recorded in an edge's notes (the ``lead: <head> <relation> <tail>`` segment
-    `kg_ground` appends), or None. A later lead replaces an earlier one."""
+    `kg_ground` appends), or None. A later lead replaces an earlier one, and a later ``lead: none``
+    (`LEAD_NONE`, 0.11.1) withdraws it."""
     found = _LEAD.findall(notes or "")
-    return tuple(found[-1]) if found else None
+    if not found:
+        return None
+    head, relation, tail, withdrawn = found[-1]
+    return None if withdrawn else (head, relation, tail)
 
 
 def lead_from(notes: "str | None") -> "str | None":

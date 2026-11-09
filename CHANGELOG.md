@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.11.1 — 2026-11-09
+
+On 0.11.0 the Windows corpus applied the user's decisions after re-judging its first pass. The re-judge had
+rejected three grounded edges as `wrong-node`, each with a lead to a new node. The user ruled that each node
+already named what its span names, and a grounder grounded the three edges again. Their leads stayed in their
+notes.
+
+### Fixed
+
+- **An overturned lead could come back as pending.**
+  - `kg_ground_plan` and `/kg-build --leads` read a rejected edge's lead from its notes. They took the newest
+    `lead:` segment, whatever verdicts came after it.
+  - So if a later re-judge rejected one of those three edges without a lead, as `vague` for instance, the plan
+    would offer the lead the user had ruled out, and `/kg-build --leads` would write it. For
+    `e_zalando__grounds__autonomia-n4-a-escala`, that lead names a node that duplicates the N4 claim.
+  - Now a lead belongs to the rejection that recorded it. A verdict that changes an edge's state and records no
+    lead of its own withdraws the lead the notes hold: `kg_ground` appends `lead: none` after the note, and
+    returns the withdrawn lead as `lead_withdrawn`.
+  - A verdict that keeps the state keeps the lead, as it has kept the time since 0.10.2. A lead that a verdict
+    records still replaces the old one.
+  - The three field edges need nothing done. Being grounded, their leads are not pending, and the next verdict
+    that changes their state withdraws them.
+
+### Tests
+
+- `tests/test_fix_overturned_lead.py` (11):
+  - The field case: an edge rejected with a lead, grounded again, then rejected without a lead offers no lead.
+  - The verdict that overturns a rejection withdraws its lead, and so does any other change of state.
+  - A lead overturned before 0.11.1, with no `lead: none` in its notes, is withdrawn when the edge is rejected
+    again.
+  - A re-confirmed rejection keeps its lead, and a new lead replaces the withdrawn one. A lead is withdrawn once,
+    and a change of state with no lead to withdraw adds nothing to the notes.
+  - `lead_of` reads `lead: none`, and the tool docstring and the references document it.
+  - Against the 0.11.0 engine, with `LEAD_NONE` defined in the test, 8 of the 11 fail. The other 3 pin what
+    stays the same.
+- 1687 → 1698 passed, 3 skipped.
+
 ## 0.11.0 — 2026-11-09
 
 On 0.10.2 the Windows corpus judged again the 142 grounded edges of its first pass, under the current
