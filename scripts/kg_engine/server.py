@@ -1161,6 +1161,9 @@ class KGEngine:
         extractor write. It is appended to the notes as `lead: <head> <relation> <tail>`, after `note`. A
         lead that is malformed, names a relation the pack does not declare, joins a node to itself, or
         repeats the rejected edge is refused before any state change, like an unsupported promotion.
+        A lead belongs to the rejection that recorded it (0.11.1): a verdict that changes the edge's state
+        and records no lead of its own withdraws the lead the notes hold, by appending `lead: none` after
+        `note`, and returns it as `lead_withdrawn`.
 
         A verdict that leaves an edge's state where it was (0.10.2) re-confirms it: `verdict_by` and
         `verdict_at` keep saying who put the edge in that state and when, while `note` and `lead` are
@@ -1193,6 +1196,7 @@ class KGEngine:
         by = by if by in VALID_ACTORS else "agent"
         state = EpistemicState(verdict)
         promoted_to = None
+        withdrawn = None   # the lead this verdict withdraws (0.11.1): edge verdicts only
         # Lease-first read-modify-write; the full rationale (F17/L5, server-3,
         # writers-use-nonblocking-lock) lives once on _try_writer_lease.
         if not self._try_writer_lease():
@@ -1238,6 +1242,14 @@ class KGEngine:
                     if err:
                         return {"ok": False, "error": err}
                 frm = edge.epistemic_state.value
+                # A lead belongs to the rejection that recorded it (0.11.1). A verdict that changes the
+                # state and records no lead of its own withdraws the lead the notes hold, so an overturned
+                # lead cannot come back as pending: through 0.11.0, an edge rejected with a lead, grounded
+                # again, then rejected once more without one offered its first lead again. A re-confirmation
+                # keeps the lead, as it keeps the time (0.10.2); a lead it records replaces the old one.
+                if edge.epistemic_state != state and not triple:
+                    from .groundplan import lead_of
+                    withdrawn = lead_of(edge.notes)
                 # A verdict that leaves the state where it was re-confirms it (0.10.2). `verdict_by` and
                 # `verdict_at` keep saying who put the edge in that state and when; the re-verdict's note
                 # and lead go to the notes below, and the audit log records it at its own time. Through
@@ -1256,6 +1268,9 @@ class KGEngine:
                 if triple:
                     from .groundplan import LEAD_MARK
                     edge.notes = self._append_note(edge.notes, LEAD_MARK + " ".join(triple))
+                elif withdrawn:
+                    from .groundplan import LEAD_NONE
+                    edge.notes = self._append_note(edge.notes, LEAD_NONE)
                 key = edge.id
             # Append the audit record BEFORE persisting the verdict (a CRASH between the two leaves an
             # audit record with no state change — harmless, unconsumed — rather than a verdict with no
@@ -1280,6 +1295,8 @@ class KGEngine:
                 out["provenance_upgraded_to"] = promoted_to
             if triple:
                 out["lead"] = " ".join(triple)
+            if withdrawn:
+                out["lead_withdrawn"] = " ".join(withdrawn)
             return out
         finally:
             self.canon.release_lock()
@@ -2228,7 +2245,8 @@ class KGEngine:
         """The leads still to write, as ``(rejected edge, (head, relation, tail))``: each rejected edge's
         latest lead (``groundplan.lead_of``), unless an edge's notes open with ``lead (from <its id>)``,
         which marks the lead taken, or the lead's own edge already exists in any state. So a lead is
-        written once, and a lead edge rejected in turn is failure memory like any other."""
+        written once, and a lead edge rejected in turn is failure memory like any other. A lead that a
+        later change of state withdrew (`lead: none`, 0.11.1) is not offered again."""
         from .groundplan import lead_from, lead_of
         edges: "dict[str, Edge]" = {}
         for n in nodes:
@@ -3086,7 +3104,9 @@ def _register(mcp, engine: KGEngine) -> None:
         ignored for kind='node' (a Node has no notes field). `lead`, with verdict='rejected' only: the edge
         the span does state instead, as '<head-id> <relation> <tail-id>' (a pack relation; a new node gets a
         new slug id), which `/kg-build --leads` writes; a bad lead is refused before any state change. A
-        verdict that keeps an edge's state re-confirms it: the edge keeps when it entered that state."""
+        verdict that changes an edge's state without a lead withdraws the lead its notes held (`lead: none`,
+        returned as `lead_withdrawn`). A verdict that keeps an edge's state re-confirms it: the edge keeps
+        the time it entered that state, and its lead."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
                                 support_span=support_span, support_note=support_note, lead=lead)
 

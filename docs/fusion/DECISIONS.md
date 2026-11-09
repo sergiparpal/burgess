@@ -551,3 +551,19 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The eight field edges were ratified under the old wording and are not judged again: they match the new one.
   - The table still says nothing about a limit on precision, such as a small sample, which biases nothing. The one field edge that names one also names a missing randomization.
 - **Pinned in:** `tests/test_fix_confounded_by_bias.py`. Against the 0.10.2 texts, all ten tests fail.
+
+## A lead belongs to the rejection that recorded it (2026-11-09)
+
+- **Decision:** a verdict that changes an edge's state and records no lead of its own withdraws the lead the edge's notes hold. `kg_ground` appends the segment `lead: none` after the verdict's note, `groundplan.lead_of` reads it as "no lead", and the call returns the withdrawn lead as `lead_withdrawn`. A verdict that keeps the state keeps the lead, and a lead a verdict records replaces the old one, as before.
+- **Field report on 0.11.0:** the re-judge of the first pass rejected three grounded edges as `wrong-node`, each with a lead to a new node. The user ruled that each node already named what its span names, and a grounder grounded the three again. Their leads stayed in their notes, and `lead_of` returned the newest `lead:` segment whatever came after it. So a later rejection without a lead would have put an overturned lead back in `leads_pending`, and `/kg-build --leads` would have written a node the user had ruled a duplicate. Nothing had triggered it yet: `/kg-ground` never judges a grounded edge again, so only a hand-run re-judge could.
+- **Why a change of state:** a lead is the edge the span states instead, according to the rejection that recorded it. When the edge leaves `rejected`, that rejection is overturned, and its lead goes with it. Re-entering `rejected` is a new rejection, which carries its own lead or none. A re-confirmation is not a new rejection: since 0.10.2 it keeps the edge's time, and it keeps the lead too, since a grounder who confirms a rejection without naming a lead has not said the old one is wrong.
+- **Why a segment in the notes:** the lead lives in the notes (0.9.0), and the notes mark no verdict boundaries. A segment written at the change keeps the canon self-describing and needs no audit-log lookup. It also covers leads overturned before 0.11.1: the next change of state withdraws them, and that is the verdict that would otherwise have revived them.
+- **Rejected alternatives:**
+  - (a) *Count a lead only when it ends the notes:* every verdict's note would retire a lead, a re-confirmation's included, and a verdict with no note would leave an overturned lead in force.
+  - (b) *Any verdict without a lead withdraws it:* a re-confirmation would drop a lead nobody had ruled out.
+  - (c) *A structured lead field on the edge:* a schema change for a patch, and the existing notes would still have to be read.
+  - (d) *Delete the old lead from the notes:* the notes are the edge's verdict history, and `kg_ground` only ever appends to them.
+- **Accepted trade-offs:**
+  - The three field edges keep their overturned leads in their notes, with no `lead: none`, until their next change of state. Being grounded, they are not pending meanwhile.
+  - `lead: none` is a reserved segment. A lead whose head is a node called `none` still reads as a lead, since it has three words.
+- **Pinned in:** `tests/test_fix_overturned_lead.py`. Against the 0.11.0 engine, with `LEAD_NONE` defined in the test, 8 of its 11 tests fail; the other 3 pin what stays the same.

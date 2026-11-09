@@ -169,7 +169,9 @@ states. `verdict ∈ {grounded, rejected, failed, obsolete}`. Promoting a `hypot
 `hypothesis-needs-support`. A `rejected` edge may carry a `lead` (0.9.0): the edge its span does state
 instead, checked against the pack and appended to the notes as `lead: <head> <relation> <tail>`. It sets
 no state: `/kg-build --leads` has an extractor write it as an ordinary `unverified` claim, whose notes open
-with `lead (from <rejected-edge-id>)`, and the next `/kg-ground` judges it. Every legitimate transition appends one record to the append-only audit
+with `lead (from <rejected-edge-id>)`, and the next `/kg-ground` judges it. A lead belongs to the rejection
+that recorded it (0.11.1): a verdict that changes the edge's state and records no lead of its own appends
+`lead: none`, which withdraws it, so a lead whose rejection was overturned is never offered again. Every legitimate transition appends one record to the append-only audit
 ledger `<project>/.kg-ground-audit.jsonl` (with a `.ckpt` sidecar for O(1) recovery).
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an

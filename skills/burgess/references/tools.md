@@ -165,7 +165,10 @@ record so the reconciler treats the transition as legitimate.
   edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
   `lead: <head> <relation> <tail>`, and echoed as `"lead"` in the return. `/kg-build --leads` writes it (§1.19).
   A malformed lead, an undeclared relation, a self-loop, a lead that repeats the rejected edge, or a lead with
-  another verdict or `kind="node"` is refused before any state change.
+  another verdict or `kind="node"` is refused before any state change. A lead belongs to the rejection that
+  recorded it (0.11.1): a verdict that changes an edge's state and records no lead of its own withdraws the
+  lead the notes held, by appending `lead: none` after `note`, and returns it as `"lead_withdrawn"`. A verdict
+  that keeps the state keeps the lead, and a lead it records replaces the old one.
 
 ```json
 {"ok": true, "key": "e_generality-confound__attacked-by__specificity",
@@ -688,7 +691,7 @@ edges (§1.4), for extractors to write. The rest of the line still reads as a su
   lead's span from `kg_section(..., leads=True)` (§1.20).
 - **Pending** means: the rejected edge's latest lead (`groundplan.lead_of`), unless an edge's notes open with
   `lead (from <that edge's id>)` (`groundplan.lead_from`), or the lead's own edge exists in any state. So each
-  lead is written once.
+  lead is written once. A lead that a later change of state withdrew (`lead: none`, 0.11.1) is not pending.
 - `leads_unlocated` (+ `note`) — rejected edges whose span no longer verifies in any section: the claim has to be
   grounded again against the changed source first.
 
