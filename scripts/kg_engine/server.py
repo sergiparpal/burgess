@@ -243,31 +243,44 @@ def server_log_path(data_dir=None) -> Path:
 
 # A readiness MARKER the Node supervisor (launch_server.mjs) reads to tell a POST-INIT crash from a
 # STARTUP crash without relying solely on a wall-clock proxy: it is written as the stdio serve loop comes
-# up (the lifespan __aenter__, AFTER imports + engine construction succeed) and its mtime, newer than the
-# child's spawn time, proves THIS engine began serving. Lives under the SAME KG_DATA dir both sides resolve
-# (resolve_data_dir <-> serverLogDir in the launcher).
-READY_MARKER_NAME = ".engine-ready"
+# up (the lifespan __aenter__, AFTER imports + engine construction succeed), so its presence once the child
+# has exited proves THIS engine began serving.
+#
+# One marker per spawn (0.11.2): the supervisor names a fresh file in KG_DATA for each child and hands its
+# path over in KG_READY_MARKER. Through 0.11.1 every engine wrote one `.engine-ready` under KG_DATA, which
+# an installed plugin points at CLAUDE_PLUGIN_DATA, one dir for every session on the machine. Sessions
+# then deleted and passed off each other's markers, and a crash in an engine's first seconds could be
+# classified either way wrong (the launcher's comment has the cases). An engine started without a
+# supervisor has nobody to read a marker, so it writes none.
+READY_MARKER_ENV = "KG_READY_MARKER"  # kept in sync with launch_server.mjs READY_MARKER_ENV
 
 
-def ready_marker_path(data_dir=None) -> Path:
-    return (Path(data_dir) if data_dir else resolve_data_dir()) / READY_MARKER_NAME
+def ready_marker_path() -> "Path | None":
+    """The marker path this engine's supervisor handed it, or None when it was started without one."""
+    raw = envconfig.clean_env(READY_MARKER_ENV)
+    return Path(raw) if raw else None
 
 
-def write_ready_marker(data_dir=None) -> None:
+def write_ready_marker() -> None:
     """Stamp the readiness marker (best-effort; a failure must never block serving)."""
     try:
-        p = ready_marker_path(data_dir)
+        p = ready_marker_path()
+        if p is None:
+            return
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(f"pid={os.getpid()} t={time.time():.3f}\n", encoding="utf-8")
     except Exception:  # noqa: BLE001 — the marker is advisory; never fail startup on it
         pass
 
 
-def clear_ready_marker(data_dir=None) -> None:
-    """Remove the readiness marker on a clean shutdown (best-effort). The supervisor also clears it on
-    each (re)spawn, so a leftover from a hard crash can never be mistaken for the next child's marker."""
+def clear_ready_marker() -> None:
+    """Remove the readiness marker on a clean shutdown (best-effort). The supervisor removes it too once
+    it has read the child's exit, so a leftover from a hard crash does not linger."""
+    p = ready_marker_path()
+    if p is None:
+        return
     try:
-        ready_marker_path(data_dir).unlink()
+        p.unlink()
     except OSError:
         pass
 

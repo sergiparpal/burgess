@@ -276,8 +276,9 @@ def test_node_python_contract_constants_agree():
     assert _js_const(resolver, "STAMP_NAME") == boot.STAMP_NAME
     # the worker's log, which the launcher names when it gives up on a connection mid-build
     assert _js_const(resolver, "PROVISION_LOG_NAME") == boot.LOG_NAME
-    # the readiness marker: server.py writes it, the supervisor classifies crashes by it
-    assert _js_const(launcher, "READY_MARKER_NAME") == S.READY_MARKER_NAME
+    # the readiness marker: the supervisor hands each child its path in this env var, server.py writes
+    # it there, and the supervisor classifies crashes by it (one marker per spawn since 0.11.2)
+    assert _js_const(launcher, "READY_MARKER_ENV") == S.READY_MARKER_ENV
     # the shared rotating log + the data-dir fallback rule's dirname (serverLogDir mirrors
     # envconfig.resolve_data_dir)
     assert f'"{S.SERVER_LOG_NAME}"' in launcher
