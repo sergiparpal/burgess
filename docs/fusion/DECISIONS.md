@@ -518,3 +518,22 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - A source edit silences it the same way, since the source signature is part of `is_stale()`.
 - **Pinned in:** `tests/test_fix_precontext_stale.py`.
   - **Checked on a copy of the field canon** (410 notes): the hook served the fresh index, fell silent after a rename, and served the renamed node once a server read had reprojected. The 0.10.0 hook showed the retired id at the same step. A hook call took 0.13 s in WSL, against 0.08 s before. The copy was deleted.
+
+## A re-verdict that keeps an edge's state keeps the time the edge entered it (2026-11-08)
+
+- **Decision:** when `kg_ground` applies the state an edge already has, it leaves `verdict_by` and `verdict_at` as they are. Those two fields now record who put the edge in its state and when. The re-verdict's note and lead are still appended to the notes, and the audit log still records the call at its own time. A change of state stamps both fields, as before. An edge that is in a verdict state with no `verdict_at` gets stamped.
+- **Bug it fixes:** re-confirming a claim reopened an attacked hub (field report on 0.10.1).
+  - `kg_ground_plan` leaves out a hub an adversarial pass has attacked until one of its claims is grounded after the attack (0.8.0; 0.10.0 extended this to attacks the ledger records). It reads the time a claim was grounded from `verdict_at`, and `kg_ground` stamped that field on every call. So a verdict that kept a grounded claim grounded made it look newly grounded, and the next `/kg-ground` would attack the hub again with nothing new to find.
+  - The Windows corpus converged on 0.10.1 with every edge verdicted. But 142 of its 162 grounded edges carry a `verdict_at` from before the v0.8.1 tag, and 136 from before v0.8.0. Its first pass ran on 0.6.x/0.7.0, before `enables` existed and before the rules on tables and on what each node names. One of those edges, `escenarios-reservados defends_against hacer-trampas-con-los-tests`, was re-judged by hand that day and rejected as `wrong-node`. Re-judging the rest under the current contract is the natural next step, and a random sample of 20 of them touched four attacked hubs. On a scratch copy of that canon, re-confirming one claim of `radar-meta` and one of `autonomia-n4-a-escala` put both hubs back in the plan.
+  - The same stamp moved a counter-edge's attack mark. Re-sealing a rejected counter-edge with a lead, as the 0.9.0 lead backfill did, moved the mark to the time of the re-seal. A claim grounded between the attack and the re-seal was then hidden, and the hub stayed out of the plan when it should have come back.
+- **Why the fields, not the plan:** the hub memory is the only reader of `verdict_at`, and what it needs is the time an edge entered its state: for a claim, when it was grounded; for a counter-edge, when the attack was judged. R3 and its mirror key on spans and on the source set, not on this time. The plan sees only the canon, so telling a re-confirmation apart from a state change there would need the audit log or a new field.
+- **Why the re-confirmer is not recorded on the edge:** `verdict_by` and `verdict_at` describe one event, the one that set the state. A human who re-confirms an agent's verdict through the Python API is recorded in the audit log, and the edge keeps `agent`. That understates the verdict and never overstates it. The MCP surface attributes every verdict to the agent anyway.
+- **Rejected alternatives:**
+  - (a) *Read each claim's last transition into `grounded` from the audit log in the plan:* the plan would gain a second source of truth. That log is engine state, read fail-open, and lost on a fresh clone, where the hubs would then reopen.
+  - (b) *A new `grounded_at` field:* it changes the canon format, the merge driver and the reconciler for one reader.
+  - (c) *Leave it, and re-attack:* a re-verdict is the only way to judge an edge again under a changed contract, and every reopened hub costs an adversarial pass on Opus that has nothing new to find.
+- **Accepted trade-offs:**
+  - Existing times are not rewritten. A counter-edge the 0.9.0 lead backfill re-sealed keeps its later mark.
+  - A human re-confirmation does not show on the edge.
+- **Pinned in:** `tests/test_fix_same_state_reverdict.py`. Against the 0.10.1 engine, the five tests that pin the fix fail and the four controls pass.
+  - **Checked on a copy of the field canon:** the same two re-confirmations left the plan's `hubs` empty. The copy was deleted.

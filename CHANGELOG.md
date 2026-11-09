@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.10.2 — 2026-11-09
+
+The Windows corpus converged on 0.10.1: 416 nodes and 203 edges, every edge with a verdict. But 142 of its 162
+grounded edges were judged on 0.6.x/0.7.0, before the rules on tables and on what each node names. Judging
+them again under the current contract would have reopened hubs that had already been attacked.
+
+### Fixed
+
+- **Re-confirming a claim reopened an attacked hub.**
+  - `kg_ground_plan` leaves out a hub that an adversarial pass has attacked until one of its claims is
+    grounded after the attack. It reads the time a claim was grounded from the edge's `verdict_at`.
+  - `kg_ground` stamped `verdict_at` on every call. A verdict that kept a grounded claim grounded made that
+    claim look newly grounded, so the next `/kg-ground` would attack the hub again with nothing new to find.
+  - Now a verdict that leaves an edge's state unchanged keeps `verdict_by` and `verdict_at`, which record who
+    put the edge in its state, and when. The verdict's note and lead are still appended, and the audit log
+    still records the call at its own time. A change of state stamps both fields, as before.
+- **Re-sealing a counter-edge moved its attack mark.** Re-sealing a rejected counter-edge with a lead moved
+  the hub's attack mark to the time of the re-seal. If a claim had been grounded between the attack and the
+  re-seal, the hub stayed out of the plan when it should have come back. The mark now keeps the time of the
+  attack.
+
+### Tests
+
+- `tests/test_fix_same_state_reverdict.py` (9):
+  - A re-confirmed claim keeps its hub out, whether a ledger record or counter-edges marked the attack.
+  - The audit log records the re-verdict at its own time.
+  - A change of state still stamps the time, and a claim grounded again after a rejection reopens its hub.
+  - A re-sealed rejected edge or counter-edge keeps its time.
+  - A re-confirmation keeps who put the edge in its state.
+  - An edge in a verdict state with no time gets one.
+  - Against the 0.10.1 engine, the five tests that pin the fix fail.
+- 1668 → 1677 passed, 3 skipped.
+- **Checked on a copy of the field canon:** we re-confirmed one grounded claim of `radar-meta` and one of
+  `autonomia-n4-a-escala`. On 0.10.1 that put both hubs back in the plan. On 0.10.2 the plan stayed empty. The
+  copy was deleted.
+
 ## 0.10.1 — 2026-11-08
 
 The six merges on the Windows corpus went as planned: 410 nodes and 194 edges, every verdict kept. But a Grep

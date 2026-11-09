@@ -1160,7 +1160,12 @@ class KGEngine:
         `<head-id> <relation> <tail-id>` (`groundplan.parse_lead`), which `/kg-build --leads` later has an
         extractor write. It is appended to the notes as `lead: <head> <relation> <tail>`, after `note`. A
         lead that is malformed, names a relation the pack does not declare, joins a node to itself, or
-        repeats the rejected edge is refused before any state change, like an unsupported promotion."""
+        repeats the rejected edge is refused before any state change, like an unsupported promotion.
+
+        A verdict that leaves an edge's state where it was (0.10.2) re-confirms it: `verdict_by` and
+        `verdict_at` keep saying who put the edge in that state and when, while `note` and `lead` are
+        appended and the audit log records the re-verdict at its own time. `kg_ground_plan` reads
+        `verdict_at` as when a claim was grounded, so a re-confirmed claim does not reopen a hub."""
         # Strip/normalize inputs like kg_rename/kg_merge do, so a stray-whitespace verdict (" grounded ")
         # isn't mis-classified as invalid and a stray-whitespace `kind` is canonicalized before dispatch.
         verdict = verdict.strip().lower()
@@ -1233,9 +1238,19 @@ class KGEngine:
                     if err:
                         return {"ok": False, "error": err}
                 frm = edge.epistemic_state.value
+                # A verdict that leaves the state where it was re-confirms it (0.10.2). `verdict_by` and
+                # `verdict_at` keep saying who put the edge in that state and when; the re-verdict's note
+                # and lead go to the notes below, and the audit log records it at its own time. Through
+                # 0.10.1 every call stamped them anew, and `kg_ground_plan` reads `verdict_at` as when a
+                # claim was grounded: re-confirming a grounded claim of a hub an adversarial pass had
+                # attacked made the claim look new, so the plan offered that hub to another attack with
+                # nothing new to find. An edge in a verdict state with no `verdict_at`, which only a hand
+                # edit leaves (the merge driver and the reconciler clear both fields only with `unverified`),
+                # gets stamped, as any other verdict would stamp it.
+                if not (edge.epistemic_state == state and edge.verdict_at):
+                    edge.verdict_by = by
+                    edge.verdict_at = utcnow()
                 edge.epistemic_state = state
-                edge.verdict_by = by
-                edge.verdict_at = utcnow()
                 if note:
                     edge.notes = self._append_note(edge.notes, note)
                 if triple:
@@ -1995,7 +2010,8 @@ class KGEngine:
         seen: "set[str]" = set()
         items: "list[tuple[tuple, str, str]]" = []
         degree: "Counter[str]" = Counter()        # live claims per node
-        newest_claim: "dict[str, str]" = {}       # node -> latest verdict_at among its grounded claims
+        newest_claim: "dict[str, str]" = {}       # node -> when its latest grounded claim was grounded
+                                                  # (verdict_at; a re-confirmation keeps it, 0.10.2)
         attacks: "dict[str, list[tuple[str, str | None]]]" = {}   # hub -> (state, verdict_at) per counter-edge
         weak_edges = 0
         for n in nodes:
@@ -3069,7 +3085,8 @@ def _register(mcp, engine: KGEngine) -> None:
         `hypothesis-needs-support`. `note` is appended to the edge's `notes` and is **edge-only** — it is
         ignored for kind='node' (a Node has no notes field). `lead`, with verdict='rejected' only: the edge
         the span does state instead, as '<head-id> <relation> <tail-id>' (a pack relation; a new node gets a
-        new slug id), which `/kg-build --leads` writes; a bad lead is refused before any state change."""
+        new slug id), which `/kg-build --leads` writes; a bad lead is refused before any state change. A
+        verdict that keeps an edge's state re-confirms it: the edge keeps when it entered that state."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
                                 support_span=support_span, support_note=support_note, lead=lead)
 
