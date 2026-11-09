@@ -537,3 +537,17 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - A human re-confirmation does not show on the edge.
 - **Pinned in:** `tests/test_fix_same_state_reverdict.py`. Against the 0.10.1 engine, the five tests that pin the fix fail and the four controls pass.
   - **Checked on a copy of the field canon:** the same two re-confirmations left the plan's `hubs` empty. The copy was deleted.
+
+## `confounded_by` is a confound that biases a figure, whichever way (2026-11-09)
+
+- **Decision:** the relation table that the extractor and the grounder share reads `confounded_by` as "the biased metric/value | the confound that biases it". A confound may inflate the figure, lower it, or make it count something other than what it claims to. The pack comment, its schema reference (`skills/burgess/references/pack-schema.md`) and the adversarial contract say the same.
+- **Field report on 0.10.2:** the 142 first-pass grounded edges of the Windows corpus were judged again under the current contract, and 20 changed. Grounders in several batches ratified eight `confounded_by` edges whose confound does not inflate the figure: equivalent mutants lower a mutation score, a denominator moves a usage figure both ways, and a share taken over comments instead of reviews misstates what review finds. Each of those grounders noted that the table said "inflated", and ratified anyway, reading the relation as "distorts". The pack has no other relation for such a confound.
+- **Why widen it, not reject them:** taken literally, the eight would be `wrong-relation` with no lead, since no pack relation fits, and true, specific claims about why a figure misleads would leave the graph. A confound biases an estimate in either direction. "Inflates" described the case Burgess was built around, the generality confound that inflates betweenness, and that case stays.
+- **Rejected alternatives:**
+  - (a) *Keep "inflates" and judge the eight again:* they would be rejected with no lead.
+  - (b) *A second relation for a confound that lowers a figure:* the direction belongs to the confound, and its span states it. It is not a different kind of claim, and the extractor would have to choose between two relations for one notion.
+  - (c) *File them under `attacked_by`:* `attacked_by` is a more specific claim that defeats a vaguer one, not a bias in a measurement.
+- **Accepted trade-offs:**
+  - The eight field edges were ratified under the old wording and are not judged again: they match the new one.
+  - The table still says nothing about a limit on precision, such as a small sample, which biases nothing. The one field edge that names one also names a missing randomization.
+- **Pinned in:** `tests/test_fix_confounded_by_bias.py`. Against the 0.10.2 texts, all ten tests fail.

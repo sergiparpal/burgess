@@ -22,7 +22,7 @@ edge_types:
   - reconciles_with  # HEAD resolves a real tension TAIL left open. NOT mere complement/contrast.
   - bridges          # HEAD joins two separate communities. NOT instance-of/evidence-of, NOT paired maxims.
   - collapses_into   # HEAD reduces to / is subsumed by TAIL. NOT "is a clause/risk of", NOT "opposite extreme of".
-  - confounded_by    # HEAD's apparent value is inflated by TAIL.
+  - confounded_by    # HEAD's figure is biased by TAIL: inflated, lowered, or made to count something else.
   - approximates     # HEAD = cheap proxy, TAIL = the truer target it stands in for. NOT instance-of, NOT "related but distinct".
   - defends_against  # HEAD = remedy/defense, TAIL = threat/problem. The problem is the TAIL.
   - projects         # HEAD = regenerable projection, TAIL = source it derives from. NOT "reveals / makes-detectable".
