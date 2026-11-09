@@ -471,8 +471,12 @@ divergence templates ship as pack fragments under `pack/domains/`.
 - **Supervision**: `.mcp.json` starts `scripts/launch_server.mjs`, a Node parent that always
   spawns successfully, then supervises the Python engine: capped exponential backoff (200 ms → 5 s),
   max 5 restarts per 60 s window. A crash during startup heals once and retries; a crash after the
-  engine served `initialize` (signalled by the `.engine-ready` marker) exits cleanly so the client
-  reconnects with a fresh handshake. Logs: `<KG_DATA>/server.log`.
+  engine served `initialize` exits cleanly so the client reconnects with a fresh handshake. The engine
+  signals that it is serving with a readiness marker. The supervisor names a fresh file in `KG_DATA`
+  for each spawn and hands its path over in `KG_READY_MARKER`, so sessions that share
+  `CLAUDE_PLUGIN_DATA` never read or remove each other's markers (0.11.2; until then all engines
+  shared one). A supervisor removes markers older than an hour as it starts. Logs:
+  `<KG_DATA>/server.log`.
 - **The connect window**: Claude Code gives a stdio MCP server `MCP_TIMEOUT` ms (30 s by default;
   `.mcp.json` has no per-server startup timeout) to answer `initialize`, then marks it failed for the
   session, never retries it by itself, and kills it; on Windows the processes the launcher started
@@ -513,6 +517,7 @@ divergence templates ship as pack fragments under `pack/domains/`.
 | `KG_PACK_PATH` | Domain pack path; else `<plugin>/pack/pack.yaml`, else `<project>/pack/pack.yaml` |
 | `KG_SOURCE_PATH` | The source document (file, dir, or glob of `.md`/`.txt`); set from the required `source_path` userConfig |
 | `KG_ENGINE_VENV` | Explicit venv override |
+| `KG_READY_MARKER` | Set by the supervisor for each engine it spawns: where that engine writes its readiness marker. Not a user setting; an engine started without it writes none |
 | `KG_MAX_EDGES_PER_KB` | Write flood-cap rate (default 20/KB, floor 64) |
 | `KG_HANDLER_TIMEOUT` | Watchdog for a wedged tool handler (unset/0 disables) |
 | `KG_DIVERGE_EMBEDDER` / `KG_DIVERGE_HOME` / `KG_DIVERGE_DEBUG` | Divergence embedder provider / state-dir override / tracebacks |

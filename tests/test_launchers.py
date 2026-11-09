@@ -454,7 +454,7 @@ process.stdout.write(JSON.stringify({ spawns: children.length, pending: pending.
     assert out["spawns"] == 1, "a served-init crash must NOT relaunch even when it died fast"
     assert out["heal"] == 0, "a post-init crash must not trigger a venv heal"
     assert out["pending"] == 0
-    assert out["cleared"] >= 1, "the marker is cleared before (re)spawn"
+    assert out["cleared"] >= 1, "the child's marker is removed once its exit has been read"
     assert out["exitCode"] == 70, "exits with the engine's crash code so the client reconnects"
 
 

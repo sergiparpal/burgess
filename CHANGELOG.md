@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.11.2 — 2026-11-09
+
+Found while checking the Windows install after 0.11.1. Its `server.log` showed two sessions running engines at
+once, a desktop session in another folder on 0.11.0 and the prueba-burgess terminal session on 0.11.1, both in
+the same plugin data dir.
+
+### Fixed
+
+- **Sessions shared one readiness marker.**
+  - The supervisor (`scripts/launch_server.mjs`) tells a crash after the engine served `initialize` from a crash
+    during startup by a marker the engine writes as its serve loop comes up. After a post-init crash it exits, so
+    the client reconnects. After a startup crash it rebuilds the venv once and relaunches in place.
+  - Every engine wrote that marker as `.engine-ready` in `KG_DATA`, and an installed plugin sets `KG_DATA` to
+    `CLAUDE_PLUGIN_DATA`, one dir for every session on the machine. A supervisor deleted the marker before each
+    spawn, and an engine deleted it as it shut down cleanly, whichever session had written it. A marker another
+    session's engine had just written passed for this one's.
+  - So when another session started or stopped its engine at the wrong moment, a crash in an engine's first 20 s
+    could be read either way wrong. A post-init crash could pass for a startup failure: a venv rebuild nobody
+    needed, then a relaunch onto a connection the client had already set up. A startup failure could pass for a
+    post-init crash, with no self-heal. It had not happened: all 21 exits in that log were clean.
+  - Now the supervisor names a fresh file for each spawn and hands its path to the engine in `KG_READY_MARKER`.
+    The engine writes and removes only that file. The supervisor reads it once the child has exited, then removes
+    it. An engine started without a supervisor writes no marker.
+  - A supervisor removes markers more than an hour old as it starts, the shared marker of earlier versions
+    included. A marker only matters for an exit in its engine's first 20 s, and an old one is left only by an
+    engine killed together with its supervisor.
+  - Sessions still on 0.11.1 or earlier keep sharing their marker among themselves until they update. A 0.11.2
+    session neither reads nor clears it, except to sweep it once it is an hour old.
+
+### Tests
+
+- `tests/test_fix_shared_ready_marker.py` (11):
+  - The engine writes its marker only where its supervisor said, writes none without a supervisor, and leaves
+    other engines' markers alone when it shuts down.
+  - Each spawn gets a new marker in `KG_DATA`, and the loop reads and removes only the marker it handed that
+    child. The sweep removes only readiness markers more than an hour old.
+  - End to end, with the shipped launcher and a stand-in engine:
+    - a fast crash after serving is post-init;
+    - a startup failure stays one while another session's engine writes its marker, and gets its venv rebuild;
+    - a supervisor leaves other sessions' fresh markers alone and sweeps stale ones.
+  - `docs/ARCHITECTURE.md` names `KG_READY_MARKER`.
+  - Against 0.11.1, with `READY_MARKER_ENV` replaced by its value in the test, all 11 fail. There the end-to-end
+    startup failure is logged as `servedInit=true -> post-init-exit`.
+- `tests/test_review_r5.py` pins `READY_MARKER_ENV` across Node and Python, in place of the old marker name.
+- 1698 → 1709 passed, 3 skipped.
+
 ## 0.11.1 — 2026-11-09
 
 On 0.11.0 the Windows corpus applied the user's decisions after re-judging its first pass. The re-judge had

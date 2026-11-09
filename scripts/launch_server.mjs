@@ -45,7 +45,8 @@
 //
 // Venv/interpreter resolution lives in ./_engine_resolve.mjs (shared with the other launchers).
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -124,41 +125,80 @@ const CRASH_SIGNALS = new Set(["SIGSEGV", "SIGABRT", "SIGBUS", "SIGILL", "SIGFPE
 // PROBE_TIMEOUT_MS (the interpreter-probe / bootstrap-check spawnSync bound) is imported from
 // _engine_resolve.mjs — its single home since review-r5.
 
-// The engine writes this marker (under the SAME KG_DATA dir — see serverLogDir / server.py
-// resolve_data_dir) as its stdio serve loop comes up. Its presence with an mtime newer than the current
-// child's spawn time is the authoritative "this engine served `initialize`" signal the supervisor uses to
-// classify a crash as post-init (exit clean) vs startup (relaunch in place). Kept in sync with
-// server.READY_MARKER_NAME.
-const READY_MARKER_NAME = ".engine-ready";
-// Slack absorbing filesystem mtime granularity when comparing the marker's mtime against the child's
-// wall-clock spawn time. The marker is also cleared on each (re)spawn, so a stale marker from a previous
-// process (mtime well before this child's spawn) is never mistaken for the current child's.
-const MARKER_CLOCK_SLACK_MS = 2000;
+// The readiness marker: one file PER SPAWN (0.11.2). Before each spawn the supervisor names a fresh file in
+// KG_DATA (see serverLogDir / server.py resolve_data_dir) and hands its path to the child in
+// KG_READY_MARKER. The engine writes it as its stdio serve loop comes up (server.readiness_lifespan) and
+// removes it when it shuts down cleanly. A marker still there when the child has exited is the
+// authoritative "this engine served `initialize`" signal the supervisor uses to classify a crash as
+// post-init (exit clean) vs startup (relaunch in place). The supervisor reads it once and removes it.
+//
+// Through 0.11.1 every engine used ONE `.engine-ready`, and in an installed plugin KG_DATA is
+// CLAUDE_PLUGIN_DATA: a single dir for every session on the machine, whatever its folder. So a session
+// spawning its engine deleted the marker of another session's live engine, an engine shutting down
+// cleanly deleted whichever marker was there, and a marker another session's engine had just written
+// passed for this child's. A crash in an engine's first EARLY_FAILURE_MS could then be read either way
+// wrong: a post-init crash as a startup failure (a venv rebuild nobody needed, then a relaunch onto a pipe
+// the client had already handshaked) or a startup failure as post-init (no self-heal). A file whose name
+// only this supervisor and its child know cannot be touched by another session, and it needs no mtime
+// check against the spawn time either.
+const READY_MARKER_ENV = "KG_READY_MARKER"; // kept in sync with server.READY_MARKER_ENV
+const READY_MARKER_PREFIX = ".engine-ready-";
+// What a sweep may remove: a per-spawn marker (prefix, supervisor pid, 12 hex digits) or the single
+// marker of 0.11.1 and earlier. Nothing else in KG_DATA matches.
+const READY_MARKER_FILE = /^\.engine-ready(?:-\d+-[0-9a-f]{12})?$/;
+// A marker only decides how an exit inside EARLY_FAILURE_MS is read. One older than this belongs to an
+// engine long past that window, or to one killed too hard to remove it while its supervisor died with it
+// (both processes gone, nobody left to read it). Each supervisor sweeps those as it starts, so sessions
+// that end that way cannot pile them up. An old session still running 0.11.1 or earlier clears its
+// single marker before each spawn, so removing a stale one takes nothing from it either.
+const READY_MARKER_STALE_MS = 60 * 60 * 1000;
 
-export function readyMarkerPath(env = process.env) {
-  return join(serverLogDir(env), READY_MARKER_NAME);
+// A fresh marker path for the next spawn: no other process, this supervisor's earlier children
+// included, has been given it.
+export function newReadyMarker(env = process.env) {
+  return join(serverLogDir(env), `${READY_MARKER_PREFIX}${process.pid}-${randomBytes(6).toString("hex")}`);
 }
 
-// Best-effort: did THIS child (spawned at wall-clock `startedAtMs`) write the readiness marker? A marker
-// whose mtime is at/after the spawn time means the engine began serving; an absent or older marker means
-// "not served" and the caller falls back to the wall-clock window.
-export function markerServedInit(startedAtMs, env = process.env) {
-  try {
-    const st = statSync(readyMarkerPath(env));
-    return st.mtimeMs + MARKER_CLOCK_SLACK_MS >= startedAtMs;
-  } catch {
-    return false; // no marker yet -> not served (use the wall-clock fallback)
-  }
+// Did the child that was handed `marker` write it, i.e. begin serving? Absent means "not served", and
+// the caller falls back to the wall-clock window.
+export function markerServedInit(marker) {
+  return Boolean(marker) && existsSync(marker);
 }
 
-// Clear the readiness marker before (re)spawning so it can only be (re)written by the child we are about
-// to launch — a leftover from a hard-crashed previous engine can never be read as the new child's.
-export function clearReadyMarker(env = process.env) {
+// Remove a child's marker once its exit has been read: a crash leaves it behind, and the next spawn gets
+// a new one.
+export function clearReadyMarker(marker) {
+  if (!marker) return;
   try {
-    rmSync(readyMarkerPath(env), { force: true });
+    rmSync(marker, { force: true });
   } catch {
     /* best-effort */
   }
+}
+
+// Remove the readiness markers in `dir` older than `staleMs`; returns how many went. Best-effort: a dir
+// that cannot be listed, or a file that vanishes or resists, is skipped.
+export function sweepStaleReadyMarkers(dir = serverLogDir(), now = Date.now(), staleMs = READY_MARKER_STALE_MS) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let swept = 0;
+  for (const name of names) {
+    if (!READY_MARKER_FILE.test(name)) continue;
+    const p = join(dir, name);
+    try {
+      if (now - statSync(p).mtimeMs > staleMs) {
+        rmSync(p, { force: true });
+        swept += 1;
+      }
+    } catch {
+      /* gone already, or not ours to remove */
+    }
+  }
+  return swept;
 }
 
 // ----------------------------------------------------------------------------------------------------
@@ -331,7 +371,8 @@ function stampFresh(sysPy) {
 // The supervision loop, with every side-effecting dependency injectable so a test can drive the REAL
 // loop (simulate an engine-child crash, assert relaunch-within-backoff, assert the crash-loop cap exits
 // cleanly) without spawning a real engine or killing the test process. main() binds the production deps.
-//   spawnEngine() -> a child-process-like EventEmitter emitting "error"(err) and "exit"(code, signal)
+//   spawnEngine(marker) -> a child-process-like EventEmitter emitting "error"(err) and "exit"(code, signal);
+//                    `marker` is the readiness-marker path this child is handed (KG_READY_MARKER)
 //   exit(code)    -> terminate the supervisor (default process.exit)
 //   heal()        -> force a venv rebuild + re-resolve the interpreter (early-import-failure recovery);
 //                    returning `false` means the rebuild cannot finish while this connection can still be
@@ -346,12 +387,14 @@ export function createSupervisor({
   cancel = (handle) => clearTimeout(handle),
   log = serverLog,
   onChildSpawned = () => {},
-  // Did the child that just exited write its readiness marker (i.e. begin serving)? Injectable so tests
-  // drive the post-init vs startup classification without a real engine; production reads the marker file.
-  servedInit = (startedAtMs) => markerServedInit(startedAtMs),
-  // Clear the readiness marker before each (re)spawn so only the new child can (re)write it. Injectable
-  // so the loop tests stay hermetic (no real filesystem marker).
-  clearMarker = () => clearReadyMarker(),
+  // The readiness-marker path for the next child: a new one per spawn, never shared (0.11.2).
+  newMarker = () => newReadyMarker(),
+  // Did the child that just exited write the marker it was handed (i.e. begin serving)? Injectable so
+  // tests drive the post-init vs startup classification without a real engine; production reads the file.
+  servedInit = (marker) => markerServedInit(marker),
+  // Remove a child's marker once its exit has been read. Injectable so the loop tests stay hermetic (no
+  // real filesystem marker).
+  clearMarker = (marker) => clearReadyMarker(marker),
   policy = SUPERVISOR,
 } = {}) {
   let child = null;
@@ -379,9 +422,9 @@ export function createSupervisor({
   }
 
   function spawnOnce() {
-    clearMarker(); // drop any stale readiness marker so it can only be (re)written by THIS child
+    const marker = newMarker(); // this child's own readiness marker: no other process writes or removes it
     startedAt = now();
-    child = spawnEngine();
+    child = spawnEngine(marker);
     child.on("error", (e) => {
       // A spawn-level error (ENOENT, EACCES) is not a server crash-loop — the binary can't run at all,
       // so relaunching would just thrash. Log it and give up cleanly.
@@ -389,16 +432,17 @@ export function createSupervisor({
       process.stderr.write(`[burgess] failed to start engine server: ${e.message}\n`);
       exit(1);
     });
-    child.on("exit", (code, signal) => onChildExit(code, signal));
+    child.on("exit", (code, signal) => onChildExit(code, signal, marker));
     onChildSpawned(child);
     return child;
   }
 
-  function onChildExit(code, signal) {
+  function onChildExit(code, signal, marker) {
     child = null;
     const t = now();
     const ranForMs = t - startedAt;
-    const served = servedInit(startedAt); // did this child write its readiness marker (begin serving)?
+    const served = servedInit(marker); // did this child write its readiness marker (begin serving)?
+    clearMarker(marker); // read once; a crash leaves it behind, and a relaunch is handed a new one
     restartTimes = restartTimes.filter((ts) => t - ts < policy.RESTART_WINDOW_MS);
     const decision = restartDecision(
       { code, signal, ranForMs, shuttingDown, triedHeal, recentRestartCount: restartTimes.length, servedInit: served },
@@ -493,7 +537,8 @@ function main() {
   const sup = createSupervisor({
     // stdio: "inherit" — the engine owns the real JSON-RPC stdio; Node's fds ARE the client pipe, kept
     // open across restarts, so the OS-level connection is never torn down when the engine relaunches.
-    spawnEngine: () => spawn(py, ["-m", "kg_engine.server"], { stdio: "inherit", env }),
+    spawnEngine: (marker) =>
+      spawn(py, ["-m", "kg_engine.server"], { stdio: "inherit", env: { ...env, [READY_MARKER_ENV]: marker } }),
     heal: () => {
       if (!sysPy) return true; // nothing to rebuild with: relaunch as is, as before
       // Same connect window as the initial wait, so the heal can only use what the startup left of it.
@@ -510,7 +555,8 @@ function main() {
   });
   sup.installSignalHandlers();
   installProcessGuards();
-  serverLog(`supervisor up (py=${py})`);
+  const swept = sweepStaleReadyMarkers();
+  serverLog(`supervisor up (py=${py})${swept ? ` (removed ${swept} stale readiness marker${swept === 1 ? "" : "s"})` : ""}`);
   sup.start();
 }
 

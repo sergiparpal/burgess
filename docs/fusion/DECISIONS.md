@@ -567,3 +567,24 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The three field edges keep their overturned leads in their notes, with no `lead: none`, until their next change of state. Being grounded, they are not pending meanwhile.
   - `lead: none` is a reserved segment. A lead whose head is a node called `none` still reads as a lead, since it has three words.
 - **Pinned in:** `tests/test_fix_overturned_lead.py`. Against the 0.11.0 engine, with `LEAD_NONE` defined in the test, 8 of its 11 tests fail; the other 3 pin what stays the same.
+
+## Each engine has its own readiness marker (2026-11-09)
+
+- **Decision:** the supervisor names a fresh readiness-marker file in `KG_DATA` for each engine it spawns (`.engine-ready-<supervisor pid>-<12 hex digits>`) and hands its path to the engine in `KG_READY_MARKER`.
+  - The engine writes the file as its serve loop comes up and removes it when it shuts down cleanly. The supervisor reads it once the child has exited, then removes it.
+  - An engine started without `KG_READY_MARKER` writes no marker.
+  - A supervisor removes markers more than an hour old as it starts, the single `.engine-ready` of earlier versions included.
+- **Bug it fixes:** sessions shared one marker. The supervisor exits after a crash once the engine has served `initialize`, because a relaunch would sit uninitialized on a connection the client has already set up. A crash during startup gets one venv rebuild and a relaunch in place instead. The marker is what tells the two apart, and through 0.11.1 every engine wrote it as `.engine-ready` in `KG_DATA`. An installed plugin sets `KG_DATA` to `CLAUDE_PLUGIN_DATA`, one dir for every session on the machine, whatever its folder.
+  - A supervisor deleted the marker before each spawn, and an engine deleted it as it shut down cleanly, whichever session had written it. A marker another session's engine had just written passed for this one's.
+  - So a crash in an engine's first 20 s (`EARLY_FAILURE_MS`) could be read either way wrong when another session started or stopped its engine meanwhile. A post-init crash could pass for a startup failure, with a venv rebuild nobody needed and a relaunch onto a dead connection: the case the marker was added to prevent. A startup failure could pass for a post-init crash, with no self-heal.
+  - Found on 2026-11-09 while checking the Windows install after 0.11.1. Its `server.log` showed a desktop session in another folder on 0.11.0 and the prueba-burgess terminal session on 0.11.1 running engines at once. No crash had hit it: all 21 exits in that log were clean.
+- **Why a path the supervisor hands over, not the engine's pid:** on Windows the venv's `python.exe` is a launcher that starts the real interpreter as its own child. On the user's machine that day, the supervisor (`node.exe` 33352) spawned `.venv\Scripts\python.exe` as 34792, which started uv's CPython 3.12 as 496. The engine's marker said `pid=496`, and the supervisor only knew 34792. A name the supervisor chooses needs no pid, and no mtime comparison against the spawn time either, so the 2 s clock slack goes.
+- **Why a sweep, and why an hour:** a per-spawn name is never reused. So a marker left by an engine killed together with its supervisor, with nobody left to read it, would stay for good. A marker only decides how an exit in its engine's first 20 s is read, so one an hour old matters to nobody. Sessions of 0.11.1 or earlier clear their shared marker before each spawn, so sweeping a stale one takes nothing from them either.
+- **Rejected alternatives:**
+  - (a) *Keep one marker and check the pid written in it:* a spawn and a clean shutdown would still delete other sessions' markers, and on Windows the pid in the marker is not the child's.
+  - (b) *A data dir per session:* every session shares what else `KG_DATA` holds: the venv, the logs and the derived index, which the server and the hook reproject when it does not match their canon. Only the marker needed splitting.
+  - (c) *Drop the marker and keep only the 20 s window:* a fast post-init crash would again be relaunched onto a dead connection, the case the marker was added for.
+- **Accepted trade-offs:**
+  - Sessions still on 0.11.1 or earlier keep sharing their single marker among themselves until they update.
+  - A marker left by a hard kill stays until a supervisor starts more than an hour later.
+- **Pinned in:** `tests/test_fix_shared_ready_marker.py`. Against 0.11.1, with `READY_MARKER_ENV` replaced by its value in the test, all 11 fail; there the end-to-end startup failure is logged as `servedInit=true -> post-init-exit`.
