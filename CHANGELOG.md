@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.11.4 — 2026-11-10
+
+Found when the user asked what else to try on the Windows corpus. `/kg-eval` and `/kg-experiment`, and the
+two subagents they drive, were written for a development checkout. On an installed plugin they would have
+failed or measured the wrong thing. The user had not run either yet.
+
+### Fixed
+
+- **The commands named an interpreter that does not exist on Windows.**
+  - Every Python step named `/home/sergi/Burgess/.venv/bin/python`, a checkout on no user's machine, or
+    `${CLAUDE_PLUGIN_DATA}/.venv/bin/python`. On Windows the venv's interpreter is
+    `.venv\Scripts\python.exe`.
+  - The new `scripts/engine_python.mjs` prints the interpreter by the launcher's own rule
+    (`_engine_resolve.mjs`). Every Bash block that runs the engine resolves it first, since each Bash call
+    is a fresh shell. On the user's machine it prints the interpreter the launcher logs.
+  - The operating guide's CLI reference (`tools.md` §2) and `pack-schema.md` carried the same paths.
+- **Paths that are never filled in.**
+  - Claude Code fills in only the exact `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}` and
+    `${CLAUDE_PROJECT_DIR}` tokens (read from the 2.1.316 binary). The commands used `${VAR:-default}`
+    forms, which reach the shell untouched.
+  - So `/kg-eval` looked for its graph in `<project>/.kg-data/derived/graph.json` and would have told the
+    user to run `/kg-build` first, and `/kg-experiment` wrote its outputs under `/tmp`.
+  - `/kg-generate` had the same form: its absorption ledger would have landed in `<project>/.kg-data/derived`,
+    where `kg_absorption` never looks. It is fixed here too.
+  - Each path is now an exact token: the derived graph and the ledger in `${CLAUDE_PLUGIN_DATA}/derived`;
+    `PROGRESS.md` and the run's files in the project, under `.kg/eval/` and `.kg/experiment/`.
+- **A source that is a folder.**
+  - The configured source can be a folder of documents; the Windows corpus is eight in one. The commands
+    read the repo's `examples/source.md` instead.
+  - `harness specificity` and the LightRAG arm read the path with `read_text`, which fails on a folder.
+    They now read it as `SourceSet(path).concat`, the projector's own input, so the specificity gate's IDF
+    corpus is the projector's for a folder too. A single file reads byte for byte as before.
+  - `harness ideation` takes the source as a second path, so the evaluator no longer pastes the corpus into
+    its JSON.
+  - The LightRAG arm keyed its index rebuild on `stat()` of the path, which misses an in-place edit inside a
+    folder. It now uses the per-document signature.
+  - The annotator reads the document that each row's `source_file` names.
+- **The experiment's default prompts were about the demo corpus.**
+  - On any other corpus they asked about concepts the graph does not hold, every arm answered from the
+    model's prior, and the verdict measured nothing.
+  - They are now used only when the source is the plugin's own `examples/source.md`. Otherwise the command
+    drafts 12 prompts of the same kinds from the user's graph (`kg_agenda` and `kg_context`), in the
+    corpus's language. It saves them under `.kg/experiment/` and shows them, and a rerun can pass that file
+    to repeat the experiment.
+- **Below target, `/kg-eval` edited the plugin and rebuilt the canon.**
+  - Its auto-iterate loop edited `pack.yaml` and `agents/extractor.md` and re-ran `/kg-build`. In an
+    installed copy that edits one version's cache, which every project shares and the next update replaces,
+    and it rewrites the user's canon.
+  - Now an installed copy (under `plugins/cache`) records the refinements it would make. Only a development
+    checkout edits and re-extracts.
+- `/kg-eval` first asks the engine for a fresh projection (`query_graph`), because every session on the
+  machine shares the derived dir.
+
+### Tests
+
+- `tests/test_fix_field_eval_experiment.py` (66, most of them per-file checks):
+  - every `${CLAUDE_*}` in commands, agents and skills is a token Claude Code fills in, with no default form;
+  - no development path and no spelled-out venv interpreter;
+  - every Bash block that runs the engine resolves the interpreter first;
+  - what `/kg-eval`, `/kg-experiment`, both subagents and `/kg-generate` read and write;
+  - `engine_python.mjs`: the pointer, the conventional path, `KG_ENGINE_VENV`, nothing provisioned, an
+    unfilled token;
+  - the harness reads a folder exactly as the projector does and a file byte for byte as before, and an
+    empty folder is a clean error; `ideation` scores against a source given by path; the LightRAG signature
+    sees an in-place edit inside a folder.
+  - Against 0.11.3, 29 fail. The other 37 hold there too: per-file checks on texts that were already clean,
+    plus two guards (a single file reads as before, and an embedded source still scores without a path).
+- `tests/test_launchers.py` also runs `node --check` on `engine_python.mjs`.
+- 1719 → 1786 passed, 3 skipped.
+
 ## 0.11.3 — 2026-11-10
 
 Found while reviewing a `/kg-view` run on the Windows corpus: 425 nodes and 221 edges, of which 162 grounded,

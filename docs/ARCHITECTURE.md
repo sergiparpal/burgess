@@ -565,6 +565,15 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
 
 Every metric measures; none gates the pipeline — verdicts run on their own advisory thresholds.
 
+The commands that drive these CLIs (`/kg-eval`, `/kg-experiment` and their subagents) run them with the
+engine's own interpreter, which `scripts/engine_python.mjs` prints by the launcher's own rule
+(`_engine_resolve.mjs`: `KG_ENGINE_VENV`, else `<plugin data>/.venv`, else `<plugin root>/.venv`; the
+bootstrap pointer, else the platform's conventional path). A source argument may be one file or a folder of
+`.md`/`.txt` documents; the CLIs read it as `SourceSet(path).concat`, the projector's own input, so the
+specificity gate's IDF corpus is the projector's. In an installed copy (under `plugins/cache`) `/kg-eval`
+below target records the pack/extractor refinements it would make; only a development checkout edits them
+and re-extracts (0.11.4).
+
 - `python -m kg_engine.harness agreement` — nominal Krippendorff's α across independent coders;
   reliable at **α ≥ 0.67**, below that the grounding signal stays advisory.
 - `python -m kg_engine.harness specificity` — the bridge-metric gate: specificity-weighted

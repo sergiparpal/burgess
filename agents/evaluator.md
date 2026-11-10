@@ -23,11 +23,11 @@ GRAPH+GENERATE, then all RAG — never interleave, and never let a later conditi
 
 | condition | grounding source | rule |
 |-----------|------------------|------|
-| **control** | none | Answer from the prompt alone. No `mcp__plugin_burgess_burgess__kg_context`, no `examples/source.md`, no graph. Pure model prior. |
+| **control** | none | Answer from the prompt alone. No `mcp__plugin_burgess_burgess__kg_context`, no source document, no graph. Pure model prior. |
 | **graph** | `mcp__plugin_burgess_burgess__kg_context` `items[]` (+ the `advisory.signal:"structural-bridge"` hint) | Ground every idea in the returned **grounded** `items[]` edges and `advisory.nodes[]`. You MAY also call `query_graph` to expand. |
 | **graph+generate** | the same call's `items[]` **plus** its `hypotheses[]` (the unverified slate) | Ground each idea in the grounded `items[]` AND the hypothesized proposals — clearly treated as *unverified candidates*. Tests whether *generating* lifts ideation beyond grounded context alone (Stage 9). |
-| **rag** | flat retrieval over `examples/source.md` | Grep/read the raw source as undifferentiated text. NO graph structure: no epistemic_state, no bridges, no falsification counters, no degree. Just the prose. |
-| **lightrag** *(optional, off by default)* | a real LightRAG GraphRAG index over the **same** `examples/source.md` | Build/query a published GraphRAG baseline through its OWN retrieval. Same prose corpus as `rag`, structure-blind to OUR graph: it never reads our canon's epistemic_state, bridges, falsification counters, degree, or any `kg_*` output. Run **only** when available (see "The optional lightrag arm" below); otherwise OMIT the key entirely. |
+| **rag** | flat retrieval over the source documents | Grep/read the raw source as undifferentiated text. NO graph structure: no epistemic_state, no bridges, no falsification counters, no degree. Just the prose. |
+| **lightrag** *(optional, off by default)* | a real LightRAG GraphRAG index over the **same** source documents | Build/query a published GraphRAG baseline through its OWN retrieval. Same prose corpus as `rag`, structure-blind to OUR graph: it never reads our canon's epistemic_state, bridges, falsification counters, degree, or any `kg_*` output. Run **only** when available (see "The optional lightrag arm" below); otherwise OMIT the key entirely. |
 
 The GRAPH condition's whole advantage must come from *structure* — community bridges, grounded vs
 unverified edges, the memory of failures — that RAG cannot see in flat prose. GRAPH+GENERATE adds *only* the
@@ -43,18 +43,22 @@ answers from it. It is an **opt-in** comparison arm and is **off by default**. R
 engine reports it available, and never let its absence break the run:
 
 ```bash
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
 # is the arm runnable here? (needs KG_LIGHTRAG=1, the lightrag-hku package, and OPENAI_API_KEY)
-PYTHONPATH="$SCRIPTS" "$PY" -m kg_engine.lightrag_arm check    # -> {"available": true|false, "reason": "..."}
+"$PY" -m kg_engine.lightrag_arm check    # -> {"available": true|false, "reason": "..."}
 ```
 
 - If `available` is **false**: **omit** the `lightrag` key from `outputs` entirely and proceed with the four
   standard arms. Do not fabricate answers, do not error — a missing optional arm is normal.
-- If `available` is **true**: write your fixed prompt set to a JSON file (an array of strings) and let the
-  isolated helper build/load the index over `examples/source.md` **once** and answer every prompt:
+- If `available` is **true**: let the isolated helper build/load the index over the source documents
+  **once** and answer every prompt from the prompt file you were given (a JSON array of strings):
   ```bash
-  PYTHONPATH="$SCRIPTS" "$PY" -m kg_engine.lightrag_arm answer \
-      --source /home/sergi/Burgess/examples/source.md \
-      --prompts prompts.json --out lightrag_answers.json    # -> {"answers": ["...", ...]}
+  PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+  export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+  "$PY" -m kg_engine.lightrag_arm answer \
+      --source "<the source path you were given>" \
+      --prompts "<the prompt file>" --out "<next to your outputs file>/lightrag_answers.json"    # -> {"answers": ["...", ...]}
   ```
   Read `lightrag_answers.json` (`answers[k]` is the response to prompt `k`, same order as every other arm)
   into `outputs.lightrag`. The helper owns the LightRAG dependency, the OpenAI calls, and the gitignored
@@ -101,16 +105,24 @@ chance, not a rigged one.
 
 ## Input
 
-- `$1` (optional): path to a prompt file (one ideation prompt per non-empty line). If absent,
-  derive the prompt set yourself from the domain (see "Drawing prompts" below).
-- `$2` (optional): number of prompts. **Default 12.** Allow a custom count; use the first N from
-  the file, or generate N.
+The caller (normally `/kg-experiment`) gives you:
 
-Confirm the graph is reachable before you start:
+- **the prompt file**: a JSON array of strings, or one ideation prompt per non-empty line. If none is
+  given, derive the prompt set yourself from the graph (see "Drawing prompts" below). Default size 12;
+  use a custom count when the caller asks for one.
+- **the source**: the configured `source_path`. It is one file, or a folder whose `.md`/`.txt` files are
+  the documents. The RAG pass and the optional LightRAG arm read it; the harness scores against it.
+- **the output path**: where to write your JSON (`<project>/.kg/experiment/ideation_outputs.json`).
+
+Confirm the engine's interpreter and the graph before you start. Each Bash call is a fresh shell, so begin
+every Bash call that runs the engine with the first two lines below; `engine_python.mjs` prints the
+interpreter the plugin's launcher uses (`.venv\Scripts\python.exe` on Windows, `.venv/bin/python`
+elsewhere):
 
 ```bash
-# dev: repo venv; runtime: ${CLAUDE_PLUGIN_DATA}/.venv/bin/python with PYTHONPATH=${CLAUDE_PLUGIN_ROOT}/scripts
-/home/sergi/Burgess/.venv/bin/python -c "import json,sys" 2>/dev/null
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+"$PY" -c "import kg_engine.harness"
 ```
 
 and probe the surface with `mcp__plugin_burgess_burgess__kg_context(query=None, budget=2000)`. If `items`
@@ -122,8 +134,10 @@ experiment is pointless with no graph).
 ## Output (exactly this — it is the harness's input)
 
 Emit a single JSON object. `outputs` holds the raw answer strings per condition, in prompt order
-(answer *k* in each list is the response to prompt *k*). `source` is the full text of
-`examples/source.md`, so the harness can score novelty and unsupported_rate against it.
+(answer *k* in each list is the response to prompt *k*). Do **not** paste the source into it: the caller
+hands the harness the source path, and the harness reads the documents itself to score novelty and
+unsupported_rate. (A `"source"` string is still accepted when no path is given, but a real corpus can be
+many documents long.)
 
 ```json
 {
@@ -133,8 +147,7 @@ Emit a single JSON object. `outputs` holds the raw answer strings per condition,
     "graph+generate": ["<answer to prompt 1>", "<answer to prompt 2>", "..."],
     "rag":            ["<answer to prompt 1>", "<answer to prompt 2>", "..."],
     "lightrag":       ["<answer to prompt 1>", "<answer to prompt 2>", "..."]
-  },
-  "source": "<full text of examples/source.md>"
+  }
 }
 ```
 
@@ -144,7 +157,9 @@ prompts), in the same prompt order. The harness scores whatever arms are present
 is simply absent from its table — never an error. This object is consumed verbatim by:
 
 ```bash
-python -m kg_engine.harness ideation outputs.json
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+"$PY" -m kg_engine.harness ideation "<outputs.json>" "<the source path>"
 ```
 
 which returns `{"table": {control,graph,graph+generate,rag[,lightrag] → {n,diversity,novelty,utility,unsupported_rate}},
@@ -159,13 +174,12 @@ GRAPH+GENERATE.
 
 ## Procedure
 
-1. **Read the source.** `Read /home/sergi/Burgess/examples/source.md` once. You need its
-   full text for the `source` field and to keep your GRAPH/RAG ideas anchored in real vocabulary
-   (compression, generality confound, span-present, betweenness, specificity, bridges, falsification,
-   canon, projection). This is also the RAG corpus.
+1. **Get to know the source.** It is the RAG corpus, and your GRAPH/RAG ideas should stay anchored in
+   its own vocabulary. You do not need its whole text in your context (the harness reads it by path): a
+   folder can hold many documents, so `Grep` it and `Read` the passages you need.
 
-2. **Draw the prompt set** (`$1`/`$2` or derive — see below). Fix it once. Same prompts for all
-   four conditions.
+2. **Draw the prompt set** (the caller's prompt file, or derive — see below). Fix it once. Same prompts
+   for all four conditions.
 
 3. **CONTROL pass.** For each prompt, answer 2-4 sentences from the model prior only. Do NOT open
    any tool or file. Collect into `outputs.control` in order.
@@ -181,25 +195,27 @@ GRAPH+GENERATE.
    fact — no fabricated verdicts or spans). Collect into `outputs["graph+generate"]`. This arm's only
    difference from GRAPH is the added slate, so its delta isolates the value of generation (Stage 9).
 
-6. **RAG pass.** For each prompt: `Grep` the prompt's keyword in `examples/source.md`, read the
-   surrounding flat prose, answer from that text *as undifferentiated source* — no epistemic state,
-   no bridge ranks, no failure memory. Collect into `outputs.rag`.
+6. **RAG pass.** For each prompt: `Grep` the prompt's keyword across the source documents (point `Grep`
+   at the source path; for a folder it searches every document), read the surrounding flat prose,
+   answer from that text *as undifferentiated source* — no epistemic state, no bridge ranks, no failure
+   memory. Collect into `outputs.rag`.
 
 7. **LIGHTRAG pass (optional).** Run `kg_engine.lightrag_arm check`. If it reports `available:false`,
-   **skip this arm** and omit the `lightrag` key. If `available:true`, write the fixed prompt set to a
-   JSON array file and run `kg_engine.lightrag_arm answer --source examples/source.md --prompts … --out …`
+   **skip this arm** and omit the `lightrag` key. If `available:true`, run
+   `kg_engine.lightrag_arm answer --source <the source path> --prompts <the prompt file> --out …`
    (it builds/loads the index over the same corpus once and answers every prompt via LightRAG's own
    retrieval), then read its `answers[]` into `outputs.lightrag`. You do NOT feed our graph into this
    arm — it sees prose only. See "The optional lightrag arm" above for the exact commands.
 
-8. **Assemble & emit** the JSON object above. Write it to a file (e.g. `outputs.json`) so the harness
-   can read it, and print the path. Do NOT score it yourself — invoking the harness is the caller's
-   step (you may run it as a convenience and echo the JSON verdict, but the verdict is the harness's).
+8. **Assemble & emit** the JSON object above. Write it to the output path you were given (or
+   `outputs.json` when none was) so the harness can read it, and print the path. Do NOT score it
+   yourself — invoking the harness is the caller's step (you may run it as a convenience and echo the
+   JSON verdict, but the verdict is the harness's).
 
-### Drawing prompts (when no `$1` is given)
-Generate `$2` (default 12) open-ended ideation prompts *from the domain*, each naming one or two real
-concepts from the source so all four conditions have something to grab. Vary the shape so diversity
-is measurable. Examples:
+### Drawing prompts (when no prompt file is given)
+Generate the requested number (default 12) of open-ended ideation prompts *from the graph*, in the
+corpus's own language, each naming one or two real grounded concepts so all four conditions have
+something to grab. Vary the shape so diversity is measurable. Examples, from the demo corpus:
 - "How might *specificity* defend a graph against the *generality confound*?"
 - "Propose a new use for *negative information* (failed claims) beyond rejection-on-sight."
 - "What bridges might connect *provenance* and *betweenness*?"
@@ -238,7 +254,7 @@ Note: every GRAPH idea names a relation/state the graph *actually returned* (`gr
 source vocabulary — no invented edges. The failure-counter idea is a structural advantage RAG cannot
 reach. This is grounding, not smuggling.
 
-**RAG** — `Grep "span" examples/source.md`, read §2 prose, answer from flat text:
+**RAG** — `Grep "span"` over the source (the demo's `examples/source.md`), read §2 prose, answer from flat text:
 ```
 [0] "The text says a span-present claim cites a verbatim span a reader can check, and that this grounds a claim more strongly than inference; a claim with no supporting span is rejected."
 [1] "The source says a failed claim is negative information that must be recorded and never pruned, because the record of what was refuted defends against re-proposing it."
@@ -255,17 +271,18 @@ RAG faithfully paraphrases the prose but has no access to epistemic state, the l
     "graph":          ["The graph marks span-present ...", "Because the graph keeps failed edges ...", "Betweenness surfaces ..."],
     "graph+generate": ["The graph marks span-present ...; a hypothesized bridge candidate further suggests ...", "Because failed edges persist ...; an unverified proposal hints ...", "Betweenness surfaces ...; a proposed compression candidate would ..."],
     "rag":            ["The text says a span-present ...", "The source says a failed claim ...", "Per the prose, raw betweenness ..."]
-  },
-  "source": "# A theory of grounded conceptual knowledge\n..."
+  }
 }
 ```
 
 (GRAPH+GENERATE reuses the GRAPH answers' grounded context and layers in the same call's `hypotheses[]`
 candidates, always flagged as unverified — never asserted as fact.)
 
-Then (caller's scoring step):
+Then (caller's scoring step, with the source path as the second argument):
 ```bash
-python -m kg_engine.harness ideation outputs.json
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+"$PY" -m kg_engine.harness ideation outputs.json examples/source.md
 # -> {"table": {...}, "verdict": "graph condition produced more diverse/novel ideas without more unsupported claims",
 #     "generate_verdict": "graph+generate beat control on diversity/novelty without more unsupported claims"}
 ```
@@ -274,11 +291,11 @@ python -m kg_engine.harness ideation outputs.json
 
 ## Self-check before you emit
 - [ ] Every **present** arm's list has length `n` (default 12), all in the same prompt order. The four standard arms (`control`, `graph`, `graph+generate`, `rag`) are always present; `lightrag` is present **iff** the arm was available — when omitted, the other four still each have length `n`.
-- [ ] CONTROL used no tools/files; RAG used only flat `examples/source.md`; GRAPH used `kg_context` `items[]`/`query_graph`; GRAPH+GENERATE reused the same `kg_context` call's `hypotheses[]` on top of `items[]`; LIGHTRAG (if present) used only the isolated `kg_engine.lightrag_arm` over the same prose corpus — never OUR graph's structure.
+- [ ] CONTROL used no tools/files; RAG used only the flat source documents; GRAPH used `kg_context` `items[]`/`query_graph`; GRAPH+GENERATE reused the same `kg_context` call's `hypotheses[]` on top of `items[]`; LIGHTRAG (if present) used only the isolated `kg_engine.lightrag_arm` over the same prose corpus — never OUR graph's structure.
 - [ ] Every GRAPH idea traces to a real `items[]` edge or `advisory.nodes[]` node — no invented structure; every GRAPH+GENERATE idea traces to a real `items[]` edge or a returned `hypotheses[]` candidate (flagged unverified).
 - [ ] No GRAPH sentence asserts a vague node "connects everything" (generality confound, §1.6).
 - [ ] If `failed_or_rejected_edges > 0`, no GRAPH idea re-treads a known-failed connection.
-- [ ] `source` contains the FULL text of `examples/source.md`.
+- [ ] The JSON holds `outputs` only — no pasted source; the harness reads the source by path.
 - [ ] You did NOT compute diversity/novelty/utility/unsupported_rate yourself — that is `harness.ideation`'s job.
 
 ## The dpp arm (FUSION Stage 6)

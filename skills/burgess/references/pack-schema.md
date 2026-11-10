@@ -228,7 +228,7 @@ python -m kg_engine.pack validate pack/pack.yaml
 
 # validate + coverage (pass a source path)
 python -m kg_engine.pack validate pack/pack.yaml examples/source.md
-# (dev: /home/sergi/Burgess/.venv/bin/python -m kg_engine.pack ...  or  uv run)
+# (the interpreter is the engine's own: see tools.md §2 for engine_python.mjs; in a dev checkout, `uv run` works)
 ```
 
 Real output for the demo pack + source (a fully grounded pack — both ratios at 1.0):

@@ -48,6 +48,7 @@ from .envconfig import clean_env as _clean_env
 from .envconfig import plugin_option
 from .envconfig import resolve_data_dir as _resolve_data_dir
 from .envconfig import resolve_project as _resolve_project
+from .sources import SourceSet
 
 # A marker LightRAG writes once a document has been indexed into a working_dir, so a second run loads
 # the cached index instead of re-extracting (which would re-spend LLM tokens on entity extraction).
@@ -59,15 +60,15 @@ _SIGNATURE_FILE = "kg_source_signature.json"
 
 
 def _source_signature(source_path: Path) -> str:
-    """A cheap ``(name, size, mtime_ns)`` content signature of the corpus, mirroring
-    ``sources.SourceSet.signature`` (no content read). ``st_mtime_ns`` is nanosecond-resolution so even a
-    same-second in-place edit invalidates it. A missing/unstat-able source yields a stable placeholder
-    rather than raising, so callers can compare freely."""
-    try:
-        st = source_path.stat()
-        return json.dumps([source_path.name, st.st_size, st.st_mtime_ns])
-    except OSError:
-        return json.dumps([source_path.name, None, None])
+    """A cheap content signature of the corpus: ``sources.SourceSet.signature``, one ``(name, size,
+    mtime_ns)`` per resolved document (no content read). ``st_mtime_ns`` is nanosecond-resolution so even a
+    same-second in-place edit invalidates it. A missing source yields a stable placeholder rather than
+    raising, so callers can compare freely.
+
+    Through 0.11.3 this stat()ed the path itself. For a folder source (0.11.4) that is the folder's own
+    entry, whose mtime does not move when a document inside is edited in place, so a stale index would
+    have been served; the per-document signature catches it."""
+    return json.dumps(SourceSet.signature(source_path))
 
 
 def _needs_rebuild(working_dir: Path, source_path: Path) -> bool:
@@ -130,7 +131,9 @@ async def _answer_async(prompts: list[str], source_path: Path, working_dir: Path
     # (review-r8-9). No restore is needed (this arm never writes back to the canon); on the intended
     # public examples/source.md the scrub is a no-op, so experiment results are unchanged.
     from .scrub import Scrubber
-    raw = source_path.read_text(encoding="utf-8")
+    # The corpus as the projector reads the configured source (0.11.4): one file, or a folder (or glob) of
+    # .md/.txt documents, concatenated in SourceSet's stable order. A single file reads byte-identically.
+    raw = SourceSet(source_path).concat
     text = Scrubber(plugin_option("SENSITIVITY", "medium")).scrub(raw)[0]
     mode = query_mode()
 
@@ -164,7 +167,8 @@ async def _answer_async(prompts: list[str], source_path: Path, working_dir: Path
 
 
 def answer_prompts(prompts: list[str], source_path: Path, working_dir: Path | None = None) -> list[str]:
-    """Answer each prompt from a LightRAG index built over `source_path` (== examples/source.md).
+    """Answer each prompt from a LightRAG index built over `source_path`: the configured source, one file
+    or a folder of .md/.txt documents (examples/source.md in the demo).
 
     Builds/loads the index once, then queries it per prompt — all on a SINGLE event loop. Raises if the
     arm is unavailable (the caller is expected to gate on `availability()` first) or if `source_path` is
@@ -174,8 +178,8 @@ def answer_prompts(prompts: list[str], source_path: Path, working_dir: Path | No
     ok, reason = availability()
     if not ok:
         raise RuntimeError(f"lightrag arm unavailable: {reason}")
-    if not source_path.exists():
-        raise FileNotFoundError(f"source not found: {source_path}")
+    if not SourceSet.resolve(source_path):
+        raise FileNotFoundError(f"source not found or holds no .md/.txt document: {source_path}")
     working_dir = working_dir or default_store_dir()
     return asyncio.run(_answer_async(prompts, source_path, working_dir))
 
@@ -203,7 +207,8 @@ def _main(argv: list[str]) -> int:
     sub.add_parser("check", help="report whether the lightrag arm is runnable (JSON {available, reason})")
 
     ans = sub.add_parser("answer", help="build/load the index and answer prompts (JSON {answers: [...]})")
-    ans.add_argument("--source", required=True, help="path to the corpus (examples/source.md)")
+    ans.add_argument("--source", required=True,
+                     help="the corpus: one file, or a folder of .md/.txt documents (the configured source_path)")
     ans.add_argument("--prompts", required=True, help="path to prompts (JSON array / {prompts:[]} / lines)")
     ans.add_argument("--out", help="write the answers JSON here instead of stdout")
     ans.add_argument("--store", help="LightRAG working dir (default: <derived>/lightrag)")

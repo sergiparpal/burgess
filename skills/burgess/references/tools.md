@@ -1006,10 +1006,19 @@ propose lane** (`kg_propose` → the same boundary as every write):
 
 ## 2 · Deterministic CLI surface
 
-Run via Bash. **Dev**: repo venv `/home/sergi/Burgess/.venv/bin/python` (or `uv run`). **Runtime**:
-`${CLAUDE_PLUGIN_DATA}/.venv/bin/python` with `PYTHONPATH=${CLAUDE_PLUGIN_ROOT}/scripts`. The `kg_engine.*`
-module CLIs require that `PYTHONPATH`; `f4_probe.py` is a standalone script. None of these gate the pipeline —
-each prints a number + verdict; the orchestration logs it and proceeds (§4).
+Run via Bash, with the engine's own interpreter. `scripts/engine_python.mjs` prints it, resolved the way the
+plugin's launcher resolves it (`.venv\Scripts\python.exe` on Windows, `.venv/bin/python` elsewhere); each Bash
+call is a fresh shell, so resolve it in the same call that uses it:
+
+```bash
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+```
+
+(In a development checkout, `uv run` from the repo root works too.) The `kg_engine.*` module CLIs require
+that `PYTHONPATH`; `f4_probe.py` is a standalone script. A source path may be one file or a folder of
+`.md`/`.txt` documents; the CLIs read it the way the projector does. None of these gate the pipeline — each
+prints a number + verdict; the orchestration logs it and proceeds (§4).
 
 ### 2.1 `f4_probe.py` — extraction precision scorer
 

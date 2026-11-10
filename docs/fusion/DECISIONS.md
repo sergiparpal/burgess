@@ -603,3 +603,26 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - (b) *Leave single-node communities out of the report:* those nodes would vanish from it, and the entries would no longer add up to the node count.
   - (c) *Keep one entry per single-node community but shorter:* still one line per unconnected node, 172 on the corpus.
 - **Pinned in:** `tests/test_fix_report_caps.py`. Against 0.11.2, 7 of its 10 tests fail; the other 3 pin what must not change.
+
+## The measurement commands run on an installed plugin (2026-11-10)
+
+- **Decision:** `/kg-eval` and `/kg-experiment`, and the annotator and evaluator they drive, run wherever the plugin is installed, Windows included.
+  - Every path comes from a token Claude Code fills in: `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${CLAUDE_PROJECT_DIR}` and `${user_config.source_path}`.
+  - The engine's interpreter comes from `scripts/engine_python.mjs`, the launcher's own rule, and every Bash block that runs the engine resolves it first.
+  - A source may be a folder of documents. The harness and the LightRAG arm read it as the projector does, as `SourceSet(path).concat`.
+  - `/kg-experiment` drafts its prompts from the user's graph unless the source is the demo corpus, and saves them so a rerun can reuse them.
+  - Below target, an installed copy of `/kg-eval` records the refinements it would make instead of editing itself and rebuilding the canon. A development checkout iterates as before.
+- **What it fixes:** found on 2026-11-10, when the user asked what else to try on the Windows corpus. Neither command had been run there; as written, both would have failed or measured the wrong thing.
+  - Every Python step named `/home/sergi/Burgess/.venv/bin/python` or `${CLAUDE_PLUGIN_DATA}/.venv/bin/python`. Neither exists on the user's machine; on Windows the interpreter is `.venv\Scripts\python.exe`.
+  - `${VAR:-default}` paths are never filled in, so `/kg-eval` would have looked for its graph in `<project>/.kg-data` and told the user to run `/kg-build`, `/kg-experiment` would have written under `/tmp`, and `/kg-generate`'s absorption ledger would have landed where `kg_absorption` never looks.
+  - The source was the repo's `examples/source.md`, and the harness CLI read its path with `read_text`, which fails on the user's folder of eight documents.
+  - The 12 default prompts name the demo's concepts. On another corpus every arm answers them from the model's prior.
+- **Why a resolver script, not a path in the text:** the launcher's rule has three levels of precedence (`KG_ENGINE_VENV`, the plugin data venv, the plugin root's venv) and a per-platform fallback after the bootstrap pointer. Spelling it out in Markdown forks it, and a fork is how `.venv/bin/python` got there. The script takes the plugin data dir as an argument because a command's Bash steps cannot count on plugin variables in their environment.
+- **Why exact tokens:** read from the 2.1.316 binary. The plugin loader replaces exactly `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}` and, for a local session, `${CLAUDE_PROJECT_DIR}`; a `${X:-default}` form reaches the shell as typed.
+- **Why recommend instead of iterate in an installed copy:** the copy under `plugins/cache` belongs to one version, every project on the machine shares it, and the next update replaces it. Re-extraction rewrites the user's canon, and a measurement must not change what it measures.
+- **Why drafted prompts are saved:** the experiment's verdict compares arms over one fixed prompt set. A drafted set is written to `.kg/experiment/` and recorded in `PROGRESS.md`, so the run can be repeated on the same prompts.
+- **Rejected alternatives:**
+  - (a) *Spell `.venv\Scripts\python.exe` for Windows in the text:* a second copy of the launcher's rule, which would drift like the first.
+  - (b) *Keep the demo prompts as the default and ask users for their own:* on the user's corpus the default is the path taken, and it measures nothing.
+  - (c) *Let an installed copy refine a project-local pack:* the engine reads its pack from the plugin (`KG_PACK_PATH` in `.mcp.json`), so a project copy would change nothing the extractor sees.
+- **Pinned in:** `tests/test_fix_field_eval_experiment.py`. Against 0.11.3, 29 of its 66 tests fail; the other 37 are per-file checks on texts that were already clean, plus two guards.

@@ -59,8 +59,9 @@ nonsense. Do not be that reader.
 
 ## Inputs you receive
 
-You will be given the **source file path** (e.g. `examples/source.md` or whatever
-`source_file` names) and ONE of:
+You will be given the **source path**: the configured `source_path`, which is one file or a folder whose
+`.md`/`.txt` files are the documents (`examples/source.md` in the demo). In a folder, each row's document
+is the file its `source_file` column names inside it. You also get ONE of:
 
 - **(Stage 4)** a path to a `f4_probe` sheet CSV produced by
   `python scripts/f4_probe.py sheet <graph.json> --n 80 --out labels.csv`. Columns (the SHEET_COLS,
@@ -80,13 +81,15 @@ subagent's job). Your output is a CSV file and/or a JSON blob.
 
 ## Procedure — Stage 4 (precision sheet → labels.csv)
 
-1. **Read the source IN FULL** with `Read`. This is your only ground truth. Keep it loaded.
+1. **Read the source IN FULL** with `Read`: the file, or, for a folder, every document your rows cite
+   (their `source_file` values). This is your only ground truth. Keep it loaded.
 2. **Read the sheet** CSV (or the edge list you were handed).
 3. For **each row**, in isolation:
    a. Read `source_label`, `target_label`, `relation`. Form the proposition: *"<source> <relation>
       <target>"*.
-   b. `Grep` the source for the endpoints and the relation wording — search for the labels and for
-      the edge_type verb (e.g. `grep -in 'attacked_by\|attacked by\|specific' examples/source.md`).
+   b. `Grep` the row's document for the endpoints and the relation wording — search for the labels and
+      for the edge_type verb (e.g. `grep -in 'attacked_by\|attacked by\|specific' examples/source.md` in
+      the demo).
       Find the smallest verbatim span, if any, that asserts the connection.
    c. Apply the decision order above. Assign **verdict** and **span_found**.
    d. In **notes**, put the verbatim span you found (quote it), OR a one-line reason for a negative
@@ -96,13 +99,16 @@ subagent's job). Your output is a CSV file and/or a JSON blob.
    exact `SHEET_COLS` header so `f4_probe score` parses it). Preserve every original column value;
    only `verdict`, `span_found`, `notes` change. Do not add or drop columns; do not reorder.
 5. **Score it** so the orchestrator sees the gate immediately:
-   `python scripts/f4_probe.py score labels.csv`
+   ```bash
+   PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+   "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" score "<the labels.csv path>"
+   ```
    Report PRECISION (gate ≥ 0.70), astrology rate (fabricated+vague), and span-support rate.
 6. Return: the labels.csv path, the verdict breakdown counts, and whether PRECISION ≥ 0.70.
 
-> Use the repo venv in dev: `/home/sergi/Burgess/.venv/bin/python scripts/f4_probe.py …`
-> (or `uv run python scripts/f4_probe.py …`). At runtime use `${CLAUDE_PLUGIN_DATA}/.venv/bin/python`
-> with `PYTHONPATH=${CLAUDE_PLUGIN_ROOT}/scripts`.
+> `engine_python.mjs` prints the interpreter the plugin's launcher uses (`.venv\Scripts\python.exe` on
+> Windows, `.venv/bin/python` elsewhere). Each Bash call is a fresh shell, so resolve `PY` in the same
+> call that uses it.
 
 ---
 
@@ -111,7 +117,7 @@ subagent's job). Your output is a CSV file and/or a JSON blob.
 The orchestrator runs you (and other coders) on the SAME edge set. The reliability number is only
 meaningful if the passes are **independent**.
 
-1. **Read the source IN FULL.**
+1. **Read the source IN FULL**: the file, or, for a folder, every document your edges cite.
 2. **You see ONLY the edges, never another coder's labels and never your own prior pass.** Judge from
    the source alone. Do not try to "agree" with anyone — honest independent judgment is the whole
    measurement.
@@ -125,7 +131,9 @@ meaningful if the passes are **independent**.
    The orchestrator collects N such dicts into a JSON **list of coder dicts** and runs:
 
    ```bash
-   python -m kg_engine.harness agreement label_sets.json
+   PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+   export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+   "$PY" -m kg_engine.harness agreement label_sets.json
    # -> krippendorff_alpha: 0.78   (units rated by <2 coders are ignored; >= 0.67 is reliable)
    ```
 
