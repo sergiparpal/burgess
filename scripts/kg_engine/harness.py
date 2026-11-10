@@ -5,8 +5,10 @@ pipeline — each prints a number and a verdict; the orchestration logs it and p
 """
 from __future__ import annotations
 
+import csv
 import json
 import math
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -467,6 +469,118 @@ def ideation(outputs_by_condition: dict, source_text: str = "") -> dict:
     return out
 
 
+# --------------------------------------------------------------------------- who wrote a labeled edge (0.11.7)
+
+# The canon keeps every edge it has accepted since the first build, and an edge does not record which plugin
+# version wrote it. A /kg-eval sample is therefore not "the extractor's output": on the Windows corpus
+# (2026-11-10) it held first-build extractions from before 0.8.0, edges a `/kg-build --leads` pass wrote
+# and counter-edges from adversarial passes, and the run recommended extractor rules the extractor had
+# carried since 0.8.0-0.11.0. What the canon does record is each edge's writer mark and its verdict.
+
+def _value(x) -> str:
+    return str(getattr(x, "value", x))
+
+
+def edge_writer(edge) -> str:
+    """Which part of Burgess wrote a canon edge, from what the canon records about it.
+
+    `counter-edge`: its notes open with the mark an adversarial pass of /kg-ground leaves.
+    `lead`: its notes open with ``lead (from <edge-id>)``, written by `/kg-build --leads`.
+    `proposal`: still in the hypothesized lane, written by /kg-generate.
+    Otherwise its `authored_by`, with `agent` read as `extractor` (a /kg-build extraction)."""
+    from .groundplan import attacked_hub, lead_from  # lazy: `import kg_engine.harness` stays light
+    if attacked_hub(edge.notes):
+        return "counter-edge"
+    if lead_from(edge.notes):
+        return "lead"
+    if _value(edge.provenance) == "hypothesized":
+        return "proposal"
+    by = _value(edge.authored_by)
+    return "extractor" if by == "agent" else by
+
+
+def sample_writers(rows: list[dict], edges: dict) -> dict:
+    """Split a labeled f4_probe sheet by who wrote each edge and by the grounding verdict it holds now.
+
+    `rows` are the sheet's rows (an unlabeled row is skipped, as `f4_probe score` skips it); `edges` maps
+    edge id to its canon `Edge`. Returns per-writer and per-verdict counts, the rows labeled other than
+    `correct` with their writer and verdict, and the ids the canon no longer holds."""
+    by_writer: dict = defaultdict(lambda: [0, 0])
+    by_state: dict = defaultdict(lambda: [0, 0])
+    other, absent = [], []
+    for r in rows:
+        verdict = (r.get("verdict") or "").strip().lower()
+        if not verdict:
+            continue
+        eid = (r.get("edge_id") or "").strip()
+        edge = edges.get(eid)
+        if edge is None:
+            absent.append(eid)
+            continue
+        writer, state, ok = edge_writer(edge), _value(edge.epistemic_state), verdict == "correct"
+        for tally, key in ((by_writer, writer), (by_state, state)):
+            tally[key][0] += 1
+            tally[key][1] += ok
+        if not ok:
+            other.append({"edge_id": eid, "verdict": verdict, "state": state, "writer": writer})
+
+    def table(tally: dict) -> dict:
+        order = sorted(tally.items(), key=lambda kv: (-kv[1][0], kv[0]))
+        return {k: {"labeled": n, "correct": c} for k, (n, c) in order}
+
+    other.sort(key=lambda o: (o["writer"], o["state"], o["verdict"], o["edge_id"]))
+    return {"by_writer": table(by_writer), "by_state": table(by_state), "not_correct": other,
+            "absent": absent}
+
+
+_WRITER_LEGEND = ("writer: extractor = a /kg-build extraction; lead = written by /kg-build --leads from a "
+                  "grounder's lead; counter-edge = an adversarial pass of /kg-ground; proposal = /kg-generate")
+
+
+def _print_writers(res: dict) -> None:
+    print("labeled edges by writer (from each edge's canon notes):")
+    print(f"  {'writer':14} {'labeled':>7} {'correct':>8} {'precision':>10}")
+    for k, v in res["by_writer"].items():
+        print(f"  {k:14} {v['labeled']:7d} {v['correct']:8d} {v['correct'] / v['labeled']:10.2f}")
+    print("\nlabeled edges by the grounding verdict they hold now:")
+    print(f"  {'verdict':14} {'labeled':>7} {'correct':>8}")
+    for k, v in res["by_state"].items():
+        print(f"  {k:14} {v['labeled']:7d} {v['correct']:8d}")
+    print(f"\nlabeled other than correct ({len(res['not_correct'])}):")
+    for o in res["not_correct"]:
+        print(f"  {o['verdict']:12} {o['state']:11} {o['writer']:13} {o['edge_id']}")
+    if res["absent"]:
+        print(f"\nnot in the canon now ({len(res['absent'])}): " + ", ".join(res["absent"]))
+    print("\n" + _WRITER_LEGEND)
+
+
+# --------------------------------------------------------------------------- the log outside the source
+
+# /kg-eval and /kg-experiment append their results to this file under the project's `.kg/` (0.11.7).
+LOG_NAME = "PROGRESS.md"
+
+
+def legacy_log(project, source) -> "Path | None":
+    """The `PROGRESS.md` at the top of the project when it is one of the source's documents, else None.
+
+    Through 0.11.6, /kg-eval and /kg-experiment appended their results to `<project>/PROGRESS.md`. The source
+    can be the project folder itself, as on the Windows corpus, and `SourceSet` reads every `.md`/`.txt` file
+    at the top of a source folder, so the log became one more document: a build would extract it, and
+    /kg-experiment's rag arm and its scoring would read it as source. The log now lives in `<project>/.kg/`,
+    which `SourceSet` never reads (it skips dot entries). This finds a log an earlier version left in the
+    source, so the commands can tell the user. Burgess never moves or deletes it."""
+    old = Path(project) / LOG_NAME
+    if not source or not old.is_file():
+        return None
+    for doc in SourceSet.resolve(source):
+        try:
+            if os.path.samefile(doc, old):
+                return old
+        except OSError:
+            continue
+    return None
+
+
 # --------------------------------------------------------------------------- CLI
 
 # Krippendorff α at or above this is reported RELIABLE; below it the grounding signal stays advisory.
@@ -500,8 +614,10 @@ def _load_json_or_demo(path, demo, *, notice: str):
 
 def _main(argv: list[str]) -> int:
     if not argv:
-        print("usage: python -m kg_engine.harness {agreement|specificity|ideation|convergence} [path...]\n"
+        print("usage: python -m kg_engine.harness "
+              "{agreement|specificity|ideation|convergence|writers|legacy-log} [path...]\n"
               "  specificity GRAPH [SOURCE]   ideation OUTPUTS [SOURCE]\n"
+              "  writers LABELS.csv PROJECT   legacy-log PROJECT SOURCE\n"
               "  SOURCE is a file, or a folder of .md/.txt documents, read as the projector reads it",
               file=sys.stderr)
         return 2
@@ -617,6 +733,41 @@ def _cmd_convergence(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_writers(argv: list[str]) -> int:
+    labels, project = _positional_path(argv, 1), _positional_path(argv, 2)
+    if not labels or not project:
+        raise ValueError("usage: writers LABELS.csv PROJECT  (a filled f4_probe sheet, the project holding canon/)")
+    from .canon import CANON_SUBDIR, Canon  # lazy, like edge_writer's groundplan import
+    if not Path(labels).is_file():
+        raise _LoadError(f"labels sheet not found: {labels}")
+    if not (Path(project) / CANON_SUBDIR).is_dir():
+        raise _LoadError(f"no {CANON_SUBDIR}/ folder in {project}")
+    try:
+        with open(labels, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+    except (OSError, UnicodeDecodeError, csv.Error) as e:
+        raise _LoadError(f"could not read {labels}: {e}") from e
+    # ensure_layout=False: a read never lays a vault out (canon.Canon.__init__).
+    edges = {e.id: e for e in Canon(project, ensure_layout=False).all_edges()}
+    _print_writers(sample_writers(rows, edges))
+    return 0
+
+
+def _cmd_legacy_log(argv: list[str]) -> int:
+    project, source = _positional_path(argv, 1), _positional_path(argv, 2)
+    if not project:
+        raise ValueError("usage: legacy-log PROJECT SOURCE")
+    old = legacy_log(project, source)
+    if old is not None:
+        new = Path(project) / ".kg" / LOG_NAME
+        print(f"NOTE: {old} is one of the source documents. Through Burgess 0.11.6, /kg-eval and "
+              f"/kg-experiment kept their log there; they now write {new}. While it stays in the source "
+              f"folder, /kg-build extracts it like any other document and /kg-experiment reads it as source. "
+              f"Ask the user to move it out of that folder, for instance into {new.parent}. Burgess never "
+              f"moves or deletes it.")
+    return 0
+
+
 # command table (review-r5: a fifth metric used to mean copying a whole if-branch inside one long
 # _dispatch; now it is one _cmd_* function + one row here).
 _COMMANDS = {
@@ -624,6 +775,8 @@ _COMMANDS = {
     "specificity": _cmd_specificity,
     "ideation": _cmd_ideation,
     "convergence": _cmd_convergence,
+    "writers": _cmd_writers,
+    "legacy-log": _cmd_legacy_log,
 }
 
 

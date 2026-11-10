@@ -1049,11 +1049,12 @@ prints a number + verdict; the orchestration logs it and proceeds (§4).
 
 ### 2.1 `f4_probe.py` — extraction precision scorer
 
-Operates on a derived `graph.json` (NetworkX node-link; reads `links` or `edges`). Three subcommands.
+Operates on a derived `graph.json` (NetworkX node-link; reads `links` or `edges`). Four subcommands.
 
 ```bash
 python scripts/f4_probe.py summary "$GRAPH"                     # shape of the graph
 python scripts/f4_probe.py sheet   "$GRAPH" --n 80 --out labels.csv   # sample edges to label
+python scripts/f4_probe.py fill    labels.csv labels.json       # write an annotator's labels into the sheet
 python scripts/f4_probe.py score   labels.csv                  # precision / astrology / span-support
 ```
 
@@ -1063,9 +1064,14 @@ python scripts/f4_probe.py score   labels.csv                  # precision / ast
 - **`sheet <graph.json> --n <N> --out <csv>`** — random-samples (seed 42) up to `N` non-`EXTRACTED` edges into
   a CSV with columns `edge_id, source_label, target_label, relation, confidence, confidence_score,
   source_file, verdict, span_found, notes`. Add `--include-extracted` to also sample deterministic edges.
-  An annotator then fills two columns:
+  An annotator then labels every row:
   - `verdict` ∈ **`correct | fabricated | vague | wrong_type`** (the only allowed labels).
   - `span_found` ∈ **`y | n`** (the span-present check).
+- **`fill <labels.csv> <labels.json>`** (0.11.7) — writes an annotator's labels into the sheet. The labels
+  file is one JSON object, `{"<edge_id>": {"verdict": …, "span_found": "y"|"n", "notes": …}}`, which the
+  annotator writes with Claude Code's Write tool: it has no shell. The fill is all or nothing. A row with no
+  entry, an entry for an edge the sheet lacks, a verdict outside the vocabulary or a `span_found` other than
+  yes/no leaves the sheet unchanged and lists the problems.
 - **`score <labels.csv>`** — reads rows with a filled `verdict` and prints:
   - `PRECISION (correct / labeled)` — **exit gate is `>= 0.70`**.
   - `astrology rate (fabricated+vague)` — the grounding risk, measured.
@@ -1103,10 +1109,11 @@ PACK OK: domain='conceptual theory' node_types=6 edge_types=10 glossary=12
 - `glossary_grounded_in_source` — fraction of glossary terms that actually occur in the source (don't invent
   vocabulary the source never uses).
 
-### 2.3 `python -m kg_engine.harness` — agreement · specificity · ideation · convergence
+### 2.3 `python -m kg_engine.harness` — agreement · specificity · ideation · convergence · writers · legacy-log
 
-Deterministic measurement over data the subagents produce. Four subcommands, each reads/writes JSON. If the
-optional path is missing, each falls back to a built-in demo and notes it on stderr.
+Deterministic measurement over data the subagents produce. The first four read/write JSON: if the optional
+path is missing, each falls back to a built-in demo and notes it on stderr. `writers` and `legacy-log`
+(0.11.7) take their paths as required arguments and have no demo.
 
 #### `agreement [label_sets.json]`
 
@@ -1193,6 +1200,33 @@ rate of the HIGH band (`convergence >= 2`) vs the LOW band (`== 1`); `gate_on` i
 band grounds at a rate more than **0.10** above the low band with enough samples per band. Until then the
 tally stays a display-only prior — it never reorders the grounding queue.
 
+#### `writers <labels.csv> <project>` (0.11.7)
+
+Splits a filled f4_probe sheet two ways, reading each labeled edge in the project's canon.
+- **By writer**, from the mark its notes open with:
+  - `extractor`: a `/kg-build` extraction;
+  - `lead`: written by `/kg-build --leads` from a grounder's lead;
+  - `counter-edge`: an adversarial pass of `/kg-ground`;
+  - `proposal`: `/kg-generate`.
+- **By the grounding verdict** each edge holds now.
+
+It prints labeled / correct / precision per row, then lists the edges labeled other than `correct`, each
+with its writer and verdict.
+
+The canon keeps every edge since its first build and does not record which plugin version wrote one. So an
+error in the sample shows how its writer worked then. `/kg-eval` checks a refinement against the current
+contract before recommending it.
+
+#### `legacy-log <project> <source>` (0.11.7)
+
+Prints a note when a `PROGRESS.md` at the top of the project is one of the source's documents, and nothing
+otherwise.
+- Through 0.11.6, `/kg-eval` and `/kg-experiment` kept their log there. Since 0.11.7 they write
+  `<project>/.kg/PROGRESS.md`, which `SourceSet` never reads.
+- A source folder's top-level `.md`/`.txt` files are its documents. So an old log in the source would be
+  extracted by `/kg-build` and read as source by `/kg-experiment`.
+- It never moves or deletes the file.
+
 ### 2.4 `python -m kg_engine.divergence` — the divergence engine, no MCP needed
 
 The same engine the `kg_diverge_*` tools call, as a CLI (dev/debug; `/kg-diverge` uses the tools):
@@ -1258,7 +1292,8 @@ errors}`.
 | archive health / gap log | `kg_diverge_metrics(project)` |
 | recall a brief's pins/discards/comparisons | `kg_diverge_recall(project)` |
 | carry pinned ideas into the hypothesized lane | `kg_diverge_materialize(project, …)` |
-| score extraction precision | `f4_probe.py summary|sheet|score` |
+| score extraction precision | `f4_probe.py summary|sheet|fill|score` |
+| who wrote the sampled edges, and their verdicts | `kg_engine.harness writers` |
 | validate the pack / glossary coverage | `kg_engine.pack validate|coverage` |
 | inter-annotator agreement | `kg_engine.harness agreement` |
 | bridge-metric gate verdict | `kg_engine.harness specificity` |

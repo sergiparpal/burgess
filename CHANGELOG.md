@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.11.7 — 2026-11-10
+
+Found while reviewing the first field `/kg-eval`, on the Windows corpus with 0.11.6. Its numbers were right:
+precision 0.84 and α 0.901 both check out against its CSVs. But three things went wrong around them.
+
+### Fixed
+
+- **The log became a source document.**
+  - Since 0.11.4, `/kg-eval` and `/kg-experiment` appended their results to `PROGRESS.md` at the top of the
+    project. The source can be the project folder itself, as it is on the Windows corpus, and every `.md` at
+    the top of a source folder is one of its documents.
+  - So the log became a ninth document, and the source grew from 84 sections to 85. The next `/kg-build`
+    would have extracted it. `/kg-experiment`'s `rag` arm and its scoring would have read it as source.
+  - Both commands now write `.kg/PROGRESS.md`. `SourceSet` never reads a dot folder, not even through a
+    recursive glob.
+  - New `python -m kg_engine.harness legacy-log PROJECT SOURCE` prints a note when an earlier version's log
+    is still one of the source documents. Both commands run it first:
+    - `/kg-eval` passes the note on and goes on;
+    - `/kg-experiment` passes it on and stops, because the run would take that log for source.
+  - Burgess never moves or deletes the old file. That is the user's call.
+- **The annotators needed the shell.**
+  - The annotator had `Read`, `Grep` and `Bash`, and was told to write the CSV with Bash. All three passes
+    also searched the documents with shell `grep` and `sed`.
+  - In a setup that asks before every shell command, they cost the user 74 approvals (34, 28 and 12), plus 7
+    from the command itself. Each annotator worked six or seven minutes, and for 51 of the run's 56 minutes
+    one of them was waiting.
+  - The annotator now has `Read`, `Grep` and `Write`. It writes its labels as one JSON object,
+    `{edge_id: {verdict, span_found, notes}}`.
+  - New `f4_probe.py fill SHEET LABELS` writes the labels into the sheet with the csv module's quoting. It
+    takes the file whole or not at all: a missing row, an edge the sheet lacks, a verdict outside the
+    vocabulary or a `span_found` other than yes/no leaves the sheet unchanged and lists the problems.
+  - `/kg-eval` fills each sheet before it scores it or computes α.
+- **The advice did not hold for the current plugin.**
+  - The run recommended four extractor rules: a precondition is `enables`, a bias of a figure is
+    `confounded_by`, the case grounds the principle, and so on. The extractor has carried them since 0.8.0
+    to 0.11.0.
+  - Of the 13 edges labeled other than `correct`:
+    - 9 were first-build extractions from 2026-11-07, before 0.8.0;
+    - 3 were counter-edges from adversarial passes;
+    - 1 was a lead written before 0.11.0.
+
+    Grounding had already rejected 11 of them.
+  - New `python -m kg_engine.harness writers LABELS PROJECT` reads each labeled edge in the canon. It splits
+    the sample by writer (`extractor`, `lead`, `counter-edge`, `proposal`, from the mark its notes open with)
+    and by the verdict the edge holds now, and it lists the edges labeled other than `correct`.
+  - The canon does not record which plugin version wrote an edge. So, before recommending a refinement,
+    `/kg-eval` now reads the current contract: `agents/extractor.md` and `pack/pack.yaml`, or
+    `agents/adversarial-grounder.md` for a counter-edge. When the rule is already there, it says that the edge
+    predates the rule.
+- **The log block left the model's text to the shell.** `/kg-eval` appended through an unquoted heredoc, so a
+  backtick in the model's text, such as a relation name in code format, would have run as a command. The text
+  now goes through a quoted heredoc, and only the date and the graph path are expanded. The field run escaped
+  its backticks by hand.
+- `docs/COMMANDS.md` still described the graph path from before 0.11.4, and said that `/kg-eval` always
+  re-extracts. It now says that an installed plugin only recommends.
+
+### Tests
+
+- `tests/test_fix_eval_log_and_annotator.py` (46 tests):
+  - **the log:** no user-facing text points the log at the top of the project; both commands append under
+    `.kg/` and run `legacy-log` in their first block;
+  - **`legacy-log`:** notes a log the source reads and leaves it byte for byte; stays silent for a one-file
+    source, another folder, or a log under `.kg/`;
+  - **`SourceSet`:** reads a top-level `PROGRESS.md` (the field case) but never `.kg/`;
+  - **the annotator:** has exactly `Read`, `Grep` and `Write`, no bash block, and a JSON example that `fill`
+    accepts; every pass writes its own labels file, and `/kg-eval` fills before it reads;
+  - **`fill`:** keeps every other column and the row order; the problems it refuses leave the sheet unchanged;
+  - **`writers`:** sorts the five writers and three states out of a seeded canon, skips an unlabeled row,
+    names an edge the canon no longer holds, and refuses a project with no canon without laying one out;
+  - **`/kg-eval`:** checks a refinement against the current contract;
+  - **the extractor:** the four rules the field run recommended are in it;
+  - **the log block:** run in bash, it keeps backticks and `$HOME` as written.
+  - **Against 0.11.6:** 22 fail. The other 24 are checks that already held there: the files that never
+    named the old path, the `SourceSet` behaviour and the extractor rules.
+- `tests/test_fix_field_eval_experiment.py`: the log path moves under `.kg/`. The annotator leaves the
+  "every block that runs Python resolves it first" check, since it has no shell.
+- 1818 → 1863 passed, 3 skipped.
+
 ## 0.11.6 — 2026-11-10
 
 Found while checking the re-run of the field `/kg-query` on 0.11.5. To find the source's hypothesis codes, the

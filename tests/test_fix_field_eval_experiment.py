@@ -79,7 +79,8 @@ def test_no_development_paths(path):
     assert "/.venv/bin/python" not in text, f"{_rel(path)} spells a venv interpreter path, absent on Windows"
 
 
-@pytest.mark.parametrize("path", [EVAL, EXPERIMENT, EVALUATOR, ANNOTATOR], ids=_rel)
+# The annotator ran its Python through Bash until 0.11.7, when it lost the shell (test_fix_eval_log_and_annotator).
+@pytest.mark.parametrize("path", [EVAL, EXPERIMENT, EVALUATOR], ids=_rel)
 def test_every_bash_block_that_runs_python_resolves_it_first(path):
     # Each Bash call is a fresh shell: a block that uses "$PY" resolves it itself, by the launcher's rule.
     blocks = [b for b in _bash_blocks(_read(path)) if '"$PY"' in b]
@@ -94,7 +95,8 @@ def test_kg_eval_reads_the_engine_graph_and_the_configured_source():
     assert 'GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"' in text
     assert "query_graph(limit=1)" in text  # re-projects the shared derived dir for this project first
     assert '"$PY" -m kg_engine.harness specificity "$GRAPH" "${user_config.source_path}"' in text
-    assert "${CLAUDE_PROJECT_DIR}/PROGRESS.md" in text and "${CLAUDE_PROJECT_DIR}/.kg/eval" in text
+    # the log moved under .kg/ in 0.11.7: at the top of the project it was a source document
+    assert "${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md" in text and "${CLAUDE_PROJECT_DIR}/.kg/eval" in text
     assert "examples/source.md" not in text and ".kg-data" not in text
 
 
