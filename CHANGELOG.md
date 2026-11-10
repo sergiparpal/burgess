@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.11.6 — 2026-11-10
+
+Found while checking the re-run of the field `/kg-query` on 0.11.5. To find the source's hypothesis codes, the
+session searched `query_graph(text="h1 h2 … h20")`. The engine searched only `h1` to `h12`, as its
+`query_terms` showed. The answer did not suffer, since it reached H16 through other edges. But nothing told the
+model that a search has a word limit.
+
+### Fixed
+
+- **The word limit of a search is now stated.**
+  - `kg_context(query=…)` and `query_graph(text=…)` search on the first 12 search words and drop the rest. The
+    limit (`_QUERY_TERM_CAP`) bounds the work per row, and it stays.
+  - `/kg-query` now says so, in the `kg_context` step and the `query_graph(text=…)` step. It also says to split
+    a longer list, such as `H1` to `H20`, over several searches, and to check `query_terms` in each result.
+  - `tools.md` (§1.7 and §1.11), `docs/ARCHITECTURE.md` §3.5 and both tool descriptions state the limit too.
+    A `query_terms` list shorter than the words asked for means the rest were dropped.
+
+### Tests
+
+- `tests/test_fix_query_word_limit.py` (4 tests):
+  - the field search keeps `h1` to `h12`;
+  - `/kg-query`, the tool reference, the architecture document and both tool descriptions state the limit,
+    each with the number taken from the constant, so the text cannot drift from the engine.
+  - **Against 0.11.5:** 3 fail. The fourth is the engine-side guard, which holds there too.
+- 1814 → 1818 passed, 3 skipped.
+
 ## 0.11.5 — 2026-11-10
 
 Found while reviewing a `/kg-query` on the Windows corpus (425 nodes, 221 edges). The question was «¿En qué

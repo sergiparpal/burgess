@@ -3265,9 +3265,9 @@ def _register(mcp, engine: KGEngine) -> None:
         epistemic_state: nodes and edges in that state). Nodes ranked by precomputed degree, edges by id.
         `text` also keeps only the nodes whose id or label, and the edges whose span, relation or endpoints,
         share a word with it (case, accents and function words ignored; rarer words weigh more), best match
-        first, and adds `query_terms` and `matched` (counts before `limit`). Use it to find a node by what
-        it says, an edgeless one included; write it in the documents' language, since a translation finds
-        little."""
+        first, and adds `query_terms` (the words used: the first 12 at most, the rest are dropped) and
+        `matched` (counts before `limit`). Use it to find a node by what it says, an edgeless one included;
+        write it in the documents' language, since a translation finds little."""
         return engine.query_graph(node_type=node_type, relation=relation,
                                   epistemic_state=epistemic_state, limit=limit, text=text)
 
@@ -3310,7 +3310,8 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_context(query: str | None = None, budget: int = 2000) -> dict:
         """Grounding-aware, provenance-carrying, token-budgeted context for the session. A `query` keeps the
         edges whose span, relation or endpoint labels share a word with it (case, accents and function words
-        ignored), grounded first and then best match first, and echoes the words in `query_terms`.
+        ignored), grounded first and then best match first, and echoes the words in `query_terms` (the first
+        12 at most; the rest are dropped).
         `items_total`/`hypotheses_total` count every edge that qualified: more than the lane holds means the
         budget left the rest out (raise `budget`, up to 100000, or narrow the query)."""
         return engine.kg_context(query, budget)
