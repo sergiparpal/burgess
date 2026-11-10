@@ -91,7 +91,7 @@ afterward. The portico moved from the door of imagination to after generation.
 | `/kg-query` | (none; direct reads) | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `kg_context` |
 | `/kg-view` | (none; direct render) | `kg_export` |
 | `/kg-eval` | `kg-annotator` | `f4_probe.py`, `kg_engine.harness`, `query_graph` |
-| `/kg-experiment` | `kg-evaluator` | `kg_engine.harness ideation` |
+| `/kg-experiment` | `kg-evaluator` | `kg_engine.harness rag-slices`, `kg_engine.harness ideation`, `kg_context`, `kg_generate` |
 | `/kg-diverge` | (none; main agent generates/judges) | `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`, `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` |
 
 The MCP server is named `burgess`; tools are namespaced `mcp__plugin_burgess_burgess__<tool>`.

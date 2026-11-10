@@ -58,7 +58,9 @@ _NEW_EDGE_COLUMNS = {"owner"}
 # upgrade would leave every stat-unchanged note's rows as the old rules built them, because the incremental
 # parse rebuilds those notes from the index instead of re-reading them.
 #   "2" (0.4.6): edge endpoints resolve to node ids (_resolve_endpoints).
-PROJECTION_RULES = "2"
+#   "3" (0.11.8): node specificity reads letters outside ASCII (harness._WORD), so an index built before it
+#                 holds the specificity of truncated words ("revisi" for "revisión").
+PROJECTION_RULES = "3"
 # The `nodes` table column order, in DDL order — the single source of truth for the positional
 # persistence contract. `_NODES_DDL`, the INSERT placeholder string, `_node_row`, and the
 # incremental rank-refresh all derive from this tuple, so a column add/reorder is one edit here

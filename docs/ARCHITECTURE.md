@@ -606,7 +606,14 @@ and re-extracts (0.11.4).
 - `python -m kg_engine.harness ideation` — scores pooled outputs per experiment arm (control /
   graph / graph+generate / graph+generate+dpp / rag / lightrag) on diversity, novelty, utility,
   unsupported rate; a win requires no regression (0.05 slack on the hallucination guard) plus a
-  strict gain on diversity or novelty.
+  strict gain on diversity or novelty. Its `caveats` name each column that could not tell the arms
+  apart in the run (0.11.8): the hallucination guard, when `guard_probe` shows it passing the ideas' own
+  sentences with an invented word in them (a large source holds nearly every ordinary word), and
+  utility, whose markers are English. `harness rag-slices` builds the `rag` arm's context
+  deterministically (BM25 over the source's paragraphs), so the kg-evaluator needs no shell.
+- Every harness count and the projector's node specificity read words as runs of Unicode letters
+  (0.11.8; through 0.11.7 only ASCII letters, which cut "revisión" to "revisi"). `PROJECTION_RULES` "3"
+  rebuilds an index built under the old reading.
 - `python -m kg_engine.harness convergence` — promotes the mechanism-convergence tally from
   advisory to queue-reordering only if edges proposed by ≥2 mechanisms ground at a rate more than
   0.10 above single-mechanism edges (with enough samples per band).

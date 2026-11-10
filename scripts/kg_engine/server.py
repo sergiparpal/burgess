@@ -2361,8 +2361,11 @@ class KGEngine:
         """Generate hypothesized candidates from the derived graph (PLAN Stage 3 — the generative
         engine). Projects if stale, reads precomputed ranks O(1), dispatches to the chosen mechanism(s)
         (`bridge|seed|compression|regroup|transplant|ensemble`, or `all`/`default`), and returns ranked
-        candidates. **READ-ONLY** — it never writes the canon; `/kg-generate` routes the candidates
-        through the propose lane (`kg_propose`). Generate offensively; grounding judges later.
+        candidates: each mechanism's own top `k`, so `all` returns up to seven times `k` before
+        `_dedup_candidates` merges the pairs two mechanisms both proposed (a field run read k=12 as a
+        total and its 51 candidates as k ignored, 2026-11-10). **READ-ONLY** — it never writes the canon;
+        `/kg-generate` routes the candidates through the propose lane (`kg_propose`). Generate
+        offensively; grounding judges later.
 
         FUSION Stage 5: when `dpp` is true (default: the pack's `divergence.dpp` flag, shipped OFF),
         the SAME candidate set is reordered by hybrid-descriptor DPP (one semantic axis + graph-
@@ -3224,9 +3227,10 @@ def _register(mcp, engine: KGEngine) -> None:
                     dpp: bool | None = None, second_construction: str | None = None) -> dict:
         """Generate hypothesized idea candidates from the graph's structure (PLAN Stage 3). Mechanisms:
         bridge (§2/§4), seed (§3 residual), compression (§7 new nodes), regroup (§8), transplant (§5),
-        ensemble (§9), periphery (§5 low-degree sources) — or "all"/"default". READ-ONLY: candidates are
-        proposals (provenance=hypothesized, no span); route them through kg_propose. Generate
-        offensively; kg_ground judges later.
+        ensemble (§9), periphery (§5 low-degree sources) — or "all"/"default". `k` is per mechanism: each
+        one surfaces its own top k, so "all" returns up to seven times k, fewer once duplicates merge.
+        READ-ONLY: candidates are proposals (provenance=hypothesized, no span); route them through
+        kg_propose. Generate offensively; kg_ground judges later.
         For the `ensemble` exo move, supply EITHER `second_construction` (the NAME of an in-session
         second construction built via kg_write(..., construction=…) — projected here, key-free) OR
         `second_graph` (a path to a pre-built graph.json); with neither, ensemble degrades to `regroup`
