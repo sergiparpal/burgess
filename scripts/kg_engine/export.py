@@ -32,7 +32,10 @@ _BRIDGE_TOP_N = BRIDGE_LIMIT
 # The export kinds, named once for the engine entry point and the CLI (review-r5).
 _KINDS = ("html", "report", "all")
 _COMMUNITY_PREVIEW = 8        # community-member preview count (the slice AND the "…"-more threshold must match)
-_LIST_CAP = 50               # falsification / stale-verdict list caps
+# The cap on every list the report prints: falsification memory, stale and re-examinable verdicts, and the
+# names in the single-node-communities entry. A list that stops at the cap says how many it leaves out
+# (_remainder) — through 0.11.2 the falsification header said 59 over a list that silently stopped at 50.
+_LIST_CAP = 50
 _SPAN_TRUNCATE = 80          # span truncation width
 _UNATTRIBUTED = "(unattributed)"  # R4 fallback key for an edge with no declared source_file
 
@@ -197,8 +200,57 @@ def _legend_lines(ranked_by: str, gate_on: int) -> list:
     return lines
 
 
+def _remainder(total: int, shown: int) -> str:
+    """How many items a capped list leaves out, as ``… and N more`` — empty when it shows them all."""
+    return f"… and {total - shown} more" if total > shown else ""
+
+
+def _remainder_line(total: int, note: str = "") -> list:
+    """The closing line of a list capped at ``_LIST_CAP``: none when the list is whole. The section header
+    already gives the total; this line says outright that the list stops short of it."""
+    if total <= _LIST_CAP:
+        return []
+    return [f"- {_remainder(total, _LIST_CAP)} not listed here (this report lists the first {_LIST_CAP}{note})."]
+
+
+def _community_entry(title: str, members: list, intra_edges: list) -> list:
+    """One ``###`` community entry: a member preview of ``_COMMUNITY_PREVIEW`` names, the two node axes,
+    and the intra-community edges by epistemic_state."""
+    names = ", ".join(f"`{_escape_md(m.get('label') or m['id'])}`"
+                      for m in sorted(members, key=lambda m: m["id"])[:_COMMUNITY_PREVIEW])
+    more = " …" if len(members) > _COMMUNITY_PREVIEW else ""
+    return [f"### {title} — {len(members)} node(s)",
+            f"- members: {names}{more}",
+            f"- provenance: {_fmt_counts(_axis_breakdown(members, 'provenance'))}",
+            f"- authored_by: {_fmt_counts(_axis_breakdown(members, 'authored_by'))}",
+            "- intra-community edges by epistemic_state: "
+            f"{_fmt_counts(_axis_breakdown(intra_edges, 'epistemic_state')) or '—'}"]
+
+
+def _single_node_entry(members: list, intra_edges: list) -> list:
+    """The one entry every single-node community shares: their count, up to ``_LIST_CAP`` names (saying
+    how many more there are), the two node axes, their intra-community edges, and how many have degree 0.
+    An edge inside a one-node community is a self-loop. Every write lane rejects one, but a hand-edited
+    canon can still carry it, so the edge line stays: grouping must not hide what the old entries showed."""
+    shown = sorted(members, key=lambda m: m["id"])[:_LIST_CAP]
+    names = ", ".join(f"`{_escape_md(m.get('label') or m['id'])}`" for m in shown)
+    more = _remainder(len(members), len(shown))
+    return [f"### Single-node communities — {len(members)} node(s)",
+            f"- members: {names}{' ' + more if more else ''}",
+            f"- provenance: {_fmt_counts(_axis_breakdown(members, 'provenance'))}",
+            f"- authored_by: {_fmt_counts(_axis_breakdown(members, 'authored_by'))}",
+            "- intra-community edges by epistemic_state: "
+            f"{_fmt_counts(_axis_breakdown(intra_edges, 'epistemic_state')) or '—'}",
+            f"- degree 0: {sum(1 for m in members if not m.get('degree'))}"]
+
+
 def _community_lines(nodes: list, edges: list) -> list:
-    """The ``## Communities`` per-community breakdown by the three axes, with an intra-community edge map."""
+    """The ``## Communities`` per-community breakdown by the three axes, with an intra-community edge map.
+
+    Communities of one node share a single entry, after the others (0.11.3). A node with no live edge is
+    a community of its own, so on a sparse graph they swamp the section: on the Windows corpus 172 of 264
+    communities had one node, and their entries made up most of the report. Nodes with no community
+    (``None``) keep their own entry, last, as before."""
     lines: list = []
     lines.append("")
     lines.append("## Communities")
@@ -213,19 +265,17 @@ def _community_lines(nodes: list, edges: list) -> list:
             edges_by_comm.setdefault(c, []).append(e)
     if not comms:
         lines.append("_(no nodes)_")
-    for c in sorted(comms, key=lambda x: (x is None, x)):
-        members = comms[c]
-        prov = _axis_breakdown(members, "provenance")
-        auth = _axis_breakdown(members, "authored_by")
-        est = _axis_breakdown(edges_by_comm.get(c, []), "epistemic_state")
-        names = ", ".join(f"`{_escape_md(m.get('label') or m['id'])}`"
-                          for m in sorted(members, key=lambda m: m["id"])[:_COMMUNITY_PREVIEW])
-        more = " …" if len(members) > _COMMUNITY_PREVIEW else ""
-        lines.append(f"### Community {c} — {len(members)} node(s)")
-        lines.append(f"- members: {names}{more}")
-        lines.append(f"- provenance: {_fmt_counts(prov)}")
-        lines.append(f"- authored_by: {_fmt_counts(auth)}")
-        lines.append(f"- intra-community edges by epistemic_state: {_fmt_counts(est) or '—'}")
+        return lines
+    assigned = sorted(c for c in comms if c is not None)
+    for c in assigned:
+        if len(comms[c]) > 1:
+            lines += _community_entry(f"Community {c}", comms[c], edges_by_comm.get(c, []))
+    single = [c for c in assigned if len(comms[c]) == 1]
+    if single:
+        lines += _single_node_entry([comms[c][0] for c in single],
+                                    [e for c in single for e in edges_by_comm.get(c, [])])
+    if None in comms:
+        lines += _community_entry("Community None", comms[None], [])
     return lines
 
 
@@ -240,6 +290,7 @@ def _falsification_lines(edges: list) -> list:
             lines.append(f"- `{_escape_md(e.get('source'))} --{_escape_md(e.get('relation'))}--> "
                          f"{_escape_md(e.get('target'))}` "
                          f"[{e.get('epistemic_state')}]" + (f" — `{_truncate(e.get('span'))}`" if e.get("span") else ""))
+        lines += _remainder_line(len(fails), "; graph.html draws them all")
     else:
         lines.append("_(none — nothing refuted yet)_")
     return lines
@@ -253,6 +304,7 @@ def _stale_lines(stale: list) -> list:
     if stale:
         for s in stale[:_LIST_CAP]:
             lines.append(f"- `{_escape_md(s.get('edge_id'))}` — `{_escape_md(s.get('reason'))}`")
+        lines += _remainder_line(len(stale))
     else:
         lines.append("_(none)_")
     return lines
@@ -270,6 +322,7 @@ def _reexaminable_lines(items: list) -> list:
         for r in items[:_LIST_CAP]:
             lines.append(f"- `{_escape_md(r.get('item_id'))}` ({_escape_md(r.get('kind'))}) — "
                          f"`{_escape_md(r.get('state'))}` — `{_escape_md(r.get('reason'))}`")
+        lines += _remainder_line(len(items))
     else:
         lines.append("_(none)_")
     return lines

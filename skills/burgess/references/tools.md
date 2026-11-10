@@ -560,8 +560,9 @@ dir. `kind ∈ {html, report, all}` (default `all`).
   `provenance`→node fill opacity. **Node size = degree** (the honest advisory); the bridge highlight is
   gate-aware (`spec_betweenness` only when `gate_on=1`, else the structural-bridge advisory — size is never
   the bridge metric).
-- **`GRAPH_REPORT.md`** — headline counts from `kg_metrics` (cannot drift), per-community axis breakdowns, the
-  never-pruned falsification list, R3 stale verdicts, and R4 per-source-file edge counts.
+- **`GRAPH_REPORT.md`** — headline counts from `kg_metrics` (cannot drift), per-community axis breakdowns
+  (single-node communities share one entry), the never-pruned falsification list, R3 stale verdicts, and R4
+  per-source-file edge counts. A list longer than 50 shows the first 50 and says how many more there are.
 - **Read-only / measure-never-gate**: consumes only the derived layer, writes only its two artifacts; never
   reads prose, never writes through `kg_write`/`kg_ground`, never `_atomic_write`s `graph.json`/`index.sqlite`
   (`projector.py` stays their sole writer). Cannot forge a verdict or bypass span-present. Also: CLI

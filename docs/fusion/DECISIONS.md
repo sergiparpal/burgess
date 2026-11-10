@@ -588,3 +588,18 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Sessions still on 0.11.1 or earlier keep sharing their single marker among themselves until they update.
   - A marker left by a hard kill stays until a supervisor starts more than an hour later.
 - **Pinned in:** `tests/test_fix_shared_ready_marker.py`. Against 0.11.1, with `READY_MARKER_ENV` replaced by its value in the test, all 11 fail; there the end-to-end startup failure is logged as `servedInit=true -> post-init-exit`.
+
+## The report says what it leaves out (2026-11-10)
+
+- **Decision:** `GRAPH_REPORT.md` keeps its cap of 50 items per list, and a list that stops at the cap ends with a line saying how many more there are. Single-node communities share one entry after the other communities, which lists up to 50 names the same way.
+- **Gaps it closes:** found on 2026-11-10 while reviewing a `/kg-view` run on the Windows corpus (425 nodes, 221 edges: 162 grounded, 58 rejected, 1 failed).
+  - The falsification memory header said 59, and the list stopped at 50 without a word. The canon and `graph.html` kept all 59, so nothing was pruned, but the report read as if it listed them all. §1.7 never prunes negative information, and a view that drops part of it silently understates it.
+  - A node with no live edge is a community of its own, and each community had its own entry of five lines. 172 of the 264 communities had one node, so their entries made up most of the report.
+- **Why keep the cap:** a large graph can carry thousands of rejected edges, and the report is a summary. `graph.html` draws every edge and the canon holds every verdict.
+- **Why 50 names in the shared entry, not the 8-name preview the other communities get:** the nodes with no live edge are the ones nothing connects yet, which reads best as a list. 50 is the cap the other lists already use, and the entry says how many more there are.
+- **Why the shared entry keeps an edge line:** an edge inside a one-node community is a self-loop. Every write lane rejects one, but a hand-edited canon can still carry it, and through 0.11.2 the community's own entry showed it.
+- **Rejected alternatives:**
+  - (a) *Drop the cap:* the report would grow without bound on a large graph.
+  - (b) *Leave single-node communities out of the report:* those nodes would vanish from it, and the entries would no longer add up to the node count.
+  - (c) *Keep one entry per single-node community but shorter:* still one line per unconnected node, 172 on the corpus.
+- **Pinned in:** `tests/test_fix_report_caps.py`. Against 0.11.2, 7 of its 10 tests fail; the other 3 pin what must not change.
