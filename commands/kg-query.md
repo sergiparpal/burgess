@@ -41,8 +41,8 @@ Call `mcp__plugin_burgess_burgess__kg_context(query=$ARGUMENTS)`. This is the pr
   This lane **never** contains a hypothesized proposal. With a query it holds the edges whose span, relation or
   endpoints (ids and labels) share a word with the question, **grounded before unverified**, then best match
   first: the more of its words an edge holds, and the rarer they are in the graph, the earlier it comes. Case,
-  accents, plural endings and function words («del», "the") don't count. `query_terms` lists the words it
-  searched on.
+  accents, plural endings and function words («del», "the") don't count. A search uses **at most 12 words**,
+  the first ones in the question, and `query_terms` lists the words it searched on.
 - `hypotheses[]` — the **SEPARATE** hypothesized lane: machine proposals from `/kg-generate`
   (`provenance: hypothesized`, `epistemic_state: unverified`, **no span**). These are NOT facts and NOT
   grounded content — present them only under an explicit "Hypotheses (unverified proposals)" heading, never
@@ -68,7 +68,9 @@ Use these to find what `kg_context` did not return and to follow specific relati
   nodes that have no edge yet, which `kg_context` (edges only) never returns. Such a node is a concept the
   extractor named with no claim behind it: present it as that, never as a finding. Write `text` in the
   language of the source documents, normally with the question's own key words. The match is on the words the
-  graph holds, so a translation finds little. `text` combines with the filters below, e.g.
+  graph holds, so a translation finds little. The same limit of 12 words applies, and the words past it are
+  dropped. To look for more, such as a list of codes from `H1` to `H20`, split them over several searches and
+  check `query_terms` in each result. `text` combines with the filters below, e.g.
   `query_graph(text="<key words of the question>", epistemic_state="grounded")`.
 - `mcp__plugin_burgess_burgess__query_graph(node_type=…, relation=…, epistemic_state=…, limit=…)` — e.g.
   `query_graph(epistemic_state="grounded")` for the grounded claims, or

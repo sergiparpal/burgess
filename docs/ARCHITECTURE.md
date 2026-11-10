@@ -230,7 +230,8 @@ fallback) — writes never pass through that seam.
 **Searching the index (0.11.5).** `kg_context(query=…)` and `query_graph(text=…)` match **search words**,
 not substrings. A search word is a content word as `/kg-build` counts them (`buildplan._words`: casefolded,
 accents dropped, the Spanish and English function words gone, at least three characters unless a number),
-plus a two-character letter-digit code such as `N4`. A word matches across a plural ending
+plus a two-character letter-digit code such as `N4`. Only the first 12 count (`_QUERY_TERM_CAP`, which bounds
+the per-row work), and `query_terms` shows which. A word matches across a plural ending
 (`buildplan._forms`). An edge offers the words of its span, its relation and both endpoints' ids and labels;
 a node offers its id and label. Matches rank by the summed rarity weight of the shared words,
 log(1 + N/df) over the rows searched, then by how many are shared, then in the surface's order without a

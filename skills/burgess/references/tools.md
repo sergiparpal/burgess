@@ -255,7 +255,8 @@ deterministic, byte-stable top-N), each half capped at `limit`. All filters opti
 `text` (0.11.5) searches by what nodes and edges say. Of what the other filters keep, it keeps the nodes whose
 id or label, and the edges whose span, relation or endpoint ids and labels, share a search word with `text`.
 It ranks them as `kg_context` ranks a query (§1.11), then in the order above. The result gains `query_terms`
-(the words searched on) and `matched: {nodes, edges}` (how many matched before `limit`). It is the one read
+(the words searched on, at most 12, as for `kg_context`) and `matched: {nodes, edges}` (how many matched before
+`limit`). It is the one read
 that finds a node by what it says when that node has no edge yet: `kg_context` returns edges only. Through
 0.11.4 a reader that needed such a node had to grep `canon/`. Write `text` in the documents' language: the
 match is on the words the graph holds, so a translated query finds little.
@@ -362,8 +363,10 @@ tokens (`len(json)//4` per item).
 
 `query` (optional) is a question in any language. Its **search words** are /kg-build's content words: case,
 accents and plural endings are ignored, function words such as «del» or "the" are dropped, and two-character
-letter-digit codes such as `N4` are kept. An edge matches when its span, its relation or either endpoint's id
-or label holds one of them. Each word weighs log(1 + N/df) over the lane's N edges, so rare words count most.
+letter-digit codes such as `N4` are kept. Only the first 12 search words count (`_QUERY_TERM_CAP`), and the
+rest are dropped, so a longer list needs several calls. An edge matches when its span, its relation or either
+endpoint's id or label holds one of them. Each word weighs log(1 + N/df) over the lane's N edges, so rare
+words count most.
 Through 0.11.4 the query was a substring `LIKE` over ids, relation and span. It matched «del» inside «modelo»,
 never matched an accented word against an accent-free id, and the fill then ranked the hits by confidence
 and id.
@@ -417,8 +420,9 @@ the true total across both.
   fact only after `kg_ground` promotes it with support (§1.4).
 - `items_total`, `hypotheses_total` — every edge that qualified for each lane (that matched the query, when one
   was given). More than the lane holds means the budget left the rest out; through 0.11.4 nothing said so.
-- `query_terms` — only with a query: the search words it was matched on. An empty list means the query held
-  only function words, and it then matches nothing rather than everything.
+- `query_terms` — only with a query: the search words it was matched on, at most the first 12 of the query. A
+  shorter list than the words you asked for means the rest were dropped. An empty list means the query held only
+  function words, and it then matches nothing rather than everything.
 - `approx_tokens` — tokens actually used across **both** lanes (`<= budget`).
 - `falsification_counters.failed_or_rejected_edges` — count of edges in `FAILURE_STATES`
   (`rejected` + `failed`). **Memory of failures (§1.7): surfaced here, never pruned.** A non-zero counter is a
