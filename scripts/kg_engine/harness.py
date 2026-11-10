@@ -11,6 +11,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -70,11 +71,17 @@ def agreement(label_sets: list[dict]) -> float:
 
 # --------------------------------------------------------------------------- IDF / specificity
 
-# floor of {1,} (2-char minimum) so short alpha labels like "AI"/"ML"/"OS" still match a term and
-# carry their IDF rarity into node_specificity, instead of matching nothing and silently falling back
-# to the corpus default (finding harness-f4-4). Single-char tokens stay excluded as noise. Determinism
-# is unaffected — the same regex drives idf_seeds, _ngrams, _key_terms, and node_specificity alike.
-_WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]{1,}")
+# A word starts with a letter and has at least two characters, so short alpha labels like "AI"/"ML"/"OS"
+# still match a term and carry their IDF rarity into node_specificity, instead of matching nothing and
+# silently falling back to the corpus default (finding harness-f4-4). Single-char tokens stay excluded as
+# noise. Determinism is unaffected — the same regex drives idf_seeds, _ngrams, _key_terms, node_specificity
+# and the rag arm's retrieval alike.
+#
+# Letters are Unicode letters (0.11.8). The pattern was `[A-Za-z][A-Za-z0-9_-]{1,}` through 0.11.7, which
+# cut every word at its first letter outside ASCII: on the Windows corpus (Spanish, 2026-11-10) "revisión"
+# scored as "revisi", "Ámbito" as "mbito" and "más" not at all, in 214 of the graph's 425 node labels and in
+# every ideation output. On ASCII text the two patterns find the same words.
+_WORD = re.compile(r"[^\W\d_][\w-]+")
 
 
 def idf_seeds(documents: list[str]) -> dict[str, float]:
@@ -312,9 +319,10 @@ def _ngrams(text: str, n=3) -> set:
     return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
 
 
-def _score_condition(outputs: list[str], source_text: str) -> dict:
+def _as_outputs(outputs) -> list[str]:
+    """One condition's ideas as a list of strings, whatever the JSON held."""
     # A condition's value must be a LIST of idea strings. A bare string would otherwise iterate
-    # CHARACTER-by-character below (`for o in outputs`), scoring `n=len(string)` with 0 diversity/novelty
+    # CHARACTER-by-character (`for o in outputs`), scoring `n=len(string)` with 0 diversity/novelty
     # — a plausible-looking but meaningless result rather than an error (review-r8-18). Wrap a lone string
     # as one idea; coerce any other non-list (dict / number / None) to no outputs.
     if isinstance(outputs, str):
@@ -322,11 +330,27 @@ def _score_condition(outputs: list[str], source_text: str) -> dict:
     elif not isinstance(outputs, list):
         outputs = []
     # Coerce the ELEMENTS too, not just the container: a non-string idea (a number/dict/None from
-    # malformed JSON) reaches _ngrams(o)/o.lower() below and raises TypeError/AttributeError, which is
+    # malformed JSON) reaches _ngrams(o)/o.lower() and raises TypeError/AttributeError, which is
     # NOT caught by _main's `except (_LoadError, ValueError)` — so the CLI dies with a raw traceback
-    # instead of the intended clean usage exit. Drop non-strings; coerce a non-string source likewise
-    # (review: harness ideation crashes on non-string outputs/source).
-    outputs = [o for o in outputs if isinstance(o, str)]
+    # instead of the intended clean usage exit. Drop non-strings (review: harness ideation crashes on
+    # non-string outputs/source).
+    return [o for o in outputs if isinstance(o, str)]
+
+
+def _judged_terms(output: str) -> list[list[str]]:
+    """The key terms of each sentence of one idea that unsupported_rate can judge, in order."""
+    # only sentences that have >=1 scorable key term can be judged supported/unsupported.
+    # a sentence whose words are all short (<= _KEY_TERM_MIN_LEN chars) yields no key terms — we
+    # can't decide it either way, so it's excluded from BOTH numerator and denominator rather than
+    # counted as a free "unsupported" (which would bias the unsupported_rate axis upward — finding
+    # harness-f4-1). Each sentence is tokenized once and its terms serve both filter and numerator.
+    terms = [_key_terms(s) for s in _SENT.split(output) if len(s.split()) >= 4]
+    return [t for t in terms if t]
+
+
+def _score_condition(outputs: list[str], source_text: str) -> dict:
+    outputs = _as_outputs(outputs)
+    # coerce a non-string source like the outputs (review: harness ideation crashes on non-string source)
     source_text = source_text if isinstance(source_text, str) else ""
     if not outputs:
         return {"n": 0, "diversity": 0.0, "novelty": 0.0, "utility": 0.0, "unsupported_rate": 0.0}
@@ -344,15 +368,9 @@ def _score_condition(outputs: list[str], source_text: str) -> dict:
         # condition can't game the experiment by emitting blank or one-word "ideas".
         novelties.append(1.0 - overlap if ong else 0.0)
         util.append(min(1.0, len(_UTILITY_MARKERS.findall(o.lower())) / _UTILITY_SATURATION))
-        # only sentences that have >=1 scorable key term can be judged supported/unsupported.
-        # a sentence whose words are all short (<= _KEY_TERM_MIN_LEN chars) yields no key terms — we
-        # can't decide it either way, so it's excluded from BOTH numerator and denominator rather than
-        # counted as a free "unsupported" (which would bias the unsupported_rate axis upward — finding
-        # harness-f4-1). Tokenize each sentence once and reuse those terms for both filter and numerator.
-        scored = [(s, _key_terms(s)) for s in _SENT.split(o) if len(s.split()) >= 4]
-        scored = [(s, t) for s, t in scored if t]
+        scored = _judged_terms(o)
         if scored:
-            unsup = sum(1 for _, t in scored if not any(x in src_norm for x in t))
+            unsup = sum(1 for t in scored if not any(x in src_norm for x in t))
             unsupported.append(unsup / len(scored))
     return {
         "n": len(outputs),
@@ -366,6 +384,67 @@ def _score_condition(outputs: list[str], source_text: str) -> dict:
 def _key_terms(sentence: str) -> list[str]:
     return [w.lower() for w in _WORD.findall(sentence)
             if len(w) > _KEY_TERM_MIN_LEN][:_KEY_TERMS_PER_SENTENCE]
+
+
+# --------------------------------------------------------------------------- columns that cannot tell (0.11.8)
+
+# On the Windows corpus (eight Spanish documents, 445,018 characters, 2026-11-10) every arm scored 0.0
+# unsupported_rate and 0.0 utility, and the log read as "no arm made an unsupported claim". Neither column
+# had measured anything:
+# - the guard calls a sentence supported when ANY of its first three long words occurs ANYWHERE in the
+#   source, and a corpus that size holds nearly every ordinary long word. A sentence invented outright
+#   ("El sistema Zorblax de Quantifex redujo las reversiones un 93 % en 2019") passed; on the 2,741-char
+#   demo corpus the same sentence is caught.
+# - _UTILITY_MARKERS are English words, and no Spanish idea contains one.
+# Both rules stay as they are (what the verdict should measure is a separate decision); the harness now
+# says when one of them cannot tell the arms apart, so a 0.0 is not read as a clean result.
+#
+# The probe: every sentence the guard judged, in every arm, with its first long word replaced by a word no
+# source contains. It still names everything else it named, so it is the arm's own sentence about one
+# invented thing. The guard is blind when it lets almost all of them through. On the field run 140 of 143
+# probes passed (0.979). On the demo corpus, twelve English ideas written from its text passed at 0.83 and
+# twelve written without it at 0.27, 0.57 pooled, and there the guard told the two sets apart (unsupported_rate
+# 0.08 against 0.54).
+_PROBE_WORD = "zqxjvbrelkf"     # absent from any real text, longer than _KEY_TERM_MIN_LEN
+_GUARD_BLIND_AT = 0.9           # probe pass rate at and above which unsupported_rate is reported as blind
+
+
+def guard_probe(outputs_by_condition: dict, source_text: str) -> dict:
+    """How often the unsupported-claim guard passes the arms' own sentences once each names one invented
+    thing: `{"probes", "passed", "pass_rate", "source_chars"}` over every arm present. `pass_rate` is None
+    when no sentence was judged."""
+    source_text = source_text if isinstance(source_text, str) else ""
+    src_norm = source_text.lower()
+    probes = passed = 0
+    for _, outs in _ordered_conditions(outputs_by_condition):
+        for o in _as_outputs(outs):
+            for terms in _judged_terms(o):
+                probes += 1
+                passed += any(x in src_norm for x in [_PROBE_WORD] + terms[1:])
+    return {"probes": probes, "passed": passed,
+            "pass_rate": round(passed / probes, 3) if probes else None,
+            "source_chars": len(source_text)}
+
+
+def _caveats(table: dict, probe: dict) -> list[str]:
+    """Plain sentences naming each column that cannot tell the arms apart in this run, for the log."""
+    out = []
+    rate = probe.get("pass_rate")
+    if rate is not None and rate >= _GUARD_BLIND_AT:
+        out.append(
+            f"unsupported_rate cannot tell the arms apart on this source: {probe['passed']} of "
+            f"{probe['probes']} of the ideas' own sentences still passed the guard with their first long word "
+            f"replaced by an invented one, because a sentence passes when any of its first three long words "
+            f"occurs anywhere in the source ({probe['source_chars']:,} characters). Read its values as not "
+            f"measured, not as no unsupported claims: the verdicts' unsupported-claim check could not have "
+            f"caught an arm that invents things.")
+    scored = [row for row in table.values() if row.get("n")]
+    if scored and all(row.get("utility", 0.0) == 0.0 for row in scored):
+        out.append(
+            "utility counts only the English markers because, if, therefore, bridge and connect; no arm's "
+            "ideas contain one, so the column is 0 everywhere and says nothing about this run. It is not "
+            "part of any verdict.")
+    return out
 
 
 def _beats(a: dict, c: dict) -> bool:
@@ -466,7 +545,165 @@ def ideation(outputs_by_condition: dict, source_text: str = "") -> dict:
             "graph condition beat the LightRAG GraphRAG baseline on diversity/novelty without more "
             "unsupported claims" if res
             else "graph condition did NOT clearly beat the LightRAG GraphRAG baseline")
+
+    # 0.11.8: name each column that could not tell the arms apart in this run (see _caveats); the list is
+    # empty when every column could. The verdicts above are unchanged by it.
+    out["guard_probe"] = guard_probe(outputs_by_condition, source_text)
+    out["caveats"] = _caveats(table, out["guard_probe"])
     return out
+
+
+# --------------------------------------------------------------------------- the rag arm's context (0.11.8)
+
+# /kg-experiment's rag arm is the prompt plus "a naive flat slice of the source documents: the top text chunks
+# by keyword overlap with the prompt". Through 0.11.7 the kg-evaluator subagent built that slice itself. On
+# the Windows corpus (2026-11-10) it wrote a retrieval script and ran it through Bash: the run waited 26
+# minutes on that one approval, the script crashed twice on the console's cp1252 encoding, and the slice was
+# whatever that script did, so no later run could reproduce it. The harness builds it now, the same way on
+# every run and with no shell in the subagent: BM25, the standard flat-retrieval baseline, over the source's
+# paragraphs, with accents folded so "revision" in a prompt finds "revisión" in the source. No stopword list
+# (IDF discounts words every passage has) and no stemming, so it works in any language and stays naive.
+
+_RAG_BUDGET_TOKENS = 2000   # the budget the graph arm's kg_context call gets
+_RAG_CHARS_PER_TOKEN = 4    # the estimate that budget is filled with (projector._CHARS_PER_TOKEN)
+_RAG_PASSAGE_CHARS = 1200   # longest passage; a longer paragraph is cut at line, then word boundaries
+_BM25_K1, _BM25_B = 1.2, 0.75
+
+
+def _fold(word: str) -> str:
+    """A word as retrieval compares it: accents dropped, case folded."""
+    decomposed = unicodedata.normalize("NFKD", word)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def _rag_terms(text: str) -> list[str]:
+    return [_fold(w) for w in _WORD.findall(text)]
+
+
+def _cut(block: str, cap: int) -> list[str]:
+    """`block` in pieces of at most `cap` characters, cut between lines, and inside a line only between words."""
+    if len(block) <= cap:
+        return [block]
+    pieces, cur = [], ""
+    for line in block.splitlines():
+        while len(line) > cap:
+            at = line.rfind(" ", 0, cap)
+            at = at if at > 0 else cap
+            if cur:
+                pieces.append(cur)
+                cur = ""
+            pieces.append(line[:at].rstrip())
+            line = line[at:].lstrip()
+        if cur and len(cur) + 1 + len(line) > cap:
+            pieces.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        pieces.append(cur)
+    return [p for p in pieces if p.strip()]
+
+
+def _passages(text: str) -> list[str]:
+    """A document's paragraphs, each heading kept with the paragraph after it, none longer than
+    _RAG_PASSAGE_CHARS. A heading alone would score high on its few words and carry nothing to answer from."""
+    out, heading = [], ""
+    for block in re.split(r"\n[ \t]*\n", text):
+        block = block.strip()
+        if not block:
+            continue
+        if all(line.lstrip().startswith("#") for line in block.splitlines()):
+            heading = f"{heading}\n{block}" if heading else block
+            continue
+        if heading:
+            block, heading = f"{heading}\n{block}", ""
+        out.extend(_cut(block, _RAG_PASSAGE_CHARS))
+    if heading:
+        out.extend(_cut(heading, _RAG_PASSAGE_CHARS))
+    return out
+
+
+def rag_slices(prompts: list[str], documents: dict[str, str],
+               budget_tokens: int = _RAG_BUDGET_TOKENS) -> list[list[dict]]:
+    """For each prompt, the source passages flat retrieval returns: BM25 over every document's paragraphs,
+    best first, while they fit in `budget_tokens` (the best one always). Each passage is
+    `{"document", "score", "text"}`. Deterministic: ties go to the earlier passage in source order, and the
+    query's terms are summed in sorted order so the floating-point sum never depends on hash order."""
+    passages = [(name, p) for name, text in documents.items() for p in _passages(text)]
+    if not passages:
+        return [[] for _ in prompts]
+    tfs = [Counter(_rag_terms(p)) for _, p in passages]
+    lens = [sum(tf.values()) for tf in tfs]
+    avg = (sum(lens) / len(lens)) or 1.0
+    df: Counter = Counter()
+    for tf in tfs:
+        df.update(tf.keys())
+    n = len(passages)
+    idf = {t: math.log((n - d + 0.5) / (d + 0.5) + 1.0) for t, d in df.items()}
+    budget = max(0, int(budget_tokens)) * _RAG_CHARS_PER_TOKEN
+    out = []
+    for prompt in prompts:
+        query = sorted(set(_rag_terms(prompt)) & idf.keys())
+        ranked = []
+        for i, tf in enumerate(tfs):
+            norm = _BM25_K1 * (1 - _BM25_B + _BM25_B * lens[i] / avg)
+            s = sum(idf[t] * tf[t] * (_BM25_K1 + 1) / (tf[t] + norm) for t in query if t in tf)
+            if s > 0:
+                ranked.append((-s, i))
+        ranked.sort()
+        chosen, used = [], 0
+        for neg, i in ranked:
+            name, text = passages[i]
+            if chosen and used + len(text) > budget:
+                break
+            chosen.append({"document": name, "score": round(-neg, 3), "text": text})
+            used += len(text)
+        out.append(chosen)
+    return out
+
+
+def _render_rag_context(k: int, total: int, prompt: str, passages: list[dict]) -> str:
+    """One prompt's rag context as the evaluator reads it. Scores stay out of it: the D1 run
+    (docs/fusion/EXPERIMENT.md) found numbers in a generator's context leaking into its ideas."""
+    lines = [f"# Prompt {k} of {total}", "", prompt, ""]
+    if not passages:
+        lines += ["No passage of the source shares a word with this prompt.", ""]
+    for j, p in enumerate(passages, 1):
+        lines += [f"## Passage {j} — {p['document']}", "", p["text"], ""]
+    return "\n".join(lines)
+
+
+def write_rag_contexts(prompts: list[str], source: str, out_dir: str,
+                       budget_tokens: int = _RAG_BUDGET_TOKENS) -> dict:
+    """Write one Markdown file per prompt (`01.md`, `02.md`, …) and an `index.json` of what each holds
+    (documents and scores, no text) into `out_dir`; return the index. `out_dir` may not be a folder the
+    source reads its documents from, where the files would become source documents themselves."""
+    files = SourceSet.resolve(source)
+    if not files:
+        raise _LoadError(f"source path not found or holds no .md/.txt document: {source}")
+    target = Path(out_dir)
+    # a one-file source reads that file only, so its folder may hold anything; a folder or a glob reads
+    # the documents beside each other
+    if not Path(source).is_file() and any(target.resolve() == p.parent.resolve() for p in files):
+        raise _LoadError(f"{out_dir} is a folder the source reads its documents from; "
+                         "the contexts would become source documents. Write them under the project's .kg/.")
+    if not prompts:
+        raise ValueError("the prompts file holds no prompt")
+    slices = rag_slices(prompts, SourceSet(source).texts, budget_tokens)
+    target.mkdir(parents=True, exist_ok=True)
+    width = max(2, len(str(len(prompts))))
+    index = {"source": str(source), "budget_tokens": int(budget_tokens), "prompts": []}
+    for k, (prompt, passages) in enumerate(zip(prompts, slices), 1):
+        name = f"{k:0{width}d}.md"
+        with open(target / name, "w", encoding="utf-8", newline="\n") as f:
+            f.write(_render_rag_context(k, len(prompts), prompt, passages))
+        index["prompts"].append({"file": name, "prompt": prompt,
+                                 "passages": [{"document": p["document"], "score": p["score"],
+                                               "chars": len(p["text"])} for p in passages]})
+    with open(target / "index.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump(index, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    return index
 
 
 # --------------------------------------------------------------------------- who wrote a labeled edge (0.11.7)
@@ -615,9 +852,10 @@ def _load_json_or_demo(path, demo, *, notice: str):
 def _main(argv: list[str]) -> int:
     if not argv:
         print("usage: python -m kg_engine.harness "
-              "{agreement|specificity|ideation|convergence|writers|legacy-log} [path...]\n"
+              "{agreement|specificity|ideation|convergence|writers|legacy-log|rag-slices} [path...]\n"
               "  specificity GRAPH [SOURCE]   ideation OUTPUTS [SOURCE]\n"
               "  writers LABELS.csv PROJECT   legacy-log PROJECT SOURCE\n"
+              "  rag-slices PROMPTS SOURCE OUT_DIR [BUDGET_TOKENS]\n"
               "  SOURCE is a file, or a folder of .md/.txt documents, read as the projector reads it",
               file=sys.stderr)
         return 2
@@ -768,6 +1006,38 @@ def _cmd_legacy_log(argv: list[str]) -> int:
     return 0
 
 
+def _say(text: str) -> None:
+    """Print without dying on a console that cannot spell a character: a Windows pipe defaults to cp1252,
+    where the evaluator's own retrieval script crashed twice on 2026-11-10."""
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(text.encode(enc, "backslashreplace").decode(enc))
+
+
+def _cmd_rag_slices(argv: list[str]) -> int:
+    prompts_path, source, out_dir = (_positional_path(argv, i) for i in (1, 2, 3))
+    if not (prompts_path and source and out_dir):
+        raise ValueError("usage: rag-slices PROMPTS SOURCE OUT_DIR [BUDGET_TOKENS]")
+    budget = _positional_path(argv, 4)
+    try:
+        budget = int(budget) if budget is not None else _RAG_BUDGET_TOKENS
+    except ValueError:
+        raise ValueError(f"BUDGET_TOKENS must be a whole number, not {budget!r}") from None
+    if not Path(prompts_path).is_file():
+        raise _LoadError(f"prompts file not found: {prompts_path}")
+    # the LightRAG arm's own reading rule, so both arms take one prompt file alike (it imports no lightrag)
+    from .lightrag_arm import _load_prompts
+    try:
+        prompts = _load_prompts(Path(prompts_path))
+    except (OSError, ValueError) as e:
+        raise _LoadError(f"could not read the prompts file {prompts_path}: {e}") from None
+    index = write_rag_contexts(prompts, source, out_dir, budget)
+    counts = [len(p["passages"]) for p in index["prompts"]]
+    docs = {q["document"] for p in index["prompts"] for q in p["passages"]}
+    _say(f"wrote {len(counts)} rag contexts to {out_dir}: {min(counts)}-{max(counts)} passages each, "
+         f"from {len(docs)} of {len(SourceSet.resolve(source))} documents, up to {budget} tokens each")
+    return 0
+
+
 # command table (review-r5: a fifth metric used to mean copying a whole if-branch inside one long
 # _dispatch; now it is one _cmd_* function + one row here).
 _COMMANDS = {
@@ -777,6 +1047,7 @@ _COMMANDS = {
     "convergence": _cmd_convergence,
     "writers": _cmd_writers,
     "legacy-log": _cmd_legacy_log,
+    "rag-slices": _cmd_rag_slices,
 }
 
 

@@ -1,5 +1,105 @@
 # Changelog
 
+## 0.11.8 — 2026-11-10
+
+Found while reviewing the first field `/kg-experiment`, on the Windows corpus with 0.11.7: eight Spanish
+documents, 445,018 characters. Its numbers were right: `harness ideation` on a copy reproduced the score
+file exactly. All three verdicts were negative, but the table said less than it seemed to, and the run
+waited on the shell.
+
+### Fixed
+
+- **The hallucination guard was blind, and nothing said so.**
+  - `unsupported_rate` was 0.0 in every arm. A sentence counts as supported when any of its first three long
+    words occurs anywhere in the source, and a corpus that size holds nearly every ordinary word.
+  - A sentence invented outright, "El sistema Zorblax de Quantifex redujo las reversiones un 93 % en 2019",
+    passed, and so did an English version. On the 2,741-character demo corpus the same sentences are caught.
+  - `harness ideation` now adds `guard_probe` and `caveats` to its output. The probe re-checks every
+    sentence the guard judged, in every arm, with its first long word replaced by an invented one. When 90 %
+    or more still pass, a caveat says the column was not measured, and that the verdicts' unsupported-claim
+    check could not have caught an arm that invents things.
+  - On the field run 140 of 143 passed. On the demo corpus, English ideas pass at about 0.57.
+  - The rule itself is unchanged. What the verdict should measure is a separate decision.
+- **utility measured nothing on a Spanish corpus.** Its markers are the English words `because`, `if`,
+  `therefore`, `bridge` and `connect`, and since 0.11.4 the prompts are drafted in the corpus's language. When
+  no arm's ideas contain one, a caveat now says the column is 0 everywhere and says nothing. It is not part of
+  any verdict.
+- **Words lost their letters outside ASCII.**
+  - The tokenizer behind every harness count and the projector's node specificity was
+    `[A-Za-z][A-Za-z0-9_-]{1,}`. So "revisión" counted as "revisi", "Ámbito" as "mbito" and "más" not at
+    all. That happened in every idea and in 214 of the graph's 425 node labels.
+  - Words are now runs of Unicode letters. On ASCII text the two patterns find the same words.
+  - Re-scored, the field run's numbers moved by at most 0.007 and its verdicts held.
+  - Re-projected, 158 node specificities changed. The specificity gate, the top ten weighted bridges and
+    `kg_generate`'s slate stayed the same.
+  - `PROJECTION_RULES` is now "3", so an index built by an older plugin is rebuilt once.
+- **The evaluator needed the shell.**
+  - The kg-evaluator had `Read`, `Grep` and `Bash` but no `Write`, so it wrote its files through heredocs.
+    Two of 25 KB failed to parse.
+  - It built the `rag` arm with its own retrieval script, which crashed twice on the Windows console's cp1252
+    encoding. No later run could reproduce the passages it picked.
+  - In all: 14 shell calls and 9 approvals. One approval waited 26 minutes.
+  - New `python -m kg_engine.harness rag-slices PROMPTS SOURCE OUT_DIR [BUDGET_TOKENS]` builds the `rag` arm's
+    context the same way on every run. It uses BM25 over the source's paragraphs, with accents folded and no
+    stopword list. It takes the best passages within the 2000-token budget the graph arm's `kg_context` call
+    gets, and writes one Markdown file per prompt plus an `index.json`.
+  - `/kg-experiment` runs it in a new Step 1b, after it has saved the prompts.
+  - The evaluator now has `Read` and `Write` and its three MCP tools, and no shell or `Grep`.
+- **The evaluator's procedure contradicted its blinding.**
+  - It opened with "get to know the source", grepping and reading it, before the control pass that must use
+    no file. The field evaluator wrote its control answers first anyway.
+  - Control now comes first, before any tool call. Each other arm answers from its own context only, and the
+    `rag` arm from its file of passages.
+- **The two generate arms could get different slates.**
+  - `graph+generate` took `kg_context`'s stored `hypotheses[]` when the graph held any. The DPP arm reorders a
+    `kg_generate` call's candidates and could not reorder those, while the `dpp_verdict` assumes one set.
+  - Both arms now take their slate from one `kg_generate(mechanism="all", k=12)` call.
+  - The field run did this already, because its graph held no proposals.
+- **"k=12 ignored".** The field run read `kg_generate`'s 51 candidates as `k` being ignored. `k` is per
+  mechanism (12 bridge, 12 periphery, 11 regroup, 10 transplant, 4 compression, 2 seed); the tool description
+  now says so.
+- **Smaller fixes to `/kg-experiment`:**
+  - Step 0 prints the run's timestamp, which names its files, and probes the optional LightRAG arm.
+  - When that arm is available, the command runs its helper itself, since the evaluator has no shell.
+  - The prompt file is written with `Write`.
+  - The log entry gains the `graph+generate+dpp` row, the DPP verdict and the caveats.
+- `docs/COMMANDS.md` still said that the default prompts are the demo's on any corpus. Since 0.11.4 they are
+  drafted from the user's graph.
+
+### Tests
+
+- `tests/test_fix_experiment_measurement.py` (36 tests):
+  - **the evaluator:** has exactly `Read`, `Write` and its three MCP tools, and no bash block. It writes its
+    control answers before any tool call, answers the `rag` arm from its file of passages, reads its JSON back,
+    and takes both generate slates from `kg_generate`.
+  - **the command:**
+    - Step 0 prints the run and probes LightRAG, and the prompt file is written with `Write`;
+    - Step 1b runs `rag-slices` before the evaluator, and adds the LightRAG answers only in its second block;
+    - the log and the summary carry the caveats and the DPP verdict.
+  - **`kg_generate`:** its description says `k` is per mechanism.
+  - **the tokenizer:**
+    - keeps accented words whole and finds ASCII words exactly as before;
+    - node specificity reads an accented label whole;
+    - `PROJECTION_RULES` is "3".
+  - **the caveats:**
+    - the field case (an invented sentence passes a large source) is reported blind, while the demo corpus
+      catches it and is not;
+    - the probe judges the same sentences as the guard;
+    - the utility caveat appears only when no arm uses a marker;
+    - a caveat never changes a verdict.
+  - **`rag-slices`:**
+    - folds accents and ranks the matching passage first, keeping a heading with its paragraph;
+    - cuts long paragraphs without losing a word, and keeps to the budget;
+    - writes one file per prompt and an index, with no scores in what the evaluator reads;
+    - reads prompts as the LightRAG arm does;
+    - refuses to write into the source folder, and errors cleanly on bad input;
+    - gives the same bytes under two hash seeds, and prints on a cp1252 console.
+  - **Against 0.11.7:** 34 fail. The other 2 check that ASCII text tokenizes as before.
+- `tests/test_fix_field_eval_experiment.py`: the evaluator leaves the "every block that runs Python resolves
+  it first" check, since it has no shell. The LightRAG `--source` check moves to the command, which now runs
+  that helper.
+- 1863 → 1898 passed, 3 skipped.
+
 ## 0.11.7 — 2026-11-10
 
 Found while reviewing the first field `/kg-eval`, on the Windows corpus with 0.11.6. Its numbers were right:

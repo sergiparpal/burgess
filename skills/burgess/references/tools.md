@@ -478,7 +478,9 @@ candidates through `kg_propose`.
   `regroup` (§8 re-partition bridges) | `transplant` (§5 hub pattern) | `ensemble` (§9 cross two
   constructions) | `periphery` (§5 low-degree sources → max-connectability anchor; the periphery the
   hub-seeking mechanisms ignore), or `all`/`default`.
-- `k: int = 10` — max candidates returned (ranked).
+- `k: int = 10` — max candidates **per mechanism** (ranked). Each mechanism surfaces its own top `k`, so
+  `all` returns up to seven times `k`, fewer once the pairs two mechanisms both proposed merge: on the
+  Windows corpus `all` with `k=12` returned 51.
 - `second_graph: str | None` — path to a **pre-built** second construction's `graph.json` for `ensemble`
   (the §11 escape hatch). Without a second construction, `ensemble`/`all` **degrades to `regroup`** and says
   so in `note` (run `/kg-perturb` to supply one).
@@ -1109,11 +1111,14 @@ PACK OK: domain='conceptual theory' node_types=6 edge_types=10 glossary=12
 - `glossary_grounded_in_source` — fraction of glossary terms that actually occur in the source (don't invent
   vocabulary the source never uses).
 
-### 2.3 `python -m kg_engine.harness` — agreement · specificity · ideation · convergence · writers · legacy-log
+### 2.3 `python -m kg_engine.harness` — agreement · specificity · ideation · convergence · writers · legacy-log · rag-slices
 
 Deterministic measurement over data the subagents produce. The first four read/write JSON: if the optional
 path is missing, each falls back to a built-in demo and notes it on stderr. `writers` and `legacy-log`
-(0.11.7) take their paths as required arguments and have no demo.
+(0.11.7) and `rag-slices` (0.11.8) take their paths as required arguments and have no demo.
+
+Words are runs of Unicode letters (0.11.8). Through 0.11.7 the tokenizer that feeds IDF, node specificity
+and ideation scoring knew only ASCII letters, so "revisión" counted as "revisi" and "más" not at all.
 
 #### `agreement [label_sets.json]`
 
@@ -1191,6 +1196,34 @@ The `graph` condition "wins" only if it is `>=` control on diversity AND novelty
 The canonical arm names are `control | graph | graph+generate | graph+generate+dpp | rag | lightrag`; when
 the extra arms are present the output also carries `generate_verdict`, `dpp_verdict`, and
 `lightrag_verdict` under the same win rule.
+
+Since 0.11.8 the output also carries `guard_probe` and `caveats`. `caveats` is a list of plain sentences, each
+naming a column that could not tell the arms apart in this run; it is empty when every column could. The
+verdicts do not change with it.
+- **unsupported_rate.** A sentence passes when any of its first three long words occurs anywhere in the
+  source, so a large source passes nearly everything: on the 445,018-character Windows corpus an invented
+  sentence passed. `guard_probe` (`{probes, passed, pass_rate, source_chars}`) re-checks every sentence the
+  guard judged, in every arm, with its first long word replaced by an invented one. At a `pass_rate` of
+  0.9 or more the caveat reports the column as not measured. The field run passed 140 of 143 (0.979). On the
+  demo corpus, English ideas pass at about 0.57 pooled.
+- **utility.** Its markers are English words. When no arm's ideas contain one, the caveat says the column
+  measures nothing in this run.
+
+#### `rag-slices <prompts> <source> <out_dir> [budget_tokens]` (0.11.8)
+
+Builds the `rag` arm's context for `/kg-experiment`, the same way on every run. For each prompt it ranks the
+source's paragraphs by **BM25** against the prompt, with accents folded and no stopword list or stemming, and
+takes the best while they fit in `budget_tokens` (default 2000, the graph arm's `kg_context` budget, at four
+characters a token). A heading stays with the paragraph after it, and a paragraph longer than 1,200
+characters is cut at line, then word boundaries.
+- It writes `01.md`, `02.md`, … (one per prompt, the passages best first, no scores) and `index.json`
+  (each file's prompt, and its passages' documents, scores and lengths) into `out_dir`.
+- `prompts` is read like `lightrag_arm`'s: a JSON array, a `{"prompts": [...]}` object, or one per line.
+- It refuses an `out_dir` the source reads its documents from, where the files would become documents.
+- It prints how many passages each prompt got, and from how many documents.
+
+Through 0.11.7 the kg-evaluator subagent retrieved this context itself. On the Windows corpus it wrote a
+retrieval script and ran it through a shell, and no later run could reproduce what it picked.
 
 #### `convergence [generation_labels.json]`
 
@@ -1298,4 +1331,5 @@ errors}`.
 | inter-annotator agreement | `kg_engine.harness agreement` |
 | bridge-metric gate verdict | `kg_engine.harness specificity` |
 | value-of-the-graph experiment | `kg_engine.harness ideation` |
+| the rag arm's passages for an ideation run | `kg_engine.harness rag-slices` |
 | divergence engine offline correctness contract | `kg_engine.divergence selftest` |

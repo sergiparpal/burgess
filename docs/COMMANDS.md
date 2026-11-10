@@ -878,14 +878,17 @@ itself, not an error.
 
 | Argument | Required | Accepted values | Default |
 | --- | --- | --- | --- |
-| `prompts_path` | No | A path to a JSON array or newline-delimited file of prompts | 12 built-in prompts |
+| `prompts_path` | No | A path to a JSON array or newline-delimited file of prompts | 12 prompts drafted from your graph |
 
 ### `prompts_path` — what it does
 
 | Form | Purpose |
 | --- | --- |
-| *(omitted)* | Uses the 12 default ideation prompts, written against the demo corpus. |
-| A path | Uses your own prompts — one per line, or a JSON array. Supply these when your graph is built from your own source; the defaults probe the demo's concepts and will not exercise your domain. |
+| *(omitted)* | On the demo corpus, uses the 12 built-in ideation prompts. On any other source, drafts 12 from your graph's own concepts, in the corpus's language, and shows them before it goes on. |
+| A path | Uses your own prompts — one per line, or a JSON array. |
+
+Either way the prompts are saved as `.kg/experiment/prompts-<run>.json`; pass that file to repeat a run on
+the same prompts.
 
 ### Examples
 
@@ -913,9 +916,9 @@ Same, from a JSON array:
 | --- | --- |
 | `control` | The prompt alone. No source, no graph. |
 | `graph` | The prompt + a context pack drawn from the **grounded** graph. |
-| `graph+generate` | The graph pack **plus** the hypothesized slate, clearly marked unverified. Tests whether *generating* lifts ideation beyond grounded context alone. |
+| `graph+generate` | The graph pack **plus** the hypothesized slate (one `kg_generate` call), clearly marked unverified. Tests whether *generating* lifts ideation beyond grounded context alone. |
 | `graph+generate+dpp` | The same slate as `graph+generate`, in advisory-DPP order with its geometry labels. The candidate set is **identical** — this arm measures whether the *presentation* lifts ideation. |
-| `rag` | The prompt + a naive flat-text retrieval slice of the source. The honest strawman. |
+| `rag` | The prompt + the source passages a naive flat retrieval finds (BM25 over the source's paragraphs, `harness rag-slices`), the same on every run of the same prompts. The honest strawman. |
 | `lightrag` *(opt-in)* | The prompt answered by a real, published **GraphRAG** baseline (LightRAG) over the same corpus. A stronger strawman than flat `rag`. |
 
 ### The optional `lightrag` arm
@@ -937,9 +940,18 @@ unchanged and emits no error. To enable it, **all three** must hold:
 | `utility` | Density of reasoning markers (`because`, `if`, `therefore`, `bridge`, `connect`). A rough proxy for "does inferential work". |
 | `unsupported_rate` | Fraction of sentences whose key terms never appear in the source. The hallucination guard. **Higher is worse.** |
 
-One caveat the command will surface for you: if your graph has **zero** recorded failures, the
-`graph` arm looks artificially clean. Run `/kg-ground` with the adversarial grounder before trusting
-a `graph`-wins verdict.
+The command surfaces three caveats when they apply:
+- **No recorded failures.** If your graph has **zero** of them, the `graph` arm looks artificially clean.
+  Run `/kg-ground` with the adversarial grounder before trusting a `graph`-wins verdict.
+- **The hallucination guard is blind** (since 0.11.8). It calls a sentence supported when any of its first
+  three long words appears anywhere in the source, so a large source passes nearly everything. The harness
+  tests this on the run's own sentences with an invented word swapped in. When nearly all of them still
+  pass, `unsupported_rate` is reported as not measured.
+- **Utility measures nothing.** Its markers are English words, so on a corpus in another language it is 0
+  for every arm. It is not part of any verdict.
+
+The subagent that writes the ideas has no shell (since 0.11.8). Only the command's own steps use one: the
+environment check, the rag passages, the scoring and the log entry.
 
 ---
 

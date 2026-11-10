@@ -79,8 +79,9 @@ def test_no_development_paths(path):
     assert "/.venv/bin/python" not in text, f"{_rel(path)} spells a venv interpreter path, absent on Windows"
 
 
-# The annotator ran its Python through Bash until 0.11.7, when it lost the shell (test_fix_eval_log_and_annotator).
-@pytest.mark.parametrize("path", [EVAL, EXPERIMENT, EVALUATOR], ids=_rel)
+# The annotator ran its Python through Bash until 0.11.7, when it lost the shell (test_fix_eval_log_and_annotator),
+# and the evaluator until 0.11.8 (test_fix_experiment_measurement).
+@pytest.mark.parametrize("path", [EVAL, EXPERIMENT], ids=_rel)
 def test_every_bash_block_that_runs_python_resolves_it_first(path):
     # Each Bash call is a fresh shell: a block that uses "$PY" resolves it itself, by the launcher's rule.
     blocks = [b for b in _bash_blocks(_read(path)) if '"$PY"' in b]
@@ -132,7 +133,10 @@ def test_the_evaluator_reads_the_source_it_is_given_and_pastes_none():
     assert not re.findall(r"\$\d", text)  # it is told its inputs, not handed numbered placeholders
     template = re.search(r"## Output.*?```json\n(.*?)```", text, re.S).group(1)
     assert '"source"' not in template  # the harness reads the source by path
-    assert '--source "<the source path you were given>"' in text
+    # Since 0.11.8 the command runs the LightRAG helper on the configured source itself (the evaluator has
+    # no shell) and gives the evaluator the source's passages in the rag folder.
+    assert '--source "${user_config.source_path}"' in _read(EXPERIMENT)
+    assert "the rag folder" in text
 
 
 def test_the_annotator_finds_each_rows_document_in_a_folder_source():
