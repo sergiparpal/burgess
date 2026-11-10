@@ -626,3 +626,30 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - (b) *Keep the demo prompts as the default and ask users for their own:* on the user's corpus the default is the path taken, and it measures nothing.
   - (c) *Let an installed copy refine a project-local pack:* the engine reads its pack from the plugin (`KG_PACK_PATH` in `.mcp.json`), so a project copy would change nothing the extractor sees.
 - **Pinned in:** `tests/test_fix_field_eval_experiment.py`. Against 0.11.3, 29 of its 66 tests fail; the other 37 are per-file checks on texts that were already clean, plus two guards.
+
+## A query finds the edges it is about (2026-11-10)
+
+- **Decision:** `kg_context(query=…)` and the new `query_graph(text=…)` match **search words** and rank by relevance.
+  - A search word is a `/kg-build` content word (`buildplan._words`: casefolded, accents dropped, Spanish and English function words gone, at least three characters unless a number), plus a two-character letter-digit code such as `N4`. Words match across a plural ending (`buildplan._forms`).
+  - An edge offers its span, relation and both endpoints' ids and labels; a node offers its id and label.
+  - Matches rank by the summed rarity weight of the shared words, log(1 + N/df) over the rows searched, then by how many are shared, then in the surface's order without a query. In `kg_context`, grounded before unverified stays ahead of relevance.
+  - `kg_context` reports `items_total`, `hypotheses_total` and `query_terms`; `query_graph(text=…)` reports `query_terms` and `matched`.
+  - `/kg-query` says which tool finds what, that `epistemic_state` is the verdict and `authored_by` only the author, that spans come from the configured source, and that the answer comes from the tools, not from reading `canon/` through the shell.
+- **What it fixes:** found on 2026-11-10 while reviewing a `/kg-query` on the Windows corpus. The answer was faithful, but it took two hours: 19 shell reads of `canon/`, each waiting for the user's approval.
+  - The old query was a filter: every run of three or more characters, as a substring of the edge's ids, relation and span. «del» matched 37 of the 61 hits, inside «modelo» too. «revisión» never matched the accent-free id `retirar-revision`, and labels were not searched.
+  - The fill then took the hits by the extractor's confidence and by id. The edge the question was about came 24th; the budget held 18, of which the answer used 5. Nothing said 43 were left out.
+  - `query_graph` could not find a node by what it says, so the session grepped `^label:`.
+  - `/kg-query` said an agent-authored edge "has not yet been confirmed by a verdict", which sent the session to check `verdict_by` in the canon.
+- **Why words, not substrings:** a substring cannot tell «del» from «modelo», and SQLite's `LIKE` cannot fold accents. The ids are accent-free by the extractor contract, so an accented question never met them.
+- **Why rarity weights, not a longer function-word list:** the list covers Spanish and English, and a corpus in another language, or a common content word such as «puede», would still flood the ranking. The IDF lets every common word count for little. It is the weight `buildplan.related_nodes` already ranks node names by, so the engine keeps one notion of a specific word. The sum is rounded to nine places, so two platforms' `log` cannot reorder a tie.
+- **Why grounded first still beats relevance:** `items[]` is the grounded lane. A strongly matching unverified edge is a candidate, and a reader of `/kg-query` leads with facts. The hypothesis lane stays separate, as before.
+- **Why rank in Python, not in the index:** the match is on folded words, which SQLite cannot compute, and the weights need each term's frequency over the whole lane. Precomputing words per row would change the derived schema and force a rebuild of every index. A search reads each row of a lane once: about 5 ms on the field canon and about 100 ms on 10 000 edges, inside the hook's 5 s cap.
+  - Two shortcuts keep it there. `buildplan._fold` drops combining marks with one `str.translate`; the output is the same, checked over every code point. A row's text is split into words only when some form of a term occurs in it as a substring, which skips no match because a word's forms are its prefixes.
+- **Rejected alternatives:**
+  - (a) *Keep `LIKE` and add stopwords:* still substrings, still no accents, still no ranking.
+  - (b) *Rank relevance ahead of the grounded split:* weakly matching grounded facts would trail strongly matching candidates in the lane `/kg-query` presents as fact.
+  - (c) *SQLite FTS5 with `remove_diacritics`:* a new virtual table in the derived schema, a rebuild of every index, and a second tokenizer that would disagree with `/kg-build`'s words.
+  - (d) *Embeddings:* the razor holds; embeddings measure dispersion, never truth, and a convergence read stays rule-bound.
+  - (e) *Expose `verdict_by`, node bodies and verdict notes through `get_node`:* the derived layer omits them by design, and the answer does not need them. `/kg-query` now says a canon note is for the question "why this verdict?".
+- **Checked:** two headless `/kg-query` runs on a copy of the field canon, with Bash denied, answered from 9 and 6 tool calls in 40 and 31 s and tried no shell command. The first wrote its `query_graph` text in English, following an English example in the command, and matched 2 nodes. The command now says to write it in the documents' language, and the second run's Spanish text matched 39 nodes.
+- **Pinned in:** `tests/test_fix_query_relevance.py`. Against 0.11.4, 23 of its 28 tests fail; the other 5 are Cyrillic matching and four guards. `test_review_r6.py` F6 and `test_review_r9.py` L10 now pin their regressions through the new term extractor.

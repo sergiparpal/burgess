@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.11.5 — 2026-11-10
+
+Found while reviewing a `/kg-query` on the Windows corpus (425 nodes, 221 edges). The question was «¿En qué
+condiciones se puede retirar la revisión humana del código?». The answer was faithful: all 55 edges it cited
+match the graph, spans included. But `kg_context` had given it 18 edges, of which it used 5. So it read
+`canon/` through the shell 19 times, each command waited for the user's approval, and the run took two hours.
+
+### Fixed
+
+- **`kg_context` did not rank by relevance.**
+  - A query was only a filter. Every run of three or more characters was a term, matched as a substring of
+    the edge's ids, relation and span. «del» matched 37 of the 61 hits, inside «modelo» as well. «revisión»
+    and «código» never matched the accent-free ids (`retirar-revision`), and node labels were not searched.
+  - The fill then ordered the hits by state, the extractor's confidence (0.7/0.6/0.5) and id. The edge the
+    question was about, `comprobadores-deterministas --enables--> retirar-revision` (0.6), came 24th, and
+    the 2000-token budget held 18.
+  - A query now matches **search words**. They are `/kg-build`'s content words: case, accents and plural
+    endings are ignored, and Spanish and English function words are dropped. Two-character codes such as
+    `N4` count too.
+  - An edge matches on its span, its relation, and both endpoints' ids and labels. Matches rank by the rarity
+    weight of the words they share, the IDF `/kg-build` already ranks node names by. Grounded edges still
+    come before unverified ones, and a tie keeps the old order.
+  - On a copy of the field index that edge now comes first. 9 of the 19 edges that fit are ones the answer
+    cited.
+- **Nothing said what the budget left out.**
+  - `kg_context` now returns `items_total` and `hypotheses_total`: every edge that qualified for each lane.
+    On the field question, 19 of 43 fit.
+  - It also returns `query_terms`, the words it searched on.
+  - `/kg-query` asked the model to "note if you were truncated", which it could only guess.
+- **No read tool found a node by what it says.**
+  - `query_graph` gains `text`. It keeps the nodes whose id or label, and the edges whose span, relation or
+    endpoints, share a search word with it, ranked the same way, and returns `query_terms` and `matched`
+    counts.
+  - It also finds nodes with no edge yet, which `kg_context` cannot return. The field session grepped
+    `^label:` in `canon/` for those.
+- **`/kg-query` misread an axis.**
+  - It said that an edge with `authored_by: agent` "has not yet been confirmed by a verdict". Every
+    extracted edge is agent-authored for life. `epistemic_state` is the verdict, so a grounded edge has one.
+    The session went to the canon to check `verdict_by`.
+  - The text also called every span a substring of `examples/source.md`, instead of the configured source.
+  - It also forbade presenting "an inferred edge" as fact, although a grounded edge with inferred
+    provenance is one. It now says "unverified".
+- **`/kg-query` now says which tool finds what.**
+  - When `items_total` exceeds what the model got, it raises `budget` or narrows the question.
+  - The model answers from the tools and does not read `canon/` through the shell, which in many setups
+    waits for the user's approval at every command.
+  - `query_graph(text=…)` goes in the documents' language. A first headless run translated its text into
+    English, after an English example in the command, and matched 2 nodes on the Spanish canon.
+- **Checked headless on a copy of the field canon.** `/kg-query` asked the same question with these changes,
+  with Bash denied by default.
+  - **First run:** 9 tool calls in 40 s, and no shell command tried. It saw 19 of 43 matches and called
+    `kg_context` again with a larger budget.
+  - **Second run, after the language note:** 6 tool calls in 31 s. Its `query_graph` text was in Spanish and
+    matched 39 nodes. It presented the edgeless ones, such as `no-retirar-revision-hoy`, as concepts with no
+    verified claim.
+  - Both runs left the canon byte-identical.
+
+### Changed
+
+- **The cost of a query.** `kg_context` now reads every edge of the lane once and ranks it in Python. That
+  takes about 5 ms on the field canon and about 100 ms on 10 000 edges.
+  - The PreToolUse hook gets the same ranking for its Grep pattern or file name.
+  - `buildplan._fold` drops combining marks with one `str.translate` instead of a per-character loop. That
+    loop was half the cost of a search. The output is unchanged, checked over every code point.
+- **Edge cases.**
+  - A query made only of spaces is now no query, as an empty one was.
+  - A query made only of function words now matches nothing. Through 0.11.4, «del» matched every edge that
+    contained it.
+- **`/kg-experiment`.** Its graph arm calls `kg_context(query=<prompt>)`, so that arm's context is now ranked
+  by relevance too. A run made with 0.11.4 is not comparable on that arm.
+
+### Tests
+
+- `tests/test_fix_query_relevance.py` (28 tests):
+  - **What a query matches:** function words; words inside other words; accents and case; endpoint labels;
+    plurals; letter-digit codes; Cyrillic; a blank query.
+  - **Ranking:**
+    - relevance comes before confidence and id (the field case in miniature);
+    - rarer words, then more words, rank first;
+    - grounded edges still come first, and equal matches keep the old order;
+    - a full rebuild gives the same ranking;
+    - the hypothesis lane is ranked too.
+  - **Totals:** the counts, the order without a query, and the term cap.
+  - **`query_graph(text=…)`:** it finds edgeless nodes, `limit` keeps the true count, it combines with the
+    other filters, and without text nothing changes.
+  - **The MCP tools:** signatures and fields; positional calls still work.
+  - **`_fold`:** the same string as before over every code point.
+  - **Text:** `/kg-query` and `tools.md`.
+  - **Against 0.11.4:** 23 fail. The other 5 hold there too: Cyrillic matching, plus four guards (grounded
+    first, the tie order, determinism, `_fold`).
+- `test_review_r6.py` F6 and `test_review_r9.py` L10 pinned the SQL shape of the old `LIKE` clause. They now
+  pin the same regressions through the new term extractor: at most 12 terms, and Cyrillic terms are
+  extracted.
+- 1786 → 1814 passed, 3 skipped.
+
 ## 0.11.4 — 2026-11-10
 
 Found when the user asked what else to try on the Windows corpus. `/kg-eval` and `/kg-experiment`, and the

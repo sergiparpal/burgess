@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from . import envconfig
 from .atomicio import atomic_write_text as _atomic_write
+from .buildplan import _STOPWORDS, _WORD, _fold, _forms
 from .canon import Canon, _git
 from .graphio import node_link_data
 from .harness import idf_seeds, node_specificity
@@ -106,11 +108,13 @@ BRIDGE_LIMIT = 10          # top-N structural-bridge rows kg_context serves; exp
 MAX_QUERY_LIMIT = 10_000   # clamp for query_graph's LIMIT (a negative LIMIT is unbounded in SQLite)
 MAX_AGENDA_LIMIT = 50      # clamp for kg_agenda's limit
 _CHARS_PER_TOKEN = 4       # the crude chars-per-token estimate the context budget fill uses
-# Cap on the distinct query terms kg_context turns into LIKE clauses. Each term adds four
-# `LIKE '%…%'` predicates evaluated against EVERY edge row (span text included) — an unbounded
-# pasted-paragraph query would multiply that full-scan cost per term for match quality the budget
-# fill then truncates anyway (review-r6). Queries with more terms match on the first cap terms.
+# Cap on the distinct terms one search (kg_context's `query`, query_graph's `text`) matches rows on. Every
+# row is read once whatever the query, and each term costs one set intersection per row, so an unbounded
+# pasted-paragraph query would multiply that per-row work for match quality the budget fill then
+# truncates anyway (review-r6). A query with more terms searches on its first cap terms.
 _QUERY_TERM_CAP = 12
+# The SQL `CASE provenance …` rank of kg_context's fill order, for the same order computed in Python.
+_PROVENANCE_RANK = {"span-present": 0, "inferred": 1}
 _STALE_PREVIEW_LABELS = 3  # how many stale-verdict labels the advisory names inline
 # Cap the R3 stale-verdict advisory list in kg_context so it can't bypass the token budget (review-low).
 _STALE_VERDICTS_CAP = 50
@@ -156,10 +160,64 @@ _HUB_DEGREE = 3
 _GROUNDED_RATIO = 0.5
 
 
-def _like_escape(term: str) -> str:
-    """Escape SQL LIKE wildcards so a query term like `span_present` or `100%` matches literally
-    (the matching clauses use `ESCAPE '\\'`)."""
-    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def _search_words(text: "str | None") -> "list[str]":
+    """The words a search matches on, each once, in the order they first appear (0.11.5).
+
+    They are /kg-build's content words (buildplan._words): casefolded, accents dropped, the Spanish and
+    English function words gone, and words under three characters dropped unless they are a number of two
+    or more digits. A two-character code that mixes a letter and a digit (`N4`, `H5`, `R0`) is kept too: a
+    corpus names concepts that way, and the three-character floor would lose them.
+
+    Through 0.11.4 kg_context took every run of three or more characters as a term and matched it as a
+    substring of the edge's ids, relation and span. On the field canon, «¿En qué condiciones se puede
+    retirar la revisión humana del código?» matched 61 of 162 edges, 37 of them through «del» (inside
+    «modelo» as well). «revisión» and «código» could never match the accent-free ids
+    (`retirar-revision`), and no node label was searched."""
+    return _folded_search_words(_fold(text or ""))
+
+
+def _folded_search_words(folded: str) -> "list[str]":
+    """_search_words of a text already folded (buildplan._fold), for a caller that folds once and reuses it."""
+    out: "list[str]" = []
+    seen: "set[str]" = set()
+    for w in _WORD.findall(folded):
+        if w in seen or w in _STOPWORDS:
+            continue
+        if (len(w) >= 3 or (w.isdigit() and len(w) >= 2)
+                or (len(w) == 2 and any(c.isdigit() for c in w) and any(c.isalpha() for c in w))):
+            seen.add(w)
+            out.append(w)
+    return out
+
+
+def _text_ranked(rows: list, terms: "list[str]", forms_of: "Callable[[dict], set[str]]", *,
+                 head: "Callable[[dict], tuple]" = lambda row: (),
+                 tail: "Callable[[dict], tuple]" = lambda row: ()) -> list:
+    """The `rows` whose words (`forms_of(row)`, the buildplan._forms of each: the word and the singulars it
+    could be the plural of) hold at least one of `terms`, best match first (0.11.5). A row word matches a term
+    when they share a form, so a singular and a plural of one word always meet.
+
+    A term weighs log(1 + N/df), N being the rows searched and df the rows that hold it. That is the IDF
+    buildplan.related_nodes ranks node names by: a word one edge carries outweighs a word half the graph
+    carries, so a common word that no function-word list knows still counts for little. A row ranks by
+    `head` first (the surface's own priority, such as grounded before unverified), then by the summed weight
+    of the terms it holds, then by how many it holds, then by `tail` (the surface's order without a query,
+    ending in the unique id, so the order is total). The sum is rounded to nine places, so a last-bit
+    difference between two platforms' `log` cannot reorder two rows that tie."""
+    want = [_forms(t) for t in terms]
+    found: list = []
+    df = [0] * len(want)
+    for row in rows:
+        have = forms_of(row)
+        hit = [i for i, forms in enumerate(want) if forms & have]
+        if hit:
+            found.append((row, hit))
+            for i in hit:
+                df[i] += 1
+    weight = [math.log(1 + len(rows) / d) if d else 0.0 for d in df]
+    found.sort(key=lambda rh: (*head(rh[0]), -round(sum(weight[i] for i in rh[1]), 9), -len(rh[1]),
+                               *tail(rh[0])))
+    return [row for row, _ in found]
 
 
 # The gate-aware bridge ranking — ONE source of truth shared by kg_context (a SQL ORDER BY) and
@@ -1798,7 +1856,7 @@ class DerivedReader:
             con.close()
 
     def query_graph(self, *, node_type: str | None = None, relation: str | None = None,
-                    epistemic_state: str | None = None, limit: int = 50) -> dict:
+                    epistemic_state: str | None = None, limit: int = 50, text: str | None = None) -> dict:
         """The nodes and the edges that match every filter given; each filter applies to both halves (0.8.0).
 
         `node_type` keeps the nodes of that type and the edges that touch one. `relation` keeps the edges of
@@ -1806,12 +1864,20 @@ class DerivedReader:
         each judged by its own. Nodes rank by degree (pins first in the unverified queue), edges by id, and
         each half stops at `limit`.
 
+        `text` (0.11.5) keeps, of what the other filters keep, the nodes whose id or label holds any of its
+        search words and the edges whose span, relation or endpoints do, ranked as kg_context ranks a query
+        (_text_ranked, then the order above). It adds `query_terms` (the words searched on) and `matched`
+        (how many nodes and edges matched before `limit`). It finds a node by what it says, an edgeless
+        node too, which kg_context (edges only) cannot return: on 0.11.3 a field /kg-query grepped `^label:`
+        through canon/ for that, one shell command and one permission prompt at a time.
+
         Through 0.7.0 `node_type` and `epistemic_state` filtered only the nodes and `relation` only the
         edges, so the two halves answered different questions. `query_graph(epistemic_state="grounded")`,
         which /kg-query reads as the trustworthy subgraph, returned rejected edges beside grounded ones (8 of
         50 on the field canon), and a grounder that asked for a node type that does not exist got 0 nodes and
         100 unrelated edges, 62 KB that Claude Code saved to a file (field report on 0.7.0)."""
         limit = max(0, min(int(limit), MAX_QUERY_LIMIT))  # a negative LIMIT is unbounded in SQLite
+        terms = self._query_terms(text)
         con = self._ro()
         try:
             nq, na = "SELECT * FROM nodes", []
@@ -1826,15 +1892,18 @@ class DerivedReader:
                 na += [relation, relation]
             if conds:
                 nq += " WHERE " + " AND ".join(conds)
-            if epistemic_state == EpistemicState.UNVERIFIED.value:
+            pins_first = epistemic_state == EpistemicState.UNVERIFIED.value
+            if pins_first:
                 # Grounding queue: float bare materialized `/kg-diverge` pins (provenance=hypothesized,
                 # typically degree 0) to the FRONT so they are not pushed past `limit` behind high-degree
                 # extractor nodes — /kg-ground is told to ground pins first, but degree DESC alone buried
                 # them (review-fix: L8). id tiebreak keeps the top-N deterministic.
-                nq += " ORDER BY (provenance='hypothesized') DESC, degree DESC, id ASC LIMIT ?"
+                nq += " ORDER BY (provenance='hypothesized') DESC, degree DESC, id ASC"
             else:
-                nq += " ORDER BY degree DESC, id ASC LIMIT ?"  # id tiebreak: deterministic top-N
-            na.append(limit)
+                nq += " ORDER BY degree DESC, id ASC"  # id tiebreak: deterministic top-N
+            if terms is None:  # a text search ranks every row the filters keep, then cuts (below)
+                nq += " LIMIT ?"
+                na.append(limit)
             nodes = [dict(r) for r in con.execute(nq, na)]
             eq, ea = "SELECT * FROM edges", []
             econds = []
@@ -1848,11 +1917,28 @@ class DerivedReader:
                 ea += [node_type, node_type]
             if econds:
                 eq += " WHERE " + " AND ".join(econds)
-            eq += " ORDER BY id ASC LIMIT ?"; ea.append(limit)  # deterministic top-N (mirror the nodes query)
+            eq += " ORDER BY id ASC"  # deterministic top-N (mirror the nodes query)
+            if terms is None:
+                eq += " LIMIT ?"
+                ea.append(limit)
             edges = [dict(r) for r in con.execute(eq, ea)]
-            return {"nodes": nodes, "edges": edges}
+            if terms is None:
+                return {"nodes": nodes, "edges": edges}
+            # an edge's endpoint may sit outside the node filters, so its label comes from every node
+            labels = {r[0]: r[1] for r in con.execute("SELECT id,label FROM nodes")}
         finally:
             con.close()
+        node_forms = self._node_forms_reader(labels, terms)
+        if pins_first:
+            def node_order(n):
+                return (n["provenance"] != "hypothesized", -(n["degree"] or 0), n["id"])
+        else:
+            def node_order(n):
+                return (-(n["degree"] or 0), n["id"])
+        nodes = _text_ranked(nodes, terms, lambda n: node_forms(n["id"]), tail=node_order)
+        edges = _text_ranked(edges, terms, self._edge_forms_reader(labels, terms), tail=lambda e: (e["id"],))
+        return {"nodes": nodes[:limit], "edges": edges[:limit], "query_terms": terms,
+                "matched": {"nodes": len(nodes), "edges": len(edges)}}
 
     def shortest_path(self, source: str, target: str) -> list[str] | None:
         # path search over the derived edge list; still no centrality computation. Exclude the NON-LIVE
@@ -1900,32 +1986,60 @@ class DerivedReader:
         return None
 
     @staticmethod
-    def _query_term_clause(query: str | None) -> "tuple[str, list]":
-        """Build the term-wise OR LIKE clause + its args for a natural-language query (empty when no
-        query). A question matches edges that contain ANY of its >=3-char terms in any field; a single
-        LIKE on the whole string would only match a verbatim substring, so multi-word queries always
-        missed. Built once and reused for both the grounded and hypothesis lanes."""
-        if not query:
-            return "", []
-        seen: set = set()
-        # Unicode-aware term extraction: an ASCII-only class ([A-Za-z0-9_-]) yields ZERO terms on a
-        # Cyrillic/CJK/Greek query, collapsing to a single whole-string LIKE that only matches a verbatim
-        # substring — the exact multi-word miss the per-term OR-clause exists to fix, and the same defect
-        # review-r8-13 already fixed for the re-examinable advisory's _OVERLAP_WORD. `[^\W_]{3,}` keeps the
-        # >=3-char floor while matching word runs in any script (digits included; splits on `-`/`_`, which
-        # only broadens the OR-match). re.UNICODE is the str default, spelled out here for intent.
-        terms = [t for t in re.findall(r"[^\W_]{3,}", query.lower(), re.UNICODE)
-                 if not (t in seen or seen.add(t))][:_QUERY_TERM_CAP]
-        clause = ("(source LIKE ? ESCAPE '\\' OR target LIKE ? ESCAPE '\\' "
-                  "OR relation LIKE ? ESCAPE '\\' OR span LIKE ? ESCAPE '\\')")
-        if terms:
-            term_args: list = []
-            parts = []
-            for t in terms:
-                parts.append(clause)
-                term_args += [f"%{_like_escape(t)}%"] * 4
-            return "(" + " OR ".join(parts) + ")", term_args
-        return clause, [f"%{_like_escape(query)}%"] * 4
+    def _query_terms(query: str | None) -> "list[str] | None":
+        """The terms a search matches on: None for no query (absent or blank, so every row qualifies, as
+        before), else the first `_QUERY_TERM_CAP` search words of `query` (_search_words). A question
+        matches the rows that hold ANY of its terms, best match first; a single match on the whole string
+        would only find a verbatim substring, so multi-word questions always missed.
+
+        The words are Unicode-aware: an ASCII-only class yields no term at all on a Cyrillic, CJK or Greek
+        query (review-r8-13 fixed the same defect in the re-examinable advisory's _OVERLAP_WORD). A query
+        that holds only function words gives an empty list, which matches nothing rather than everything."""
+        if not query or not query.strip():
+            return None
+        return _search_words(query)[:_QUERY_TERM_CAP]
+
+    @staticmethod
+    def _probe_forms(folded: str, probes: "list[str]") -> "set[str]":
+        """The search forms of an already folded text, or none when no probe (a form of a search term)
+        occurs in it as a substring. Skipping those texts loses no match: a word matches a term when they
+        share a form, and every form of a word is a prefix of it, so a shared form occurs in the folded text.
+        Most texts hold no term, and splitting them into words was most of the cost of a search."""
+        got: "set[str]" = set()
+        if any(p in folded for p in probes):
+            for w in _folded_search_words(folded):
+                got |= _forms(w)
+        return got
+
+    @classmethod
+    def _node_forms_reader(cls, labels: "dict[str, str | None]",
+                           terms: "list[str]") -> "Callable[[str], set[str]]":
+        """`forms(node_id)`: what a node's id and label offer a search for `terms`, computed once per node
+        per call (edges share endpoints, so an edge search would otherwise re-fold the same labels)."""
+        probes = sorted({f for t in terms for f in _forms(t)})
+        cache: "dict[str, set[str]]" = {}
+
+        def forms(nid: str) -> "set[str]":
+            got = cache.get(nid)
+            if got is None:
+                got = cache[nid] = cls._probe_forms(_fold(f"{nid} {labels.get(nid) or ''}"), probes)
+            return got
+        return forms
+
+    @classmethod
+    def _edge_forms_reader(cls, labels: "dict[str, str | None]",
+                           terms: "list[str]") -> "Callable[[dict], set[str]]":
+        """`forms(edge_row)`: what an edge offers a search for `terms`, namely the words of its span and
+        relation and the ids and labels of both its endpoints. The label is how a node says what it is
+        («Retirar revisión»), and its id lacks the accents a question has, so matching only ids and spans
+        missed the edges a question was about."""
+        node_forms = cls._node_forms_reader(labels, terms)
+        probes = sorted({f for t in terms for f in _forms(t)})
+
+        def forms(row: dict) -> "set[str]":
+            return (node_forms(row["source"]) | node_forms(row["target"])
+                    | cls._probe_forms(_fold(f"{row.get('span') or ''} {row.get('relation') or ''}"), probes))
+        return forms
 
     @staticmethod
     def _read_stale_advisory(con) -> "tuple[list, int]":
@@ -1980,7 +2094,18 @@ class DerivedReader:
 
     def kg_context(self, query: str | None = None, *, budget: int = 2000) -> dict:
         """Grounding-aware, provenance-carrying, token-budgeted context. Reads precomputed columns
-        only — no centrality is computed here (it is O(1) on the index)."""
+        only — no centrality is computed here (it is O(1) on the index).
+
+        With a `query` (0.11.5), each lane holds the edges whose span, relation, endpoint ids or endpoint
+        labels share a search word with it (_search_words: case, accents and function words ignored), best
+        match first (_text_ranked): grounded before unverified as always, then by the weight of the words
+        matched, then in the order a query-less call uses. `query_terms` echoes the words searched on.
+        `items_total` and `hypotheses_total` count every edge that qualified for each lane (that matched the
+        query, when one was given), so a reader can see what the budget left out.
+
+        Through 0.11.4 a query only filtered: the fill then took edges by the extractor's confidence and by
+        id, and said nothing of the rest. On the field canon, a question about withdrawing human review got
+        18 of its 61 matches, and the edge it was about ranked 24th (field report on 0.11.3)."""
         budget = max(0, min(int(budget), MAX_CONTEXT_TOKENS))  # enforce an upper ceiling (server-4)
         con = self._ro()
         try:
@@ -1993,32 +2118,56 @@ class DerivedReader:
                     f"SELECT COUNT(*) FROM edges WHERE epistemic_state IN ({qmarks})", fail_states).fetchone()[0],
             }
             # priority fill: grounded -> span-present -> inferred. The trailing `id ASC` is a deterministic
-            # tiebreak so WHICH tied edges survive a budget truncation in _fill is a pure function of the
+            # tiebreak so WHICH tied edges survive a budget truncation in _take is a pure function of the
             # canon (SQLite gives no stable order among rows equal under the ORDER BY key; row order can
-            # flip between a full rebuild and an incremental reproject of the identical canon).
+            # flip between a full rebuild and an incremental reproject of the identical canon). A query
+            # ranks its matches by relevance inside the same grounded-first split, and falls back to this
+            # order (as the Python keys below) among rows that match equally well.
             order = ("epistemic_state='grounded' DESC, "
                      "CASE provenance WHEN 'span-present' THEN 0 WHEN 'inferred' THEN 1 ELSE 2 END, "
                      "confidence_score DESC, id ASC")
             cols = ("id,source,target,relation,provenance,authored_by,epistemic_state,span,"
                     "confidence,confidence_score")
-            term_clause, term_args = self._query_term_clause(query)
+            out_cols = cols.split(",")
+            terms = self._query_terms(query)
 
-            def _fill(where_sql, args, order_sql, cap):
-                rows, used = [], 0
-                # LIMIT cap+1 is provably output-identical: every accepted row costs >= 1 token
-                # against `cap` and the loop STOPS at the first over-budget row (no skip-and-
-                # continue), so it can never look past row cap+1. The bound turns the CASE-expression
-                # ORDER BY (which no index can serve) into a bounded top-N sort instead of a full
-                # sort of every matching edge (review-r6).
-                for r in con.execute(f"SELECT {cols} FROM edges WHERE {where_sql} "
-                                     f"ORDER BY {order_sql} LIMIT ?", [*args, int(cap) + 1]):
-                    rec = dict(r)
+            def _take(rows, cap):
+                """Fill a lane from `rows`, best first, until the next row would pass `cap`. The fill STOPS
+                there (no skip-and-continue), so which rows survive is a pure function of their order."""
+                taken, used = [], 0
+                for r in rows:
+                    rec = {c: r[c] for c in out_cols}
                     tok = max(1, len(json.dumps(rec)) // _CHARS_PER_TOKEN)
                     if used + tok > cap:
                         break
                     used += tok
-                    rows.append(rec)
-                return rows, used
+                    taken.append(rec)
+                return taken, used
+
+            if terms is None:
+                def _lane(where_sql, order_sql, cap, head, tail):
+                    total = con.execute(f"SELECT COUNT(*) FROM edges WHERE {where_sql}").fetchone()[0]
+                    # LIMIT cap+1 is provably output-identical: every accepted row costs >= 1 token
+                    # against `cap` and _take STOPS at the first over-budget row, so it can never look
+                    # past row cap+1. The bound turns the CASE-expression ORDER BY (which no index can
+                    # serve) into a bounded top-N sort instead of a full sort of every edge (review-r6).
+                    rows = con.execute(f"SELECT {cols} FROM edges WHERE {where_sql} "
+                                       f"ORDER BY {order_sql} LIMIT ?", [int(cap) + 1])
+                    return (*_take(rows, cap), total)
+            else:
+                # A query reads every edge of the lane once and ranks the matches in Python: the match is
+                # on folded words, which SQLite's LIKE cannot do, and the ranking needs each term's
+                # document frequency over the whole lane.
+                edge_forms = self._edge_forms_reader(
+                    {r[0]: r[1] for r in con.execute("SELECT id,label FROM nodes")}, terms)
+
+                def _lane(where_sql, order_sql, cap, head, tail):
+                    rows = [dict(r) for r in con.execute(f"SELECT {cols} FROM edges WHERE {where_sql}")]
+                    ranked = _text_ranked(rows, terms, edge_forms, head=head, tail=tail)
+                    return (*_take(ranked, cap), len(ranked))
+
+            def _by_confidence(r):  # `confidence_score DESC, id ASC` in Python: SQLite sorts NULL last
+                return (r["confidence_score"] is None, -(r["confidence_score"] or 0.0), r["id"])
 
             # GROUNDED LANE — items[] never includes a hypothesized proposal (PLAN Stage 8). A
             # hypothesized edge is a machine proposal, not grounded content, and must never be laundered
@@ -2030,29 +2179,32 @@ class DerivedReader:
             # single-homed in model.NON_LIVE_STATE_VALUES; sorted for a deterministic SQL text.
             excluded = ",".join(repr(s) for s in sorted(NON_LIVE_STATE_VALUES))
             iwhere = f"provenance != 'hypothesized' AND epistemic_state NOT IN ({excluded})"
-            iargs = list(term_args)
-            if term_clause:
-                iwhere += " AND " + term_clause
-            items, used = _fill(iwhere, iargs, order, budget)
+            items, used, items_total = _lane(
+                iwhere, order, budget,
+                head=lambda r: (r["epistemic_state"] != "grounded",),
+                tail=lambda r: (_PROVENANCE_RANK.get(r["provenance"], 2), *_by_confidence(r)))
             # HYPOTHESIS LANE — a SEPARATE block of hypothesized, unverified proposals, clearly distinct.
             # Both lanes share ONE running budget (§1.11): the hypotheses cap is what the items lane left
             # unspent (budget - used), so the total serialized payload never exceeds `budget` and the
             # reported approx_tokens (used + hused) is honest. Filling items first preserves grounded
             # priority; the items/hypotheses segregation in the output is unchanged.
             hwhere = "provenance = 'hypothesized' AND epistemic_state = 'unverified'"
-            hargs = list(term_args)
-            if term_clause:
-                hwhere += " AND " + term_clause
-            hypotheses, hused = _fill(hwhere, hargs, "confidence_score DESC, id ASC", budget - used)
+            hypotheses, hused, hypotheses_total = _lane(
+                hwhere, "confidence_score DESC, id ASC", budget - used,
+                head=lambda r: (), tail=_by_confidence)
             bridges = [dict(r) for r in con.execute(
                 "SELECT id,label,degree,bridge_communities FROM nodes WHERE structural_bridge=1 "
                 f"ORDER BY degree DESC, id ASC LIMIT {BRIDGE_LIMIT}")]
             bridge_metric = self._bridge_metric_block(con)
             stale_verdicts, stale_total = self._read_stale_advisory(con)
             reexaminable, reexaminable_total = self._read_reexaminable_advisory(con)
-            return {
+            out = {
                 "items": items,
                 "hypotheses": hypotheses,   # the SEPARATE hypothesized lane — proposals, NOT grounded content
+                # every edge that qualified for each lane (matched the query, when one was given): more than
+                # the lane holds means the budget left the rest out (0.11.5)
+                "items_total": items_total,
+                "hypotheses_total": hypotheses_total,
                 "approx_tokens": used + hused,  # both lanes counted against the shared budget (§1.11)
                 "budget": budget,
                 "falsification_counters": counters,
@@ -2064,6 +2216,9 @@ class DerivedReader:
                              "reexaminable_verdicts": reexaminable,
                              "reexaminable_verdicts_total": reexaminable_total},
             }
+            if terms is not None:
+                out["query_terms"] = terms  # the words the query was matched on (none: it matched nothing)
+            return out
         finally:
             con.close()
 

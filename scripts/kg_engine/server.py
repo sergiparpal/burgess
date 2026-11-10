@@ -3259,12 +3259,17 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def query_graph(node_type: str | None = None, relation: str | None = None,
-                    epistemic_state: str | None = None, limit: int = 50) -> dict:
+                    epistemic_state: str | None = None, limit: int = 50, text: str | None = None) -> dict:
         """Query nodes and edges by type, relation, or epistemic state; every filter applies to both halves
         (node_type: those nodes and the edges touching one; relation: those edges and the nodes they touch;
-        epistemic_state: nodes and edges in that state). Nodes ranked by precomputed degree, edges by id."""
+        epistemic_state: nodes and edges in that state). Nodes ranked by precomputed degree, edges by id.
+        `text` also keeps only the nodes whose id or label, and the edges whose span, relation or endpoints,
+        share a word with it (case, accents and function words ignored; rarer words weigh more), best match
+        first, and adds `query_terms` and `matched` (counts before `limit`). Use it to find a node by what
+        it says, an edgeless one included; write it in the documents' language, since a translation finds
+        little."""
         return engine.query_graph(node_type=node_type, relation=relation,
-                                  epistemic_state=epistemic_state, limit=limit)
+                                  epistemic_state=epistemic_state, limit=limit, text=text)
 
     @mcp.tool()
     @_tool_result
@@ -3303,7 +3308,11 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_context(query: str | None = None, budget: int = 2000) -> dict:
-        """Grounding-aware, provenance-carrying, token-budgeted context for the session."""
+        """Grounding-aware, provenance-carrying, token-budgeted context for the session. A `query` keeps the
+        edges whose span, relation or endpoint labels share a word with it (case, accents and function words
+        ignored), grounded first and then best match first, and echoes the words in `query_terms`.
+        `items_total`/`hypotheses_total` count every edge that qualified: more than the lane holds means the
+        budget left the rest out (raise `budget`, up to 100000, or narrow the query)."""
         return engine.kg_context(query, budget)
 
     @mcp.tool()

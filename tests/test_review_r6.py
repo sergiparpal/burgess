@@ -7,7 +7,7 @@ Each test pins one applied finding so it cannot silently regress:
   F3  mech-spread cap   — _cap_by_novelty: identity at/below cap, most-novel above it
   F4  lazy-row FPS      — farthest_point_sampling matches the reference full-matrix walk exactly
   F5  incremental parse — a one-note edit re-parses ONE file; derived output identical to a rebuild
-  F6  term cap          — kg_context's LIKE clause is bounded at _QUERY_TERM_CAP terms
+  F6  term cap          — a kg_context query searches on at most _QUERY_TERM_CAP terms
   F7  session-zone I/O  — durable=False skips fsync but stays atomic; an unchanged mech store and a
                           surface-reusable open-axis batch do no redundant work
 """
@@ -240,12 +240,11 @@ def test_f5_missing_file_stats_falls_back_to_full_parse(tmp_path, monkeypatch):
 def test_f6_query_terms_capped():
     from kg_engine.projector import _QUERY_TERM_CAP, DerivedReader
 
+    # 0.11.5 replaced the per-term LIKE clause with a word match ranked in Python; the cap still bounds
+    # the per-row work a pasted-paragraph query can ask for: only the first cap terms are searched on.
     query = " ".join(f"term{i:02d}" for i in range(_QUERY_TERM_CAP + 8))
-    clause, args = DerivedReader._query_term_clause(query)
-    assert clause.count("source LIKE") == _QUERY_TERM_CAP
-    assert len(args) == _QUERY_TERM_CAP * 4      # four LIKE fields per term
-    short_clause, short_args = DerivedReader._query_term_clause("alpha beta")
-    assert short_clause.count("source LIKE") == 2 and len(short_args) == 8
+    assert DerivedReader._query_terms(query) == [f"term{i:02d}" for i in range(_QUERY_TERM_CAP)]
+    assert DerivedReader._query_terms("alpha beta") == ["alpha", "beta"]
 
 
 # --------------------------------------------------------------------------- F7: session-zone I/O
