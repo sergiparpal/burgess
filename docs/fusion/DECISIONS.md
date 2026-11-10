@@ -654,3 +654,46 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Checked:** two headless `/kg-query` runs on a copy of the field canon, with Bash denied, answered from 9 and 6 tool calls in 40 and 31 s and tried no shell command. The first wrote its `query_graph` text in English, following an English example in the command, and matched 2 nodes. The command now says to write it in the documents' language, and the second run's Spanish text matched 39 nodes.
 - **Pinned in:** `tests/test_fix_query_relevance.py`. Against 0.11.4, 23 of its 28 tests fail; the other 5 are Cyrillic matching and four guards. `test_review_r6.py` F6 and `test_review_r9.py` L10 now pin their regressions through the new term extractor.
 - **0.11.6, the word limit is stated:** a search uses its first 12 search words (`_QUERY_TERM_CAP`), and through 0.11.5 only `query_terms` showed it. On the field re-run, /kg-query searched `query_graph(text="h1 h2 … h20")` and got h1–h12 without being told why. `/kg-query`, `tools.md`, `docs/ARCHITECTURE.md` and both tool descriptions now state the limit and say to split a longer list over several searches. The limit itself stays, since it bounds the per-row work (review-r6). Pinned in `tests/test_fix_query_word_limit.py`, which ties each stated number to the constant: against 0.11.5, 3 of its 4 tests fail, and the fourth is the engine-side guard.
+
+## The measurement log stays out of the source, and the annotators need no shell (2026-11-10)
+
+- **Decision:** `/kg-eval` and `/kg-experiment` keep everything they write under the project's `.kg/`.
+  - Their log is `.kg/PROGRESS.md`.
+  - The annotator reads with `Read` and `Grep` and writes its labels as one JSON file with `Write`. It has no shell.
+  - `/kg-eval` checks a refinement against the current contract before recommending it.
+  - Three deterministic helpers back this:
+    - `f4_probe.py fill` writes labels into a sheet;
+    - `harness writers` splits a labeled sample by who wrote each edge and by its verdict;
+    - `harness legacy-log` notes an earlier version's log that the source still reads.
+- **What it fixes:** found on 2026-11-10, in the first field `/kg-eval` (0.11.6, Windows). Its numbers were right: precision 0.84 and α 0.901 both check out against its CSVs.
+  - **The log was in the source.** 0.11.4 put the log at `<project>/PROGRESS.md`. The user's source is the project folder, and `SourceSet` reads every `.md` at the top of a source folder. So the log became a ninth document, and the source grew from 84 sections to 85. The next `/kg-build` would have extracted it, and `/kg-experiment`'s `rag` arm and its scoring would have read it as source.
+  - **The annotators used the shell.** The annotator had `Read, Grep, Bash`, and its contract said to write the CSV with Bash; its search step even showed a shell `grep`. All three passes read the documents through `grep` and `sed`. Under the user's `blockReadsOutsideWorkingDirectories`, every one of those calls waited for an approval: 74 from the annotators, plus 7 from the command. Each annotator worked six or seven minutes, and for 51 of the run's 56 minutes one of them was waiting.
+  - **The advice was stale.** The session recommended four extractor rules that `agents/extractor.md` has carried since 0.8.0–0.11.0. The 13 edges labeled other than `correct` were 9 first-build extractions from before 0.8.0, 3 counter-edges written by adversarial passes and 1 lead written before 0.11.0. Grounding had already rejected 11 of them.
+- **Why `.kg/`:** `SourceSet` skips dot entries, and a recursive glob does not descend into a dot folder, so nothing under `.kg/` is ever a source document, whatever the source is. The run's scratch files already lived in `.kg/eval/` and `.kg/experiment/`.
+- **Why a note, not a move:** Burgess does not move or delete what it finds in a user's folder. The old log may have been edited, kept on purpose, or already moved.
+  - `/kg-experiment` stops on the note: its `rag` arm and its harness read every source document, so the run would take an earlier run's results for source.
+  - `/kg-eval` goes on: its annotators read only the documents their rows cite, so the old log reaches it only as one section of the specificity step's corpus.
+- **Why JSON and `fill`, not a CSV written by the annotator:** the csv module quotes; a model writing CSV by hand does not always. The labels' notes quote Spanish spans with commas, double quotes and «». A misquoted CSV shifts columns without an error, and `score` would take the shifted cells as labels. A malformed JSON fails at `fill`, which refuses the whole file, so the annotator rewrites it.
+  - Without a shell, the annotator needs at most one approval, for its one `Write`, and none in the user's mode.
+- **Why `writers` reads the canon:** the marks that tell a counter-edge (`groundplan.ATTACK_MARK`) and a lead (`LEAD_FROM_MARK`) from an extraction live in an edge's notes, which the derived layer omits by design. The canon is read with `ensure_layout=False`, so the read lays nothing out.
+- **Why check the contract instead of dating each edge:** the canon does not record which plugin version wrote an edge. Adding that would be a new field on every edge, a canon schema change. The contract check needs nothing new: if the rule an error breaks is already in the contract, the edge predates it.
+- **Why a quoted heredoc for the log:** through 0.11.6 the block appended through `<<EOF`, so a backtick in the model's text, such as a relation in code format, ran as a command. The field session escaped its backticks by hand. Now only the date and the graph path are expanded, by `printf`.
+- **Rejected alternatives:**
+  - (a) *Have `SourceSet` skip a file named `PROGRESS.md`:* a user's own document may have that name. A filename rule would also silently change the projector's input, its signatures and its coverage.
+  - (b) *Move the old log into `.kg/` automatically:* see "Why a note".
+  - (c) *Keep Bash and tell the annotator to read only with `Read` and `Grep`:* writing the CSV would still need the shell, and the field annotators had `Grep` and still reached for shell `grep`.
+  - (d) *Let the annotator write the CSV with `Write`:* see "Why JSON".
+  - (e) *Add writer and verdict columns to the sheet:* the annotators read the sheet, and a verdict column would unblind them.
+  - (f) *Add the writer to `graph.json`:* it would change the derived schema and the index's table for one measurement.
+- **Checked:** `writers` and `legacy-log` were run read-only on the field data, and the run wrote nothing to the project.
+  - `writers` reproduced the split found by hand:
+    - by writer: extractor 54 of 63 correct, lead 10 of 11, counter-edge 3 of 6;
+    - by verdict: grounded 59 of 61, rejected 8 of 19;
+    - the same 13 edges listed.
+  - `legacy-log` named the field's `PROGRESS.md`.
+- **Checked end to end:** a headless `/kg-build`, then `/kg-eval`, on the demo source copied into a scratch project that is its own source, with an old `PROGRESS.md` planted at its top.
+  - Each annotator made two `Read`s and one `Write`, and no shell call. `fill` took all three files at the first try.
+  - The command ran 5 shell steps and had no permission denial.
+  - Its first step printed the note, and the answer passed it on. The old file kept its bytes, and the new log landed in `.kg/PROGRESS.md` with its backticks as written.
+  - Cost: $0.94.
+- **Pinned in:** `tests/test_fix_eval_log_and_annotator.py`. Against 0.11.6, 22 of its 46 tests fail. The other 24 already held there: the files that never named the old path, the `SourceSet` behaviour and the extractor rules. `tests/test_fix_field_eval_experiment.py` moves its log path under `.kg/`, and the annotator leaves its "resolves Python first" check, since it has no shell.

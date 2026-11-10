@@ -610,10 +610,15 @@ and re-extracts (0.11.4).
 - `python -m kg_engine.harness convergence` — promotes the mechanism-convergence tally from
   advisory to queue-reordering only if edges proposed by ≥2 mechanisms ground at a rate more than
   0.10 above single-mechanism edges (with enough samples per band).
-- `scripts/f4_probe.py` — extraction-precision probe: sample edges, hand-label
-  `correct | fabricated | vague | wrong_type` + `span_found`, score against the advisory
-  **0.70 precision gate**; also reports the astrology rate (fabricated+vague) and confidence
-  calibration.
+- `scripts/f4_probe.py` — extraction-precision probe: sample edges, label them
+  `correct | fabricated | vague | wrong_type` + `span_found` (the annotator writes its labels as JSON,
+  which `fill` writes into the sheet), score against the advisory **0.70 precision gate**; also reports
+  the astrology rate (fabricated+vague) and confidence calibration.
+- `python -m kg_engine.harness writers` — splits a labeled sample by who wrote each edge (an extraction,
+  a lead pass, an adversarial pass) and by the verdict it holds now. The canon keeps edges from every
+  build, so `/kg-eval` checks a refinement against the current contract before it recommends one.
+  `harness legacy-log` notes a pre-0.11.7 `PROGRESS.md` that the source still reads; the measurement log
+  now lives in `<project>/.kg/`.
 - `python -m kg_engine.divergence selftest` — the divergence engine's offline correctness
   contract (variety gate, DPP-beats-first-N, null no-regression, collapse reversal; gate details
   in `skills/burgess/references/tools.md` §2.4).

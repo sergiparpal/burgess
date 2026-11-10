@@ -313,8 +313,8 @@ If you want hard numbers rather than a vibe, Burgess ships its own honesty check
   fairly and records the verdict. This is how Burgess keeps itself honest instead of just asserting it
   works.
 
-Both work on a source folder of several documents, and both write their results to `PROGRESS.md` in your
-project.
+Both work on a source folder of several documents, and both write their results to `.kg/PROGRESS.md` in
+your project, a folder Burgess never reads as a source document.
 
 Most people never need these two. They're here because the project would rather be measured than
 believed.

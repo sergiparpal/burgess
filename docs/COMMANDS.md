@@ -796,15 +796,17 @@ verdicts (spans your source no longer contains), and per-source-file edge counts
 ```
 
 **What it does.** Measures how good the extraction actually was, and how reliable the grounding
-signal actually is. It runs two stages and appends the numbers to `PROGRESS.md`.
+signal actually is. It runs two stages and appends the numbers to `.kg/PROGRESS.md` in your project.
 
-**It measures; it never gates.** No metric here blocks the flow. When a stage falls short of its
-target the command auto-iterates — refine the pack and the extractor prompt, re-extract, re-measure,
-up to three passes — then records the **best** result and proceeds.
+**It measures; it never gates.** No metric here blocks the flow. In a development checkout, a stage
+that falls short of its target auto-iterates — refine the pack and the extractor prompt, re-extract,
+re-measure, up to three passes — then records the **best** result and proceeds. An installed plugin
+never edits itself or rebuilds your graph: it records the refinements the numbers point to, each
+checked against the current plugin first, because your graph keeps edges from every earlier build.
 
 | Stage | Measures | Target |
 | --- | --- | --- |
-| **4** — extraction precision | An annotator labels a deterministic sample of edges against your source. Reports precision, astrology rate (fabricated + vague), span-support rate, and per-relation precision. | precision `>= 0.70` |
+| **4** — extraction precision | An annotator labels a deterministic sample of edges against your source. Reports precision, astrology rate (fabricated + vague), span-support rate, and per-relation precision, then splits the sample by who wrote each edge (an extraction, a lead pass, an adversarial pass) and by the verdict grounding gave it. | precision `>= 0.70` |
 | **7** — agreement + specificity | Two **independent** annotator passes over the same sample → Krippendorff's α. Then the specificity bridge-metric gate verdict. | α `>= 0.67` |
 
 ### Arguments
@@ -817,7 +819,7 @@ up to three passes — then records the **best** result and proceeds.
 
 | Form | Purpose |
 | --- | --- |
-| *(omitted)* | Grades the graph you have now: `${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}/derived/graph.json`. If it doesn't exist, run `/kg-build` first. |
+| *(omitted)* | Grades the graph you have now: the engine's derived `graph.json`, re-projected for this project first. If the graph is empty, run `/kg-build` first. |
 | A path | Grades a specific projection. Use it to compare a graph before and after a pack change, or to grade an archived build. |
 
 ### Examples
@@ -868,7 +870,7 @@ The headline question:
 > Does the `graph` condition beat `control` on diversity and novelty **without raising the
 > unsupported-claim rate?** (Beating control by hallucinating more is not a win.)
 
-The verdict is appended to `PROGRESS.md` and the command returns — **win or lose**. A "graph did NOT
+The verdict is appended to `.kg/PROGRESS.md` in your project and the command returns — **win or lose**. A "graph did NOT
 clearly beat control" result is a legitimate, logged outcome: negative information about the pipeline
 itself, not an error.
 

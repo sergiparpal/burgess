@@ -1,5 +1,5 @@
 ---
-description: Stage 8/9 — blind ideation experiment (control|graph|graph+generate|graph+generate+dpp|rag); score with the harness and append the verdict to PROGRESS.md
+description: Stage 8/9 — blind ideation experiment (control|graph|graph+generate|graph+generate+dpp|rag); score with the harness and append the verdict to the project's .kg/PROGRESS.md
 argument-hint: "[prompts_path]"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_agenda
 ---
@@ -31,7 +31,7 @@ The generator is BLIND to which condition it is in (it receives only an opaque c
 scoring is not contaminated by the model "trying harder" for one arm. Scoring is **deterministic** —
 `python -m kg_engine.harness ideation` computes diversity / novelty / utility / unsupported_rate per
 condition and a single verdict. Per §4 **no metric gates execution**: this command logs the table + verdict
-to `PROGRESS.md` and returns, regardless of whether graph wins.
+to the project's `.kg/PROGRESS.md` and returns, regardless of whether graph wins.
 
 The headline question the verdict answers:
 > **Does the `graph` condition beat `control` on diversity + novelty WITHOUT raising the unsupported-claim rate?**
@@ -47,7 +47,10 @@ Claude Code filled these in when the command loaded. Use them as they stand:
 
 - **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`.
 - **Engine data:** `${CLAUDE_PLUGIN_DATA}`.
-- **Project:** `${CLAUDE_PROJECT_DIR}`. `PROGRESS.md` goes here, and the run's files go in its `.kg/experiment/`.
+- **Project:** `${CLAUDE_PROJECT_DIR}`. The log is its `.kg/PROGRESS.md`, and the run's files go in its
+  `.kg/experiment/`. Everything this command writes stays under `.kg/`, which Burgess never reads as a source
+  document. The source can be the project folder itself, and then every `.md`/`.txt` file at the top of
+  that folder is one of its documents.
 - **Source:** `${user_config.source_path}`, what the graph was built from. It is one file, or a folder whose
   `.md`/`.txt` files are the documents. The `rag` and `lightrag` arms read it, and the harness scores
   novelty and unsupported claims against it.
@@ -65,10 +68,17 @@ PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DA
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
 EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
 "$PY" -m kg_engine.harness ideation 2>&1 | head -n 1   # smoke-test: harness importable
+"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "${user_config.source_path}"
 ```
 
 If `engine_python.mjs` exits 1, the engine is not provisioned yet: tell the user to start a new Claude Code
 session, whose SessionStart hook builds it, and stop.
+
+`legacy-log` prints nothing unless a `PROGRESS.md` at the top of the project is one of the source documents.
+Through 0.11.6 this command and `/kg-eval` kept their log there. If it prints a note, pass it on to the user
+and stop: the `rag` arm and the harness read every source document, so this run would take an earlier run's
+results for source, both to answer and to score. Don't move or delete the file; the user moves it out of the
+source folder and runs the command again.
 
 Confirm the graph is queryable before spending tokens generating ideas:
 
@@ -266,14 +276,14 @@ it was not enabled the harness emits the original four-arm table with no `lightr
 
 ---
 
-## Step 4 — append to PROGRESS.md (then return, win or lose — §4)
+## Step 4 — append to the log (then return, win or lose — §4)
 
 Render the harness JSON as a Markdown table and append it, with the verdict, the prompt file and a UTC
-timestamp, to `${CLAUDE_PROJECT_DIR}/PROGRESS.md` (create the file with an `# Experiment log` header if
+timestamp, to `${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md` (create the file with an `# Experiment log` header if
 absent). Use a heredoc so the run is reproducible from the log:
 
 ```bash
-PROGRESS="${CLAUDE_PROJECT_DIR}/PROGRESS.md"
+PROGRESS="${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md"; mkdir -p "${CLAUDE_PROJECT_DIR}/.kg"
 [ -f "$PROGRESS" ] || printf '# Experiment log\n\n' > "$PROGRESS"
 {
   printf '\n## kg-experiment (Stage 8) — %s\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -307,7 +317,7 @@ Then print a one-paragraph summary to the user:
 - The **caveat from Step 0** if `falsification_counters.failed_or_rejected_edges == 0`: a graph with no
   recorded failures (§1.7) makes `graph` look cleaner than it has earned; recommend running `/kg-ground` with
   the adversarial grounder before trusting a `graph`-wins verdict.
-- Path to the appended log: `${CLAUDE_PROJECT_DIR}/PROGRESS.md`, and to the saved prompt file.
+- Path to the appended log: `${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md`, and to the saved prompt file.
 
 **Execution proceeds regardless of the verdict (§4).** A `graph did NOT clearly beat control` result is a
 legitimate, logged outcome — it is *negative information* about the pipeline itself, not an error. Do not
