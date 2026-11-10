@@ -244,13 +244,21 @@ Cheap summary counts straight off the canon (no projection). No args.
 `edges_by_epistemic_state` keys are whatever `EpistemicState` values are present
 (`unverified|grounded|rejected|failed|obsolete`).
 
-### 1.7 `mcp__plugin_burgess_burgess__query_graph(node_type=None, relation=None, epistemic_state=None, limit=50)`
+### 1.7 `mcp__plugin_burgess_burgess__query_graph(node_type=None, relation=None, epistemic_state=None, limit=50, text=None)`
 
 Filtered read of the derived index. **Every filter applies to both halves** (0.8.0): `node_type` keeps the
 nodes of that type and the edges that touch one; `relation` keeps the edges of that relation and the nodes
 they touch; `epistemic_state` keeps the nodes and the edges in that state, each by its own state. Nodes are
 **ordered by precomputed `degree` DESC** (the honest MVP advisory, §1.6), edges **by `id` ASC** (a
 deterministic, byte-stable top-N), each half capped at `limit`. All filters optional.
+
+`text` (0.11.5) searches by what nodes and edges say. Of what the other filters keep, it keeps the nodes whose
+id or label, and the edges whose span, relation or endpoint ids and labels, share a search word with `text`.
+It ranks them as `kg_context` ranks a query (§1.11), then in the order above. The result gains `query_terms`
+(the words searched on) and `matched: {nodes, edges}` (how many matched before `limit`). It is the one read
+that finds a node by what it says when that node has no edge yet: `kg_context` returns edges only. Through
+0.11.4 a reader that needed such a node had to grep `canon/`. Write `text` in the documents' language: the
+match is on the words the graph holds, so a translated query finds little.
 
 Through 0.7.0 `node_type`/`epistemic_state` filtered only the nodes and `relation` only the edges, so
 `query_graph(epistemic_state="grounded")` returned rejected edges beside the grounded ones (8 of 50 on a
@@ -349,13 +357,22 @@ narrower question — a 32-hop chain is already past what a person can read.
 
 The **grounding-aware, provenance-carrying, token-budgeted** context tool — the one to call before reasoning
 over the graph. Reads precomputed ranks **O(1)**; it **NEVER computes centrality in-request** (centrality is
-precomputed off the hot path by the projector). `query` (optional) does a `LIKE` filter over edge
-`source|target|relation|span`. `budget` (default `2000`) caps approximate tokens (`len(json)//4` per item).
+precomputed off the hot path by the projector). `budget` (default `2000`, at most `100000`) caps approximate
+tokens (`len(json)//4` per item).
 
-Priority fill order (best context first, until the budget is spent): **grounded edges first**, then
-`span-present` provenance, then `inferred`, then by `confidence_score` DESC. The grounded `items[]` and the
-hypothesized `hypotheses[]` lanes share **one** running budget (§1.11): hypotheses fill only what the items
-lane left, and `approx_tokens` reports the true total across both.
+`query` (optional) is a question in any language. Its **search words** are /kg-build's content words: case,
+accents and plural endings are ignored, function words such as «del» or "the" are dropped, and two-character
+letter-digit codes such as `N4` are kept. An edge matches when its span, its relation or either endpoint's id
+or label holds one of them. Each word weighs log(1 + N/df) over the lane's N edges, so rare words count most.
+Through 0.11.4 the query was a substring `LIKE` over ids, relation and span. It matched «del» inside «modelo»,
+never matched an accented word against an accent-free id, and the fill then ranked the hits by confidence
+and id.
+
+Fill order (best context first, until the budget is spent): **grounded edges first**, then with a query the
+best match (summed word weight, then words matched), then `span-present` provenance before `inferred`, then
+`confidence_score` DESC, then `id`. The grounded `items[]` and the hypothesized `hypotheses[]` lanes share
+**one** running budget (§1.11): hypotheses fill only what the items lane left, and `approx_tokens` reports
+the true total across both.
 
 ```json
 {
@@ -369,6 +386,8 @@ lane left, and `approx_tokens` reports the true total across both.
      "provenance": "hypothesized", "authored_by": "deterministic", "epistemic_state": "unverified",
      "span": "", "confidence": "AMBIGUOUS", "confidence_score": 0.5}
   ],
+  "items_total": 37,
+  "hypotheses_total": 1,
   "approx_tokens": 1840,
   "budget": 2000,
   "falsification_counters": {"failed_or_rejected_edges": 4},
@@ -396,6 +415,10 @@ lane left, and `approx_tokens` reports the true total across both.
 - `hypotheses[]` — the **SEPARATE** hypothesized lane (Stage 8 query segregation): machine proposals from
   `/kg-generate`, `provenance=hypothesized`, never mixed into the grounded `items[]`. A hypothesis becomes a
   fact only after `kg_ground` promotes it with support (§1.4).
+- `items_total`, `hypotheses_total` — every edge that qualified for each lane (that matched the query, when one
+  was given). More than the lane holds means the budget left the rest out; through 0.11.4 nothing said so.
+- `query_terms` — only with a query: the search words it was matched on. An empty list means the query held
+  only function words, and it then matches nothing rather than everything.
 - `approx_tokens` — tokens actually used across **both** lanes (`<= budget`).
 - `falsification_counters.failed_or_rejected_edges` — count of edges in `FAILURE_STATES`
   (`rejected` + `failed`). **Memory of failures (§1.7): surfaced here, never pruned.** A non-zero counter is a
@@ -1214,11 +1237,12 @@ errors}`.
 | cheap counts | `kg_metrics()` |
 | projection-free status / resume a partial build | `kg_status()` |
 | browse by type/relation/state, ranked by degree | `query_graph(...)` |
+| find nodes and edges by what they say (edgeless nodes too) | `query_graph(text=...)` |
 | one node + its edges | `get_node(id)` |
 | a node's edges (list) | `get_neighbors(id, relation=?)` |
 | connect two nodes (structural) | `shortest_path(a, b)` |
 | connect concepts over GROUNDED edges only (+ advisory leap) | `kg_explain_path(nodes)` |
-| budgeted, grounding-aware context (+ failures + bridges) | `kg_context(query=?, budget=?)` |
+| budgeted, grounding-aware context, best match first (+ failures + bridges) | `kg_context(query=?, budget=?)` |
 | propose hypothesized candidates (the offensive lane) | `kg_propose(payload)` |
 | generate structural idea candidates (read-only) | `kg_generate(mechanism=?, k=?, second_graph=?, dpp=?, second_construction=?)` |
 | run a §8 endo operation (collapse/explode/regroup/open) | `kg_operate(op, …)` |

@@ -227,6 +227,25 @@ names that node, never a phantom node of its own. Reads call `_ensure_projected(
 first; a reprojection failure degrades gracefully (`projection_degraded` flag, empty-schema
 fallback) — writes never pass through that seam.
 
+**Searching the index (0.11.5).** `kg_context(query=…)` and `query_graph(text=…)` match **search words**,
+not substrings. A search word is a content word as `/kg-build` counts them (`buildplan._words`: casefolded,
+accents dropped, the Spanish and English function words gone, at least three characters unless a number),
+plus a two-character letter-digit code such as `N4`. A word matches across a plural ending
+(`buildplan._forms`). An edge offers the words of its span, its relation and both endpoints' ids and labels;
+a node offers its id and label. Matches rank by the summed rarity weight of the shared words,
+log(1 + N/df) over the rows searched, then by how many are shared, then in the surface's order without a
+query (`kg_context`: grounded first, provenance, confidence, id; the grounded-before-unverified split stays
+ahead of relevance). The rarity weight is the IDF `related_nodes` already ranks names by, so a common word
+that no function-word list knows still counts for little. The search reads every row of a lane once: about
+5 ms on the 221-edge field canon and about 100 ms on 10 000 edges, well inside the hook's 5 s cap. A span is
+split into words only when some form of a term occurs in it as a substring, which loses no match because a
+word's forms are its prefixes. `kg_context` reports `items_total`/`hypotheses_total` (every edge that
+qualified, so a reader sees what the budget left out) and `query_terms`; `query_graph(text=…)` reports
+`query_terms` and `matched`. Through 0.11.4 the query was a substring `LIKE` over ids, relation and span,
+ranked by confidence and id. On the field canon «¿En qué condiciones se puede retirar la revisión humana del
+código?» matched 61 edges, 37 of them through «del», and the edge the question was about came 24th of the 61
+behind a budget that held 18.
+
 ### 3.6 Egress scrub (§1.9)
 
 `kg_scrub` redacts **secrets always** (private keys, cloud/API tokens, JWT/Bearer, keyword=value,
@@ -300,13 +319,16 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   `verdict_at`, when it entered its state, which a re-verdict that keeps the state keeps, 0.10.2),
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
-  reads no file), `query_graph` (every filter applies to nodes and edges alike), `get_node`,
+  reads no file), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
+  edges by what they say, edgeless nodes included), `get_node`,
   `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
   (grounded-edges-only chain + advisory `leap`; capped at
   `pathing.MAX_EXPLAIN_NODES` distinct nodes — its closure is quadratic in that count, so an uncapped
   model-supplied list would outrun the handler watchdog), `kg_context`
-  (budgeted, falsification-aware; grounded `items[]` never mixed with `hypotheses[]`), `kg_agenda`
+  (budgeted, falsification-aware; grounded `items[]` never mixed with `hypotheses[]`; a query ranks its
+  matches by the rarity weight of the words they share, grounded first, and `items_total` says what the
+  budget left out — the search is described in §3.5), `kg_agenda`
   (structural suggested questions, `answerable_now` vs `blocked_on_grounding`), `kg_export`
   (offline `graph.html` + `GRAPH_REPORT.md`; the three axes on independent visual channels).
 - **Write/ground (7):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),

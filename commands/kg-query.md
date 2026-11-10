@@ -12,12 +12,16 @@ job is to answer the question while **faithfully surfacing the grounding state o
 Question: **$ARGUMENTS**
 
 ## What you may NOT do
-- Do **not** present a hypothesized or inferred edge as fact. An edge is only a *fact in the canon* when its
+- Do **not** present a hypothesized or unverified edge as fact. An edge is only a *fact in the canon* when its
   `epistemic_state` is `grounded`. Everything else is a candidate, a downgrade, or negative information.
 - Do **not** present the structural-bridge advisory as a centrality truth. It is a degree-based heuristic and
   is **confounded_by** the generality confound (§1.6) — a vague node sits on many paths for empty reasons.
 - Do **not** invent edges, nodes, spans, or verdicts. If the graph does not contain the answer, say so and
   point at what *is* there.
+- Do **not** read `canon/`, the derived index or the source through the shell to build the answer. The tools
+  below carry every claim, its three axes and its verbatim span, so a shell read adds no fact to a grounded
+  answer, and in many setups each shell command waits for the user's approval. Open a canon note only when
+  the user asks why a verdict fell as it did: its `notes` say, and no read tool returns them.
 
 ## Procedure
 
@@ -32,25 +36,40 @@ predictable, and never present a `blocked_on_grounding` gap as if it were answer
 
 ### 1. Get grounded, token-budgeted context
 Call `mcp__plugin_burgess_burgess__kg_context(query=$ARGUMENTS)`. This is the primary source. It returns:
-- `items[]` — **grounded-lane** edges ordered **grounded → span-present → inferred**, each carrying
+- `items[]` — **grounded-lane** edges, each carrying
   `{id, source, target, relation, provenance, authored_by, epistemic_state, span, confidence, confidence_score}`.
-  This lane **never** contains a hypothesized proposal.
+  This lane **never** contains a hypothesized proposal. With a query it holds the edges whose span, relation or
+  endpoints (ids and labels) share a word with the question, **grounded before unverified**, then best match
+  first: the more of its words an edge holds, and the rarer they are in the graph, the earlier it comes. Case,
+  accents, plural endings and function words («del», "the") don't count. `query_terms` lists the words it
+  searched on.
 - `hypotheses[]` — the **SEPARATE** hypothesized lane: machine proposals from `/kg-generate`
   (`provenance: hypothesized`, `epistemic_state: unverified`, **no span**). These are NOT facts and NOT
   grounded content — present them only under an explicit "Hypotheses (unverified proposals)" heading, never
   mixed into the grounded answer. A hypothesis becomes a fact only after `/kg-ground` promotes it with
   support (which upgrades its provenance to `span-present`/`inferred`).
-- `approx_tokens`, `budget` — the fill is capped (default budget 2000); note if you were truncated.
+- `items_total`, `hypotheses_total` — every edge that matched each lane. When `items_total` is larger than the
+  `items[]` you got, the budget (`budget`, default 2000 tokens; `approx_tokens` is what was used) left the
+  rest out. Say so, and if the answer needs them, call again with a larger `budget` (up to 100000) or a
+  narrower question.
 - `falsification_counters: {failed_or_rejected_edges}` — the **memory of failures** (§1.7). NEVER omit this.
 - `advisory: {signal: "structural-bridge", note: "advisory heuristic, not a guarantee", nodes:[...],
   bridge_metric: {gate_on, ranked_by, nodes:[...]}}` — `bridge_metric` ranks by the confound-corrected
   `spec_betweenness` when `gate_on`, else falls back to the structural-bridge/degree advisory (§1.6).
 
 If `query` matches nothing, the items list may be empty even though the graph is non-empty — fall back to the
-structural lookups below before concluding "not in the graph."
+lookups below before concluding "not in the graph."
 
-### 2. Structural lookups (only when the question is structural)
-Use these to follow specific relationships rather than to re-rank context:
+### 2. Find nodes, then follow relationships
+Use these to find what `kg_context` did not return and to follow specific relationships:
+- `mcp__plugin_burgess_burgess__query_graph(text="…")` — finds nodes and edges **by what they say**: the nodes
+  whose id or label, and the edges whose span, relation or endpoints, share a word with `text`, ranked as
+  `kg_context` ranks a question, with `query_terms` and `matched` (the counts before `limit`). It also finds
+  nodes that have no edge yet, which `kg_context` (edges only) never returns. Such a node is a concept the
+  extractor named with no claim behind it: present it as that, never as a finding. Write `text` in the
+  language of the source documents, normally with the question's own key words. The match is on the words the
+  graph holds, so a translation finds little. `text` combines with the filters below, e.g.
+  `query_graph(text="<key words of the question>", epistemic_state="grounded")`.
 - `mcp__plugin_burgess_burgess__query_graph(node_type=…, relation=…, epistemic_state=…, limit=…)` — e.g.
   `query_graph(epistemic_state="grounded")` for the grounded claims, or
   `query_graph(relation="attacked_by")` to enumerate adversarial edges and the nodes they touch. Every filter
@@ -79,9 +98,14 @@ For every edge you cite, surface its axes inline. A compact convention:
 
 Rules:
 - The bracket is always `[<provenance> / <epistemic_state>]`. Quote the `span` verbatim when the edge has one
-  (never paraphrase a span — it is a literal substring of `examples/source.md`, §1.5).
+  (never paraphrase a span — it is a literal substring of the configured source,
+  `${user_config.source_path}`, §1.5).
 - Lead with `grounded` edges. Flag `unverified` edges as **candidates, not facts**. Flag `inferred` /
-  `hypothesized` provenance explicitly. If `authored_by` is `agent`, it has not yet been confirmed by a verdict.
+  `hypothesized` provenance explicitly.
+- `epistemic_state` is the verdict; `authored_by` only says who wrote the claim. An extractor's edge stays
+  `authored_by: agent` for life. Once `/kg-ground` grounds it, a grounder has judged it against the source,
+  and it is a grounded fact like any other. Don't hedge a grounded edge for its author, and don't look for a
+  second verdict elsewhere: the read tools carry none, and the answer needs none.
 
 ### 4. Always report the falsification counters
 Close with the negative information, even if the count is zero:

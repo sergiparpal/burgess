@@ -187,9 +187,21 @@ _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
 def _fold(text: str) -> str:
     """Casefolded, with accents and other combining marks dropped (`Revisión` → `revision`), the form the
-    extractor contract asks ids to take."""
+    extractor contract asks ids to take.
+
+    The marks are dropped with one `str.translate` over the distinct characters the text holds, not by a
+    Python test of every character: since 0.11.5 a kg_context query folds the span of every edge it
+    searches, and the per-character loop was about half its time. The result is the same string: exactly
+    the characters with a nonzero combining class go."""
     decomposed = unicodedata.normalize("NFKD", text or "")
-    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+    if not decomposed.isascii():  # no ASCII character is a combining mark
+        marks = {ord(ch): None for ch in set(decomposed) - _ASCII_CHARS if unicodedata.combining(ch)}
+        if marks:
+            decomposed = decomposed.translate(marks)
+    return decomposed.casefold()
+
+
+_ASCII_CHARS = frozenset(map(chr, range(128)))
 
 
 def _words(text: str) -> "list[str]":

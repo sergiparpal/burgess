@@ -189,11 +189,9 @@ def test_l9_absorption_no_zero_division_on_nonpositive_growth():
 # ===========================================================================
 
 def test_l10_query_tokenizer_extracts_cyrillic_terms():
-    clause, args = DerivedReader._query_term_clause("привет мир")
-    # two Cyrillic terms x 4 fields; the pre-fix ASCII-only class yielded ZERO terms -> a 4-arg
-    # single whole-string LIKE fallback.
-    assert len(args) == 8
-    assert " OR " in clause
+    # two Cyrillic terms; the pre-fix ASCII-only class yielded ZERO terms -> a single whole-string match
+    # that only found a verbatim substring. Since 0.11.5 the terms feed a ranked word match, not LIKE.
+    assert DerivedReader._query_terms("привет мир") == ["привет", "мир"]
 
 
 # ===========================================================================
