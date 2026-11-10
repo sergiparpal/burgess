@@ -33,7 +33,8 @@ view, not a source of truth (the canon is the source of truth).
        `spec_betweenness` only when the specificity gate earned promotion, else the structural-bridge advisory
        (§1.6); size is never the bridge metric, so the generality confound is never smuggled into it.
    - **`GRAPH_REPORT.md`** — headline counts (straight from `kg_metrics`, so they can't drift), per-community
-     breakdowns by the three axes, the never-pruned **falsification memory**, the R3 **stale verdicts**
-     (spans the source no longer contains), and per-source-file edge counts (R4).
+     breakdowns by the three axes (single-node communities share one entry), the never-pruned **falsification
+     memory**, the R3 **stale verdicts** (spans the source no longer contains), and per-source-file edge counts
+     (R4). A list longer than 50 shows the first 50 and says how many more there are.
 3. Do **not** present either artifact as authoritative. They are a regenerable *view* of the canon; if the user
    wants to change the graph, that flows through `/kg-build` → `/kg-ground` (verdicts) — never through this view.

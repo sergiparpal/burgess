@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.11.3 — 2026-11-10
+
+Found while reviewing a `/kg-view` run on the Windows corpus: 425 nodes and 221 edges, of which 162 grounded,
+58 rejected and 1 failed. `graph.html` matched the canon. `GRAPH_REPORT.md` had two gaps.
+
+### Fixed
+
+- **A list that stopped at its cap did not say so.**
+  - The report lists at most 50 failed or rejected edges, 50 stale verdicts and 50 re-examinable verdicts. Each
+    section header gives the total, but past 50 the list just stopped. On the corpus the falsification memory
+    said 59 and listed 50.
+  - Now a list that stops at 50 ends with a line saying how many more there are. The falsification list adds
+    that `graph.html` draws them all.
+- **Single-node communities buried the report.**
+  - Every community had its own entry, and a node with no live edge is a community of its own. On the corpus
+    172 of the 264 communities had a single node, and their entries made up most of the report.
+  - Now they share one entry, after the other communities. It gives their count, the first 50 names and how
+    many more there are, their axes, the edges inside them, and how many have degree 0. A hand-edited self-loop
+    is the only edge one of them can hold, and the entry still shows it.
+  - Nodes with no community keep their own entry, last, as before.
+
+### Tests
+
+- `tests/test_fix_report_caps.py` (10):
+  - A falsification, stale or re-examinable list past 50 ends by saying how many more there are. A list of
+    exactly 50 does not.
+  - Single-node communities share one entry. It lists up to 50 names and says how many more there are, and it
+    keeps a self-loop visible. Nodes with no community keep their own entry, last. Every node is counted once.
+  - End to end, the real projector leaves the two endpoints of a failed edge in communities of their own, and
+    the report groups them.
+  - Against 0.11.2, 7 of the 10 fail. The other 3 pin what must not change: no closing line at exactly 50, no
+    shared entry without single-node communities, and every node counted once.
+- 1709 → 1719 passed, 3 skipped.
+
 ## 0.11.2 — 2026-11-09
 
 Found while checking the Windows install after 0.11.1. Its `server.log` showed two sessions running engines at
