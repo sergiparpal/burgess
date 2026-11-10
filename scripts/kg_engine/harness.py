@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .graphio import node_link_graph
-from .sources import section_corpus
+from .sources import SourceSet, section_corpus
 
 # --------------------------------------------------------------------------- Krippendorff's alpha
 
@@ -500,7 +500,9 @@ def _load_json_or_demo(path, demo, *, notice: str):
 
 def _main(argv: list[str]) -> int:
     if not argv:
-        print("usage: python -m kg_engine.harness {agreement|specificity|ideation|convergence} [path...]",
+        print("usage: python -m kg_engine.harness {agreement|specificity|ideation|convergence} [path...]\n"
+              "  specificity GRAPH [SOURCE]   ideation OUTPUTS [SOURCE]\n"
+              "  SOURCE is a file, or a folder of .md/.txt documents, read as the projector reads it",
               file=sys.stderr)
         return 2
     cmd = argv[0]
@@ -515,6 +517,21 @@ def _positional_path(argv: list[str], index: int = 1, default=None):
     """The optional positional file path most harness commands take (review-r5: the pluck was
     repeated per command)."""
     return argv[index] if len(argv) > index else default
+
+
+def _source_text(spath: str) -> str:
+    """The text of a GIVEN source path, read the way the projector reads the engine's configured source:
+    ``SourceSet(path).concat``. A path may be one file, or a folder (or glob) whose ``.md``/``.txt`` files
+    are the documents, like the ``source_path`` option. For a single file ``concat`` is byte-identical to
+    the file's text, so a one-file corpus reads exactly as before.
+
+    Through 0.11.3 the CLI called ``read_text`` on the path, so a folder source (the Windows corpus is
+    eight documents in one folder) died with a raw IsADirectoryError and /kg-eval's specificity step could
+    not run. A given path that resolves to no document is an error, never the demo corpus: a verdict over
+    demo data would read as a real measurement."""
+    if not SourceSet.resolve(spath):
+        raise _LoadError(f"source path not found or holds no .md/.txt document: {spath}")
+    return SourceSet(spath).concat
 
 
 def _cmd_agreement(argv: list[str]) -> int:
@@ -545,13 +562,11 @@ def _cmd_specificity(argv: list[str]) -> int:
     if spath:
         # a GIVEN-but-missing source path must NOT silently fall back to the demo corpus — that
         # would yield a degenerate gate verdict read as a real measurement (mirrors
-        # _load_json_or_demo, which only falls back when NO path was supplied).
-        if not Path(spath).exists():
-            raise _LoadError(f"source path not found: {spath}")
-        text = Path(spath).read_text(encoding="utf-8")
+        # _load_json_or_demo, which only falls back when NO path was supplied). _source_text raises.
+        text = _source_text(spath)
         # the SAME per-section corpus the projector wires (single home: sources.section_corpus,
-        # review-r5) — the gate verdict here only means what the projector computes if the two
-        # corpora are bit-identical.
+        # review-r5) over the SAME SourceSet concat it reads — the gate verdict here only means what the
+        # projector computes if the two corpora are bit-identical, and that holds for a folder too.
         corpus = section_corpus(text) or [text]
     else:
         print("[harness] no source; using demo IDF corpus", file=sys.stderr)
@@ -574,6 +589,12 @@ def _cmd_ideation(argv: list[str]) -> int:
     if not isinstance(blob, dict):
         raise ValueError('outputs file must be a JSON object like {"source": ..., "outputs": {...}}')
     src_text = blob.get("source", "")
+    # An optional second path names the source itself (0.11.4): /kg-experiment passes the configured
+    # source_path here, so the evaluator no longer pastes a whole corpus into the JSON (eight documents on
+    # the Windows install). Read like the projector reads it; a given path wins over an embedded "source".
+    spath = _positional_path(argv, 2)
+    if spath:
+        src_text = _source_text(spath)
     # when outputs aren't nested under "outputs", treat the rest of the blob as conditions but
     # never let the top-level "source" string leak in as a fake (char-iterated) condition.
     obc = blob.get("outputs", {k: v for k, v in blob.items() if k != "source"})

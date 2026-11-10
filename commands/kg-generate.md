@@ -95,8 +95,14 @@ collapse/explode/regroup/open — you may instead call
 After the propose call returns, append a generation record to the absorption ledger so `kg_absorption`
 can later score how long each new node stays perturbing (fertile vs absorbed vs isolated):
 
+The ledger lives in the engine's derived dir, `${CLAUDE_PLUGIN_DATA}/derived`, which is where
+`kg_absorption` reads it. (Claude Code fills that path in when this command loads. A `${…:-default}` form is
+never filled in: through 0.11.3 this line left the path to the Bash tool's own environment, where Claude Code
+sets no plugin variables, and fell back to a `.kg-data/derived` folder inside the project, where the engine
+never looks.)
+
 ```bash
-DERIVED="${CLAUDE_PLUGIN_DATA:-.kg-data}/derived"; mkdir -p "$DERIVED"
+DERIVED="${CLAUDE_PLUGIN_DATA}/derived"; mkdir -p "$DERIVED"
 GEN="$DERIVED/generations.json"
 # best-effort: bump the generation counter and add each newly-proposed node id with its current degree
 # (read from kg_context advisory or query_graph). Shape: {"generation": N, "tracked": {id: {introduced_at, introduced_degree, mechanism}}}

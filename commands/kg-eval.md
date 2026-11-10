@@ -1,15 +1,16 @@
 ---
 description: Measure extractor precision (Stage 4) and grounding reliability (Stage 7); record the numbers in PROGRESS.md.
-argument-hint: "[graph.json] (default: ${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}/derived/graph.json)"
+argument-hint: "[graph.json] (default: the engine's derived graph.json)"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__query_graph
 ---
 
 # /kg-eval — extraction & grounding measurement
 
-Run the two measurement stages over the current canon's derived graph and append the results to
-`PROGRESS.md`. This command **measures**; it does not gate. No metric blocks the flow: when a stage falls
-short of its threshold it **auto-iterates** (refine the pack + extractor prompt, re-extract, re-measure —
-up to 3 passes) then records the **best** result and proceeds (§4, "logged and proceeds, no human gate").
+Run the two measurement stages over the current canon's derived graph and append the results to the
+project's `PROGRESS.md`. This command **measures**; it does not gate. No metric blocks the flow (§4, "logged
+and proceeds, no human gate"). In a development checkout, a stage that falls short of its threshold
+**auto-iterates** (refine the pack + extractor prompt, re-extract, re-measure — up to 3 passes) and records
+the **best** result. An installed copy records the refinements the numbers point to instead (see 4.5).
 
 - **Stage 4 — extraction precision.** Sample the derived edges, have the annotator label each against the
   source, score with `f4_probe.py`. Reports PRECISION (target `>= 0.70`), astrology rate (fabricated+vague),
@@ -18,26 +19,38 @@ up to 3 passes) then records the **best** result and proceeds (§4, "logged and 
   sample → Krippendorff's α (`harness agreement`, reliable `>= 0.67`); then the specificity bridge-metric
   gate verdict (`harness specificity`).
 
-`GRAPH` = the path in the arguments, `$ARGUMENTS` (the whole line is one path; drop any surrounding quotes),
-if given, else `${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}/derived/graph.json`. If it does
-not exist, tell the user to run `/kg-build` first (the projector writes `<data_dir>/derived/graph.json`,
-where `data_dir = ${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}`; runtime: under `${CLAUDE_PLUGIN_DATA}/derived`)
-and stop.
+## Where things are
 
-## Choosing the Python interpreter
+Claude Code filled these in when the command loaded. Use them as they stand:
 
-Pick **one** `PY` and a working directory, then reuse it for every Bash step below.
+- **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`.
+- **Engine data:** `${CLAUDE_PLUGIN_DATA}`. The derived graph is `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
+- **Project:** `${CLAUDE_PROJECT_DIR}`. `PROGRESS.md` goes here, and scratch files go in its `.kg/eval/`.
+- **Source:** `${user_config.source_path}`, what the graph was built from. It is one file, or a folder whose
+  `.md`/`.txt` files are the documents. Each edge's `source_file` names its document in that folder.
 
-- **Dev (in this repo):**
-  `PY=/home/sergi/Burgess/.venv/bin/python` (or prefix commands with `uv run`), run from
-  `/home/sergi/Burgess`. `kg_engine` is importable as `scripts/kg_engine`, so run the harness with
-  `PYTHONPATH=/home/sergi/Burgess/scripts`.
-- **Runtime (installed plugin):**
-  `PY=${CLAUDE_PLUGIN_DATA}/.venv/bin/python` with `PYTHONPATH=${CLAUDE_PLUGIN_ROOT}/scripts`; the probe is
-  `${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py`. Keep all scratch files (`labels.csv`, `label_sets.json`)
-  under `${CLAUDE_PLUGIN_DATA}/derived/eval/`.
+`GRAPH` is the path in the arguments, `$ARGUMENTS` (the whole line is one path; drop any surrounding quotes),
+if one was given, else `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
 
-The blocks below use the dev paths; swap in the runtime paths verbatim when installed.
+## Step 0 — a fresh graph and the engine's interpreter
+
+1. **Call `mcp__plugin_burgess_burgess__query_graph(limit=1)` before any Bash step.** Every session on the
+   machine shares the engine data dir, so `graph.json` may hold another project's projection; a read tool
+   re-projects it for this project first. If it returns no nodes, tell the user to run `/kg-build` first,
+   and stop.
+2. **Start every Bash block with the same four lines** (shown in full in each block below). Each Bash call
+   is a fresh shell, so nothing set in one block survives into the next:
+
+   ```bash
+   PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+   export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+   GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+   EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+   ```
+
+   `engine_python.mjs` prints the interpreter the plugin's launcher uses: `.venv\Scripts\python.exe` on
+   Windows, `.venv/bin/python` elsewhere. If it exits 1, the engine is not provisioned yet: tell the user to
+   start a new Claude Code session, whose SessionStart hook builds it, and stop.
 
 ---
 
@@ -46,9 +59,11 @@ The blocks below use the dev paths; swap in the runtime paths verbatim when inst
 ### 4.1 Inspect the graph (sanity, no labeling yet)
 
 ```bash
-PY=/home/sergi/Burgess/.venv/bin/python
-GRAPH="${1:-${KG_DATA:-${CLAUDE_PROJECT_DIR:-.}/.kg-data}/derived/graph.json}"
-"$PY" /home/sergi/Burgess/scripts/f4_probe.py summary "$GRAPH"
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+"$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" summary "$GRAPH"
 ```
 
 This prints node/edge counts, the nodes grouped by `file_type` (distinct from the `node_type` used in the
@@ -59,7 +74,11 @@ EXTRACTED tier is span-present by construction, so the sheet excludes it by defa
 ### 4.2 Emit the labeling sheet
 
 ```bash
-"$PY" /home/sergi/Burgess/scripts/f4_probe.py sheet "$GRAPH" --n 80 --out labels.csv
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+"$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" sheet "$GRAPH" --n 80 --out "$EVAL/labels.csv"
 ```
 
 `sheet` deterministically samples (seed 42) up to 80 non-EXTRACTED edges into `labels.csv` with columns
@@ -76,8 +95,10 @@ Task(
   subagent_type: "kg-annotator",
   description: "Label Stage-4 precision sheet",
   prompt: """
-    Read the labeling sheet at ABS_PATH/labels.csv and the source document at
-    /home/sergi/Burgess/examples/source.md  (runtime: ${CLAUDE_PROJECT_DIR}/canon's source).
+    Read the labeling sheet at ${CLAUDE_PROJECT_DIR}/.kg/eval/labels.csv. The source is
+    ${user_config.source_path}. If that is a folder, each row's document is the file its `source_file`
+    column names inside it; if it is a file, that file is the whole source. Read each document your rows
+    cite; those documents are your only ground truth.
 
     For EACH row, judge the (source_label, relation, target_label) claim STRICTLY against the source text
     and write two columns IN PLACE, leaving every other column untouched:
@@ -94,20 +115,23 @@ Task(
         n — no such span exists
 
     Do not paraphrase to make a span "found". A span must be an actual substring of the source.
-    Write the completed CSV back to ABS_PATH/labels.csv with the same header and row order.
+    Write the completed CSV back to the same path, with the same header and row order.
     Report: how many rows you labeled and the verdict counts.
   """
 )
 ```
 
-`ABS_PATH` is the directory holding `labels.csv` (the repo root in dev, `${CLAUDE_PLUGIN_DATA}/derived/eval`
-at runtime). Annotators get `Read, Grep, Bash` — they edit the CSV directly; they have **no** graph-write
-tools, so they cannot forge a verdict into the canon (verdicts reach the canon only via `kg_ground`, §1.4).
+Annotators get `Read, Grep, Bash` — they edit the CSV directly; they have **no** graph-write tools, so they
+cannot forge a verdict into the canon (verdicts reach the canon only via `kg_ground`, §1.4).
 
 ### 4.4 Score
 
 ```bash
-"$PY" /home/sergi/Burgess/scripts/f4_probe.py score labels.csv
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+"$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" score "$EVAL/labels.csv"
 ```
 
 Capture from stdout:
@@ -120,23 +144,36 @@ Capture from stdout:
 - the **confidence-calibration** line, if a numeric `confidence_score` is present (does it separate correct
   from wrong, or is it vocabulary, not grounding?).
 
-### 4.5 Auto-iterate (up to 3 passes) — no human gate
+### 4.5 Below target — iterate in a development checkout, recommend in an installed copy
 
-If **PRECISION < 0.70**, iterate; otherwise skip to recording. Each pass:
+If **PRECISION >= 0.70**, skip to recording. Otherwise, what a pass may change depends on which copy of the
+plugin is running. Its root is `${CLAUDE_PLUGIN_ROOT}`:
+
+- **Installed copy:** the root lies inside a `plugins/cache` folder, where Claude Code keeps installed
+  plugins.
+  - Do **not** edit `pack.yaml` or `agents/*.md` there. That copy belongs to one plugin version, every
+    project on the machine shares it, and the next update replaces it.
+  - Do **not** re-run `/kg-build` either. Re-extraction rewrites the user's canon, and a measurement must
+    leave it alone.
+  - Record the refinements the numbers point to (the two shapes below) under "iterations" in PROGRESS.md,
+    tell the user, and go on with one pass (K = 1).
+- **Development checkout:** any other root, such as a repo run with `--plugin-dir`. Iterate, up to 3 passes.
+  Each pass:
 
 1. Read the per-relation precision and verdict breakdown. The two failure shapes drive two fixes:
-   - many `vague` → the **generality confound**: tighten `node_types` / sharpen the extractor prompt to
-     reject unfalsifiable edges, and add `specificity_seeds` for the confused vague terms in
-     `/home/sergi/Burgess/pack/pack.yaml` so they are not mistaken for content.
+   - many `vague` → the **generality confound**: tighten `node_types` / sharpen the extractor prompt
+     (`${CLAUDE_PLUGIN_ROOT}/agents/extractor.md`) to reject unfalsifiable edges, and add
+     `specificity_seeds` for the confused vague terms in `${CLAUDE_PLUGIN_ROOT}/pack/pack.yaml` so they are
+     not mistaken for content.
    - many `wrong_type` / `fabricated` → tighten the relation definitions in `pack.yaml` and the
      extractor's worked example; the boundary already REJECTS span-not-in-source, so persistent
      `fabricated` here means the prompt is over-reaching.
 2. Validate the pack before re-extracting:
    ```bash
-   "$PY" -m kg_engine.pack validate /home/sergi/Burgess/pack/pack.yaml \
-       /home/sergi/Burgess/examples/source.md
+   PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+   export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+   "$PY" -m kg_engine.pack validate "${CLAUDE_PLUGIN_ROOT}/pack/pack.yaml" "${user_config.source_path}"
    ```
-   (Runtime: `PYTHONPATH=${CLAUDE_PLUGIN_ROOT}/scripts "$PY" -m kg_engine.pack validate ...`.)
 3. Re-run `/kg-build` (re-extract → re-project → fresh `graph.json`), then redo 4.2–4.4.
 
 Stop after the precision target is met **or** after 3 passes. Record the **best** precision seen, not the
@@ -152,8 +189,12 @@ Reliability needs **independent** coders: launch the annotator **twice** over th
 pass blind to the other (no shared notes, no second pass seeing the first's labels). Emit two CSVs:
 
 ```bash
-"$PY" /home/sergi/Burgess/scripts/f4_probe.py sheet "$GRAPH" --n 80 --out labels_a.csv
-"$PY" /home/sergi/Burgess/scripts/f4_probe.py sheet "$GRAPH" --n 80 --out labels_b.csv
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+"$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" sheet "$GRAPH" --n 80 --out "$EVAL/labels_a.csv"
+"$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" sheet "$GRAPH" --n 80 --out "$EVAL/labels_b.csv"
 ```
 
 `sheet` is deterministic (seed 42), so `labels_a.csv` and `labels_b.csv` cover the *identical* edge sample —
@@ -171,7 +212,11 @@ Task(subagent_type: "kg-annotator", description: "Independent pass B", prompt: "
 `verdict`) into `label_sets.json`:
 
 ```bash
-"$PY" - "labels_a.csv" "labels_b.csv" > label_sets.json <<'EOF'
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+"$PY" - "$EVAL/labels_a.csv" "$EVAL/labels_b.csv" > "$EVAL/label_sets.json" <<'EOF'
 import csv, json, sys
 def coder(p):
     with open(p, encoding="utf-8") as f:
@@ -179,9 +224,7 @@ def coder(p):
                 for r in csv.DictReader(f) if r.get("verdict", "").strip()}
 json.dump([coder(p) for p in sys.argv[1:]], sys.stdout)
 EOF
-
-PYTHONPATH=/home/sergi/Burgess/scripts \
-  "$PY" -m kg_engine.harness agreement label_sets.json
+"$PY" -m kg_engine.harness agreement "$EVAL/label_sets.json"
 ```
 
 Prints `krippendorff_alpha: <x>` and a verdict line. **α >= 0.67** → the grounding signal is treated as
@@ -191,16 +234,20 @@ than 2 coders are ignored, so both passes must cover the same `edge_id`s — the
 ### 7.3 Specificity bridge-metric gate
 
 ```bash
-PYTHONPATH=/home/sergi/Burgess/scripts \
-  "$PY" -m kg_engine.harness specificity "$GRAPH" /home/sergi/Burgess/examples/source.md
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+"$PY" -m kg_engine.harness specificity "$GRAPH" "${user_config.source_path}"
 ```
 
-Emits JSON comparing specificity-weighted betweenness against raw degree and raw betweenness over the source
-corpus (§1.4/§1.6). Read these fields: `generality_confound_detected`, `rank_churn`, `top_raw_betweenness`
-vs `top_specificity_weighted`, `gate_on`, and `verdict`. `gate_on: true` ("specificity-weighting earns its
-place — gate ON") means the specificity-weighted bridge metric separates real bridges from vague
-high-traffic nodes beyond the churn band and may be promoted out of advisory; otherwise degree stays the
-honest MVP advisory and specificity-weighted betweenness remains GATED (§1.6).
+The source may be the folder of documents: the harness reads it exactly as the projector does, so the IDF
+corpus is the projector's own. Emits JSON comparing specificity-weighted betweenness against raw degree and
+raw betweenness over the source corpus (§1.4/§1.6). Read these fields: `generality_confound_detected`,
+`rank_churn`, `top_raw_betweenness` vs `top_specificity_weighted`, `gate_on`, and `verdict`. `gate_on: true`
+("specificity-weighting earns its place — gate ON") means the specificity-weighted bridge metric separates
+real bridges from vague high-traffic nodes beyond the churn band and may be promoted out of advisory;
+otherwise degree stays the honest MVP advisory and specificity-weighted betweenness remains GATED (§1.6).
 
 > Cross-check (optional): `mcp__plugin_burgess_burgess__query_graph(node_type="compression")` shows the live
 > compression nodes; the specificity leaders should be these, not vague terms like `idea`/`system`.
@@ -211,14 +258,20 @@ Stage 7 does not gate either — log α and the gate verdict and proceed (§4).
 
 ## Record the results — append to PROGRESS.md
 
-Append (never overwrite) a dated block to `PROGRESS.md` at the project root. Fill `<...>` from the captured
-stdout; under "iterations" note how many Stage-4 passes ran and that the **best** precision is recorded.
+Append (never overwrite) a dated block to `${CLAUDE_PROJECT_DIR}/PROGRESS.md`. Fill `<...>` from the captured
+stdout; under "iterations" note how many Stage-4 passes ran and that the **best** precision is recorded, or,
+in an installed copy, the refinements you recommend.
 
 ```bash
-cat >> "${CLAUDE_PROJECT_DIR:-/home/sergi/Burgess}/PROGRESS.md" <<EOF
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
+cat >> "${CLAUDE_PROJECT_DIR}/PROGRESS.md" <<EOF
 
 ## /kg-eval — $(date -u +%Y-%m-%dT%H:%M:%SZ)
 graph: $GRAPH   (labeled n=<N>)
+source: ${user_config.source_path}
 
 Stage 4 — extraction precision
 - PRECISION (best of <K> pass(es)):  <precision>   (target >= 0.70 — recorded, non-gating)
@@ -226,7 +279,7 @@ Stage 4 — extraction precision
 - span-support rate (span_found=y):  <span>
 - per-relation precision:            <rel1>=<p1>, <rel2>=<p2>, ...
 - confidence calibration:            <gap / "n/a">
-- iterations:                        <K> (pack/extractor refinements: <what changed, or "none">)
+- iterations:                        <K> (<pack/extractor refinements made, or recommended in an installed copy, or "none">)
 
 Stage 7 — agreement + specificity
 - krippendorff_alpha:                <alpha>   (reliable >= 0.67 — <RELIABLE | advisory>)
@@ -237,7 +290,8 @@ EOF
 
 Then print a one-line summary to the user:
 `precision <p> (best/<K>) · α <alpha> (<reliable?>) · specificity gate <on|off>` — and remind them the
-numbers are recorded, nothing was gated, the flow proceeds.
+numbers are recorded, nothing was gated, the flow proceeds. In an installed copy, list the refinements you
+recommended and say that acting on them is a change to the plugin itself.
 
 ## Invariants this command upholds
 
@@ -245,6 +299,9 @@ numbers are recorded, nothing was gated, the flow proceeds.
   up to 3× then record the best and proceed. No human gate.
 - **Annotators cannot forge verdicts (§1.4).** They label a CSV; they hold no `kg_write`/`kg_ground` tools.
   Precision is measured *about* the canon, not written *into* it.
+- **An installed copy is never edited, and the user's canon is never rebuilt (step 4.5).** Below target,
+  an installed plugin records what it would refine; only a development checkout edits its pack and
+  re-extracts.
 - **Span-present is the honest floor (§1.5).** The span-support rate is reported alongside precision so a
   high precision built on unverifiable spans is visible.
 - **Generality confound stays visible (§1.6).** The `vague` rate and the specificity gate verdict together

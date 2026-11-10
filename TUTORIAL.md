@@ -305,11 +305,16 @@ If you want hard numbers rather than a vibe, Burgess ships its own honesty check
 
 - **`/kg-eval`** measures how *precise* the extraction was (does each relationship really have
   support?) and how *reliable* the grounding is (would two independent passes agree?). It reports the
-  numbers and, if a stage falls short, quietly tries to improve and re-measures.
+  numbers and, if a stage falls short, tells you what it would refine. It never edits your installed
+  plugin or rebuilds your graph to chase a better number.
 - **`/kg-experiment`** runs a genuine blind test of the whole premise: does having the graph actually
   help you generate better, more varied ideas than just having the raw document — *without* inventing
-  more unsupported claims? It compares several conditions fairly and records the verdict. This is how
-  Burgess keeps itself honest instead of just asserting it works.
+  more unsupported claims? It drafts its test prompts from your own graph, compares several conditions
+  fairly and records the verdict. This is how Burgess keeps itself honest instead of just asserting it
+  works.
+
+Both work on a source folder of several documents, and both write their results to `PROGRESS.md` in your
+project.
 
 Most people never need these two. They're here because the project would rather be measured than
 believed.

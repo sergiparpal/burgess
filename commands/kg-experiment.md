@@ -1,7 +1,7 @@
 ---
 description: Stage 8/9 — blind ideation experiment (control|graph|graph+generate|graph+generate+dpp|rag); score with the harness and append the verdict to PROGRESS.md
 argument-hint: "[prompts_path]"
-allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_generate
+allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_agenda
 ---
 
 # /kg-experiment — does the graph actually help ideation? (§Stage 8, §4)
@@ -14,7 +14,7 @@ set of ideation prompts, in four conditions that differ ONLY in what context the
 - **graph+generate** — the prompt + the graph pack **plus the hypothesized slate** (`kg_context.hypotheses[]`
   / a `/kg-generate` run): the generative layer's proposals, clearly flagged as unverified candidates.
   Tests whether *generating* lifts ideation beyond grounded context alone (PLAN Stage 9).
-- **rag** — the prompt + a naive flat-text retrieval slice of the source document (the strawman to beat).
+- **rag** — the prompt + a naive flat-text retrieval slice of the source documents (the strawman to beat).
 - **graph+generate+dpp** *(FUSION Stage 6)* — the graph pack plus the SAME hypothesized slate as
   `graph+generate`, but presented in the advisory-DPP order with its geometry labels
   (`kg_generate(..., dpp=true)` → `divergence_advisory` bins / semantic novelty / cliché-hub
@@ -22,10 +22,10 @@ set of ideation prompts, in four conditions that differ ONLY in what context the
   whether the *presentation* lifts ideation. Decision Rule D1 (docs/fusion/EXPERIMENT.md) compares
   it against `graph+generate` to set the shipped `divergence.dpp` default.
 - **lightrag** *(optional, off by default)* — the prompt answered from a real, published **GraphRAG**
-  baseline (LightRAG) built over the **same** `examples/source.md` corpus. A stronger strawman than flat
-  `rag`: it lets the central claim stand against a genuine graph-retrieval system, not only against grep.
-  This arm is **add-only and opt-in** — see "The optional lightrag arm" below. When it is not enabled the
-  experiment runs its original four arms, unchanged.
+  baseline (LightRAG) built over the **same** source documents the `rag` arm reads. A stronger strawman than
+  flat `rag`: it lets the central claim stand against a genuine graph-retrieval system, not only against
+  grep. This arm is **add-only and opt-in** — see "The optional lightrag arm" below. When it is not enabled
+  the experiment runs its original four arms, unchanged.
 
 The generator is BLIND to which condition it is in (it receives only an opaque context block), so the
 scoring is not contaminated by the model "trying harder" for one arm. Scoring is **deterministic** —
@@ -39,24 +39,36 @@ The headline question the verdict answers:
 > hallucinating more is not a win.)
 
 Arguments, as typed (optional): `$ARGUMENTS`. The whole line is one path, without any surrounding quotes,
-to a JSON or newline-delimited file of custom ideation prompts. If omitted, the 12 default prompts below are
-used.
+to a JSON or newline-delimited file of custom ideation prompts. If omitted, Step 1 picks the prompt set.
+
+## Where things are
+
+Claude Code filled these in when the command loaded. Use them as they stand:
+
+- **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`.
+- **Engine data:** `${CLAUDE_PLUGIN_DATA}`.
+- **Project:** `${CLAUDE_PROJECT_DIR}`. `PROGRESS.md` goes here, and the run's files go in its `.kg/experiment/`.
+- **Source:** `${user_config.source_path}`, what the graph was built from. It is one file, or a folder whose
+  `.md`/`.txt` files are the documents. The `rag` and `lightrag` arms read it, and the harness scores
+  novelty and unsupported claims against it.
 
 ---
 
 ## Step 0 — environment
 
-Resolve the Python runner once and reuse it (dev vs. runtime, per the contract):
+Each Bash call is a fresh shell, so every Bash block in this command starts with the same three lines.
+`engine_python.mjs` prints the interpreter the plugin's launcher uses: `.venv\Scripts\python.exe` on
+Windows, `.venv/bin/python` elsewhere.
 
 ```bash
-# dev (this repo):
-PY=/home/sergi/Burgess/.venv/bin/python
-SCRIPTS=/home/sergi/Burgess/scripts
-# runtime (installed plugin), if the above venv is absent:
-#   PY="${CLAUDE_PLUGIN_DATA}/.venv/bin/python"
-#   SCRIPTS="${CLAUDE_PLUGIN_ROOT}/scripts"
-PYTHONPATH="$SCRIPTS" "$PY" -m kg_engine.harness ideation 2>&1 | head -1   # smoke-test: harness importable
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
+"$PY" -m kg_engine.harness ideation 2>&1 | head -n 1   # smoke-test: harness importable
 ```
+
+If `engine_python.mjs` exits 1, the engine is not provisioned yet: tell the user to start a new Claude Code
+session, whose SessionStart hook builds it, and stop.
 
 Confirm the graph is queryable before spending tokens generating ideas:
 
@@ -73,7 +85,7 @@ the flat-grep `rag` strawman. It is **off by default** and entirely add-only: wh
 command runs exactly the original four arms and nothing changes.
 
 To enable it, all three must hold (the evaluator probes this with
-`python -m kg_engine.lightrag_arm check`, which prints `{"available": …, "reason": …}`):
+`"$PY" -m kg_engine.lightrag_arm check`, which prints `{"available": …, "reason": …}`):
 
 1. **Install** the optional dependency: `pip install lightrag-hku` (or `pip install -e ".[lightrag]"` from
    the repo). It is **not** part of the default install.
@@ -83,29 +95,45 @@ To enable it, all three must hold (the evaluator probes this with
    arm makes **network + paid API calls**. That cost is the price of the stronger baseline; it is why the arm
    is opt-in, not automatic.
 
-When enabled, the evaluator builds a LightRAG index over the **same** `examples/source.md` corpus the `rag`
-arm uses (so the comparison is fair), under a **gitignored, disposable** working store in the derived dir, and
-answers each prompt through LightRAG's own retrieval — it never reads our graph's structure. When **not**
-enabled, the `lightrag` arm is omitted and the harness simply scores the four arms present. Either way the run
-proceeds; the arm never blocks the experiment.
+When enabled, the evaluator builds a LightRAG index over the **same** source documents the `rag` arm reads
+(`${user_config.source_path}`, so the comparison is fair), under a **gitignored, disposable** working store in
+the derived dir, and answers each prompt through LightRAG's own retrieval — it never reads our graph's
+structure. When **not** enabled, the `lightrag` arm is omitted and the harness simply scores the four arms
+present. Either way the run proceeds; the arm never blocks the experiment.
 
 ---
 
 ## Step 1 — prompt set (non-blocking checkpoint)
 
-Ask the user exactly once, then proceed with the default if they don't redirect:
+A path in the arguments names a custom prompt file (one prompt per line, or a JSON array): use it.
+Otherwise the prompt set depends on the corpus.
 
-> **Use the 12 default prompts, or supply your own? [default/custom]** (default: `default`)
+**The 12 default prompts below are written for the demo corpus that ships with the plugin**
+(`${CLAUDE_PLUGIN_ROOT}/examples/source.md`: compression, span/provenance, bridges/betweenness,
+memory-of-failures, canon/projection). Use them only when the configured source is that file. On any other
+corpus they ask about concepts the graph does not hold, every arm answers from the model's prior, and the
+verdict measures nothing.
 
-- `default` (or no answer and no path in the arguments) → use the **12 default ideation prompts** below.
-- `custom` → read prompts from the path in the arguments (one prompt per line, or a JSON array). If there
-  is none while the user said `custom`, ask for the path; otherwise fall back to default rather than
-  blocking.
+For any other corpus, **draft 12 prompts from the user's own graph** instead:
 
-This is a **non-blocking checkpoint** (§4): a reply is invited but not required to make progress.
+1. Call `mcp__plugin_burgess_burgess__kg_agenda(limit=12)` and reuse Step 0's `kg_context` result to see the
+   graph's communities, hubs and grounded claims.
+2. Write 12 open-ended ideation prompts **in the corpus's own language**, each naming one or two real
+   grounded concepts by their labels. Spread them over the same kinds as the default list: a failure mode;
+   a concept that would bridge two communities, and the edge type that would connect them; a claim that
+   would attack a grounded one; a measure that would tell two things apart; a use for a refuted edge; a
+   place where two ideas reconcile; a confound.
+3. Keep them neutral. A prompt that only the graph can answer is smuggling moved upstream.
 
-**The 12 default prompts** (grounded in the demo corpus — compression, span/provenance, bridges/betweenness,
-memory-of-failures, canon/projection; see `examples/source.md`):
+Whichever set you use, save it as a JSON array of strings to
+`${CLAUDE_PROJECT_DIR}/.kg/experiment/prompts-<UTC timestamp>.json` and show it to the user once:
+
+> **These are the N prompts I'll use. Go ahead, or would you rather supply your own?**
+
+This is a **non-blocking checkpoint** (§4): a reply is invited but not required to make progress. A later
+run can pass the saved file as the argument to repeat the experiment on the same prompts.
+
+**The 12 default prompts** (demo corpus only — see above):
 
 1. Propose a new failure mode, distinct from the generality confound, by which a vague node could earn spurious centrality.
 2. Suggest a concept that bridges "compression" and "memory of failures" and say what edge type would connect them.
@@ -127,7 +155,9 @@ memory-of-failures, canon/projection; see `examples/source.md`):
 Launch the **kg-evaluator** subagent via the **Task** tool. It owns blinding, context assembly, and idea
 generation; this command never sees which arm is which until the JSON comes back keyed by condition.
 
-`Task(subagent_type: "kg-evaluator", description: "blind ideation A/B/C/D", prompt: …)` — instruct it to:
+`Task(subagent_type: "kg-evaluator", description: "blind ideation A/B/C/D", prompt: …)` — give it the saved
+prompt file's path, the source `${user_config.source_path}`, and the output path
+`${CLAUDE_PROJECT_DIR}/.kg/experiment/ideation_outputs.json`, and instruct it to:
 
 1. For **each** of the N prompts, build the context blocks (the four base arms + the dpp arm):
    - **control** → no context.
@@ -139,7 +169,7 @@ generation; this command never sees which arm is which until the JSON comes back
    - **graph+generate** → the graph block PLUS the same call's `hypotheses[]` (or a `/kg-generate` slate),
      rendered as opaque text and clearly marked *unverified candidates*. This arm reads grounded context
      AND the generative proposals; it still must not fabricate verdicts or spans.
-   - **rag** → a naive flat slice of `examples/source.md`: the top text chunks by keyword overlap with the
+   - **rag** → a naive flat slice of the source documents: the top text chunks by keyword overlap with the
      prompt, no graph structure. This is the honest strawman.
    - **graph+generate+dpp** → the graph block PLUS the same slate reordered by
      `mcp__plugin_burgess_burgess__kg_generate(mechanism="all", k=12, dpp=true)` with its
@@ -149,12 +179,13 @@ generation; this command never sees which arm is which until the JSON comes back
    generate one idea per (prompt × condition), then **de-shuffle** when emitting JSON.
    - **lightrag (optional)** → NOT one of the blinded context blocks — its answers come from the external
      LightRAG system, not from the evaluator's own generation. Run it separately via the isolated helper
-     (`python -m kg_engine.lightrag_arm check`, then `… answer --source examples/source.md --prompts … --out …`)
-     and collect its `answers[]` into `outputs.lightrag`, in the same prompt order. **Include the key only when
-     the arm is available** (`KG_LIGHTRAG=1` + `lightrag-hku` + `OPENAI_API_KEY`); otherwise omit it. It reads
-     the same prose corpus as `rag`, through LightRAG's retrieval — never our graph's structure.
-3. Emit a single JSON object in EXACTLY the shape `harness ideation` consumes — write it to
-   `${CLAUDE_PLUGIN_DATA:-/tmp}/derived/ideation_outputs.json`:
+     (`"$PY" -m kg_engine.lightrag_arm check`, then
+     `… answer --source "${user_config.source_path}" --prompts <the prompt file> --out …`) and collect its
+     `answers[]` into `outputs.lightrag`, in the same prompt order. **Include the key only when the arm is
+     available** (`KG_LIGHTRAG=1` + `lightrag-hku` + `OPENAI_API_KEY`); otherwise omit it. It reads the same
+     prose corpus as `rag`, through LightRAG's retrieval — never our graph's structure.
+3. Emit a single JSON object in EXACTLY the shape `harness ideation` consumes, and write it to
+   `${CLAUDE_PROJECT_DIR}/.kg/experiment/ideation_outputs.json`:
 
 ```json
 {
@@ -165,8 +196,7 @@ generation; this command never sees which arm is which until the JSON comes back
     "graph+generate+dpp": ["…"],
     "rag":            ["…"],
     "lightrag":       ["… (OPTIONAL — present only when the lightrag arm was enabled+available) …"]
-  },
-  "source": "<the full text of examples/source.md>"
+  }
 }
 ```
 
@@ -178,20 +208,24 @@ claims, and whether it exceeded `graph` alone. When the optional `lightrag` arm 
 baseline. All of these are absent when their arm is — a missing optional arm is never an error.
 
 Constraints to put in the Task prompt: each **present** `outputs` list has the **same length** (= number of
-prompts); one output string per prompt per condition; `source` is the verbatim source text so the harness can
-compute `novelty` (n-gram overlap with source) and `unsupported_rate` (sentences whose key terms never appear
-in source). The evaluator returns the **file path** it wrote.
+prompts); one output string per prompt per condition. The JSON carries **no source text**: the harness reads
+`${user_config.source_path}` itself to compute `novelty` (n-gram overlap with the source) and
+`unsupported_rate` (sentences whose key terms never appear in the source). The evaluator returns the
+**file path** it wrote.
 
 ---
 
 ## Step 3 — score deterministically (Bash → harness)
 
 ```bash
-OUT="${CLAUDE_PLUGIN_DATA:-/tmp}/derived/ideation_outputs.json"
-PYTHONPATH="$SCRIPTS" "$PY" -m kg_engine.harness ideation "$OUT"
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
+"$PY" -m kg_engine.harness ideation "$EXP/ideation_outputs.json" "${user_config.source_path}"
 ```
 
-`harness ideation` prints a JSON object:
+The second path is the source, read exactly as the projector reads it (one file, or a folder of
+documents). `harness ideation` prints a JSON object:
 
 ```json
 {
@@ -234,16 +268,16 @@ it was not enabled the harness emits the original four-arm table with no `lightr
 
 ## Step 4 — append to PROGRESS.md (then return, win or lose — §4)
 
-Render the harness JSON as a Markdown table and append it, with the verdict and a UTC timestamp, to
-`${CLAUDE_PROJECT_DIR}/PROGRESS.md` (create the file with an `# Experiment log` header if absent). Use a
-heredoc so the run is reproducible from the log:
+Render the harness JSON as a Markdown table and append it, with the verdict, the prompt file and a UTC
+timestamp, to `${CLAUDE_PROJECT_DIR}/PROGRESS.md` (create the file with an `# Experiment log` header if
+absent). Use a heredoc so the run is reproducible from the log:
 
 ```bash
-PROGRESS="${CLAUDE_PROJECT_DIR:-.}/PROGRESS.md"
+PROGRESS="${CLAUDE_PROJECT_DIR}/PROGRESS.md"
 [ -f "$PROGRESS" ] || printf '# Experiment log\n\n' > "$PROGRESS"
 {
   printf '\n## kg-experiment (Stage 8) — %s\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  printf 'Prompts: %s (%s)\n\n' "$N_PROMPTS" "$PROMPT_SOURCE"   # e.g. "12 (default)" or "8 (custom: <path>)"
+  printf 'Prompts: %s (%s): %s\n\n' "$N_PROMPTS" "$PROMPT_SOURCE" "$PROMPT_FILE"   # e.g. "12 (drafted from the graph): <path>"
   printf '| condition | n | diversity | novelty | utility | unsupported_rate |\n'
   printf '|-----------|---|-----------|---------|---------|------------------|\n'
   # one row per condition, values pulled from the harness JSON above
@@ -260,6 +294,8 @@ PROGRESS="${CLAUDE_PROJECT_DIR:-.}/PROGRESS.md"
 } >> "$PROGRESS"
 ```
 
+(Each Bash call is a fresh shell: set those variables in the same block, from the harness JSON.)
+
 Then print a one-paragraph summary to the user:
 
 - The verdict, verbatim, plus the head-to-head: `graph` vs `control` on diversity / novelty / unsupported_rate.
@@ -271,7 +307,7 @@ Then print a one-paragraph summary to the user:
 - The **caveat from Step 0** if `falsification_counters.failed_or_rejected_edges == 0`: a graph with no
   recorded failures (§1.7) makes `graph` look cleaner than it has earned; recommend running `/kg-ground` with
   the adversarial grounder before trusting a `graph`-wins verdict.
-- Path to the appended log: `${CLAUDE_PROJECT_DIR}/PROGRESS.md`.
+- Path to the appended log: `${CLAUDE_PROJECT_DIR}/PROGRESS.md`, and to the saved prompt file.
 
 **Execution proceeds regardless of the verdict (§4).** A `graph did NOT clearly beat control` result is a
 legitimate, logged outcome — it is *negative information* about the pipeline itself, not an error. Do not

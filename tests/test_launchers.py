@@ -28,6 +28,7 @@ _PRECONTEXT_MJS = REPO / "hooks" / "precontext.mjs"
 _PROVISION_MJS = REPO / "hooks" / "provision.mjs"
 _CANON_MERGE_MJS = REPO / "scripts" / "canon_merge_driver.mjs"
 _ENGINE_RESOLVE_MJS = REPO / "scripts" / "_engine_resolve.mjs"  # shared resolver every launcher imports
+_ENGINE_PYTHON_MJS = REPO / "scripts" / "engine_python.mjs"  # the resolver's CLI for commands' Bash steps (0.11.4)
 _PRECONTEXT_PY = REPO / "hooks" / "precontext.py"
 
 NODE = shutil.which("node")
@@ -271,7 +272,7 @@ def test_pythonpath_dedup_is_separator_canonical(mjs):
 # --------------------------------------------------------------------------- #
 @pytest.mark.skipif(NODE is None, reason="node not on PATH")
 @pytest.mark.parametrize(
-    "mjs", [_LAUNCH_MJS, _PRECONTEXT_MJS, _PROVISION_MJS, _CANON_MERGE_MJS, _ENGINE_RESOLVE_MJS]
+    "mjs", [_LAUNCH_MJS, _PRECONTEXT_MJS, _PROVISION_MJS, _CANON_MERGE_MJS, _ENGINE_RESOLVE_MJS, _ENGINE_PYTHON_MJS]
 )
 def test_mjs_parses(mjs):
     r = subprocess.run([NODE, "--check", str(mjs)], capture_output=True, text=True)
