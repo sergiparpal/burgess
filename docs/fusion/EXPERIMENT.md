@@ -593,3 +593,57 @@ words.
 No item checks that. A negative control, the source restated in other words, would.
 
 The twelve judges used 115,898 to 134,478 tokens each, 1.51 million in all.
+
+---
+
+# Option D, novelty and paraphrase — a calibration without judges (2026-11-11)
+
+**The limit being tested.** The third pilot recorded a limit it did not test: novelty is judged against each
+idea's own evidence, so an idea that restates the source in other words can read as new.
+
+**The pilot drafted to test it.** A fourth pilot would have added a negative control: an eighth item that
+restates the source in plain words, with no figure, no proper name and no run of five words shared with the
+source. A check, V4, would have read its novel score.
+
+**Why no judge ran.** Building its packets showed, before any judgment, that the evidence often lacks the
+passage the control restates. So the evidence itself was measured instead.
+
+**Calibration set.** Twelve negative controls, written first, and the 16 facts the second pilot's judges missed
+on run 4.
+
+| evidence rule | restated passages held (of 22) | controls holding all / some / none | run-4 misses carried (of 16) | packet, est. |
+|---|---|---|---|---|
+| H, the third pilot's | 15 | 7 / 2 / 3 | 15 | 122K |
+| H + semantic neighbours | 16 | 7 / 3 / 2 | 15 | 139K |
+| BM25 and semantic ranks fused | 10 | 5 / 2 / 5 | 12 | 118K |
+| H + each sentence's and the whole idea's two best passages | 17 | 8 / 3 / 1 | 15 | 125K |
+| H + a shared block of the prompt's own passages | 21 | 11 / 1 / 0 | 15 | 131K |
+| both | 22 | 12 / 0 / 0 | 15 | 134K |
+
+The semantic neighbours come from `potion-multilingual-128M`, the divergence engine's model. The shared block is
+the run's rag-slices file for the prompt, the rag arm's own context.
+
+**Test set.** Twelve fresh negative controls were written after the last rule was chosen. They restate other
+claims of the source under the same constraints. Under that rule, of the 9 prompts the source answers:
+- the evidence holds every restated passage in 4;
+- it holds some of them in 1;
+- it holds none in 4.
+
+On the calibration set the same rule had held them all.
+
+**Why.** The shared block holds the source's central answer to each prompt, which is what the first controls
+restated. The fresh ones restate claims from elsewhere in the source. Of the 1,194 passages, the missing ones
+rank between 4th and 108th under BM25, and between 9th and 142nd under the embedder. Each figure is the best rank
+over a control's clauses, sentences and whole text. Carrying them would take tens of passages per idea.
+
+**Conclusion.**
+- Evidence retrieved for an idea's own words cannot reliably show the judge that the idea restates the source in
+  other words.
+- The improvement found on the calibration set does not carry to fresh controls.
+- Novelty, as the judge measures it, can credit an idea for being phrased far from the source. The third pilot's
+  order, which novelty moved, keeps that caveat.
+- The fourth pilot was not run, and no judge tokens were spent.
+
+**Ways forward, neither tried:**
+- let the judge search the whole source before it scores novelty;
+- drop novelty from the judge and read grounded and useful only.
