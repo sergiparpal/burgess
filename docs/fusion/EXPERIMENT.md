@@ -515,3 +515,81 @@ pilot.
 - One run is one sample.
 
 No parameter above changes after the neutrality check is read, nor after the verdicts are.
+
+## Third pilot results (2026-11-11, run 5 judged by 12 blind judges)
+
+**Neutrality check: passed.** Six of the 60 arm ideas matched the scan, all of them "concepto puente", which
+control and rag use as well: the domain's word. No idea used the apparatus's, against 36 of 60 in run 4.
+
+**Validity: passed.**
+- **V1:** the decoy had the lowest grounded score in 12 of 12 prompts.
+- **V2:** the arm ideas' mean grounded score exceeded the decoys' by 3.60 (4.68 against 1.08).
+- **V3:** the positive control scored 4 or 5 on grounded in 12 of 12 prompts.
+
+**Verdicts by the declared rule** (wins out of 12, 10 needed): none decided.
+
+| pair | wins | losses | second pilot |
+|---|---|---|---|
+| graph vs rag | 2 | 10 | 5 of 12 |
+| graph vs control | 3 | 9 | 8 of 12 |
+| graph+generate vs graph | 7 | 5 | 1 of 12 |
+| graph+generate+dpp vs graph+generate | 3 | 9 | 5 of 12 |
+
+Rag ranked above graph in 10 of 12 prompts, the count that would decide the pair the other way. The protocol
+declares no verdict in that direction, so the count is reported, not decided.
+
+| item | grounded | novel | useful | mean rank of 7 | words |
+|---|---|---|---|---|---|
+| control | 4.42 | 3.58 | 3.50 | 2.50 | 60 |
+| graph | 4.67 | 2.33 | 2.92 | 4.25 | 110 |
+| graph+generate | 4.75 | 3.08 | 2.92 | 3.58 | 115 |
+| graph+generate+dpp | 4.58 | 3.00 | 2.75 | 4.33 | 110 |
+| rag | 5.00 | 2.42 | 3.50 | 2.67 | 104 |
+| positive control | 4.92 | 2.58 | 2.92 | 3.67 | |
+| decoy | 1.08 | 3.08 | 2.83 | 7.00 | |
+
+First place by position, A–G: 2, 2, 3, 1, 1, 2, 1.
+
+**The notes, as declared** (read in full):
+- **Statements about the writer's materials:** none, in any packet.
+- **Facts called unsupported that the source contains:** in 2 packets.
+  - In packet 3, a graph+generate idea's evidence lacked RADAR's 1/50 incident rate, which the source states.
+  - In packet 1, a graph idea said Zalando's classifier approves changes. Its evidence described routing only,
+    so the judge read it as a stretch. The source says elsewhere that Zalando approves 33 % of its PRs
+    automatically.
+- **Other claims called absent.** These are also absent from the source:
+  - GEPA "converging on similar variants";
+  - LLM-Modulo's hidden set;
+  - Spotify's claim falling to RADAR and Zalando;
+  - rewording as a test of overfitting;
+  - an "ambigüedad" behind Spotify's claim.
+- **Disputed readings.** The rest are readings the notes dispute:
+  - an inference about canary deployment that the source does not draw;
+  - an audit of harness tampering cited as evidence of overfitting.
+
+**What the judges weighed.** With the style leak gone and the evidence wider, every arm is well grounded (4.42
+to 5.00), so the ranking turns on novelty and usefulness.
+- **Graph-based ideas:** the notes say again and again that they "mostly restate their evidence".
+- **Control:** its ideas propose mechanisms the evidence does not hold, such as a patch that silences an
+  exception so CI passes.
+- **Rag:** its ideas tie their evidence to concrete checks.
+
+**Decision, per this protocol.** Every condition holds:
+- the neutrality check and V1–V3 pass;
+- the notes name statements about the writer's materials in no packet;
+- they name real facts called unsupported in 2 packets.
+
+The judge is ready to ship in `/kg-experiment`. Whether to ship it is a separate decision.
+
+**What its first clean reading says.** On this corpus, the graph-based arms do not produce better ideas than
+flat retrieval or than no context. Graph won 2 of 12 prompts against rag and 3 of 12 against control.
+
+**A limit this pilot does not test.** Novelty is judged against each idea's own evidence, retrieved for its own
+words.
+- An idea built from the source's facts finds them in its evidence and reads as a restatement.
+- An idea phrased far from the source retrieves less of what the source already says, so it can read as newer
+  than it is.
+
+No item checks that. A negative control, the source restated in other words, would.
+
+The twelve judges used 115,898 to 134,478 tokens each, 1.51 million in all.
