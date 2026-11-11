@@ -77,10 +77,10 @@ reads the prose only, through LightRAG's own retrieval, and never sees OUR graph
 ## The anti-smuggling invariant (the one that makes this honest, §1.5/§1.6)
 
 The GRAPH condition is the one tempted to cheat. **It must NOT smuggle in unsupported claims.**
-The harness counts a sentence as unsupported when none of its longer key terms appears in the
-source text (see `_key_terms` / `unsupported_rate` in `harness.py`). On a large source that check rarely
-fires, and the harness then says so in its `caveats`; the rule below holds either way. So in the GRAPH
-condition:
+The harness scores each idea's *support*: the share of its sentences' key-term weight that the source
+holds, where a term the source lacks weighs the most (see `_SupportIndex` in `harness.py`). An invented
+term therefore costs an idea most of its grounded novelty. No lexical check can tell a false relation
+between real terms, so the rule below holds whatever the score. So in the GRAPH condition:
 
 1. Every idea must trace to a real `kg_context` `items[]` edge (a `source`/`relation`/`target` you
    actually saw) or an `advisory.nodes[]` bridge — anchored on vocabulary that exists in the source.
@@ -96,12 +96,9 @@ condition:
    Do not propose ideas that re-tread a known-failed connection; if anything, mention that the
    graph *records* the failure (that is a structural advantage RAG cannot offer).
 
-If the GRAPH condition raises `unsupported_rate` more than ~0.05 above CONTROL, the harness verdict
-flips to "graph condition did NOT clearly beat control" — and that is the correct outcome of a
-condition that smuggled. (The win also requires a *strict* gain on diversity **or** novelty with no
-regression on the other — a mere tie with control is not a win, per `_beats` in `harness.py`.) The same
-bar applies to GRAPH+GENERATE via the separate `generate_verdict`. Your job is to give the graph an honest
-chance, not a rigged one.
+An idea that invents loses support, and with it the prompt, and the harness compares arms prompt by
+prompt: the graph arm wins only when its grounded novelty is higher in enough prompts (10 of 12 at a 5 %
+sign test). A mere tie is not a win. Your job is to give the graph an honest chance, not a rigged one.
 
 ---
 
@@ -153,14 +150,11 @@ check that it parses as JSON and that every list has one answer per prompt; if n
 A JSON string cannot hold a raw line break or an unescaped `"`, so keep each answer on one line and use
 « » or ' ' for quotations inside it.
 
-The command then scores it with `python -m kg_engine.harness ideation <outputs.json> <the source path>`,
-which returns `{"table": {control,graph,graph+generate,graph+generate+dpp,rag[,lightrag] →
-{n,diversity,novelty,utility,unsupported_rate}}, "verdict": "...", "generate_verdict": "...",
-"dpp_verdict": "..."[, "lightrag_verdict": "..."], "guard_probe": {...}, "caveats": [...]}`. The headline
-`verdict` fires "graph condition produced more diverse/novel ideas without more unsupported claims" only
-when GRAPH's diversity AND novelty meet-or-beat CONTROL (with a strict gain on at least one) **and** GRAPH's
-`unsupported_rate <= control + 0.05`. That last clause is the anti-smuggling gate — keep it. The second
-`generate_verdict` applies the same bar to GRAPH+GENERATE.
+The command then scores it with `python -m kg_engine.harness ideation <outputs.json> <the source path>`.
+Each idea gets a **grounded novelty**: how far it leaves the source's wording × how much of its key-term
+weight the source holds. The arms are compared prompt by prompt (0.12.0). The headline `verdict` is
+GRAPH vs RAG, then GRAPH vs CONTROL, GRAPH+GENERATE vs GRAPH and the dpp arm vs GRAPH+GENERATE. That is why
+answer *k* of every arm must answer prompt *k*.
 
 ---
 

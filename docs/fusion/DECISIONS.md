@@ -777,3 +777,45 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - (c) *Accept the previous release's stamp during a transition:* the old stamp hashed a version we cannot know, so there is nothing to compare.
 - **Checked:** `bootstrap.py --check` on the Windows venv, read-only, with the 0.11.8 and 0.11.9 copies, and the timings in `provision.log`, `server.log` and the session's MCP log.
 - **Pinned in:** `tests/test_fix_stamp_ignores_version.py`. Against 0.11.9, 5 of its 14 tests fail. The other 9 check inputs that already moved the stamp.
+
+## The experiment compares grounded novelty prompt by prompt, behind an instrument check (2026-11-11)
+
+- **Decision:** `harness ideation` scores each idea's grounded novelty (novelty × support) and decides each
+  pre-declared pair prompt by prompt with a one-sided sign test at 5 %. The headline is graph vs rag. An
+  instrument check (rag's support ≥ control's + 0.10) gates every verdict. The method, its revision before
+  scoring and its retroactive results are in `docs/fusion/EXPERIMENT.md` ("Stage 8 method, 0.12.0").
+- **What it fixes:** three field runs (2026-11-10/11, Windows, eight Spanish documents) gave the same negative
+  headline under a rule that could not give another:
+  - graph had to match control's novelty, measured from a source control never sees;
+  - the guard was blind on a large corpus;
+  - pooled single numbers let 0.003 decide.
+- **Why graph vs rag as the headline:** both arms get the same source and budget, and the command's own text
+  had called rag "the honest comparison". Control stays as a second verdict on the same measure.
+- **Why novelty × support:** it rewards leaving the source's wording without leaving its terms. Control pays
+  for inventing, and rag for copying.
+- **Why support by stem, over the whole source, weighted by IDF:** decided before any field scoring, on the demo
+  corpus and synthetic Spanish sentences.
+  - **Whole words:** a single unused inflection ("compararía") took the highest weight and read as invention.
+  - **One paragraph:** requiring the terms to meet in one paragraph penalized ideas that link two parts of the
+    source, which the graph arm exists to produce.
+  - IDF still makes an invented term cost the most. The probe measured 0.155–0.162 of support lost per invented
+    term on the field runs.
+- **Why the sign test:** D1 already decided per prompt (10 of 12). The test makes that threshold a stated
+  significance level, and makes "too few prompts" explicit below five.
+- **Why an instrument check, and why it decides "not measured":** a support score that cannot tell rag from
+  control cannot carry a verdict that depends on it. Saying so is the honest outcome, and through 0.11.x a
+  "did NOT clearly beat" stood in that place.
+- **Result:** the check failed on all three field runs (gaps 0.048, 0.022, 0.049). On this corpus an
+  uninformed writer uses the source's vocabulary for 92–94 % of its key-term weight. Every verdict reads "not
+  measured". The prompt-by-prompt counts are recorded but are not verdicts: graph vs rag 9, 7 and 8 of 12;
+  graph+generate vs graph 10, 6 and 12 of 12.
+- **Rejected alternatives:**
+  - (a) *Keep the 0.11.x rule with caveats (0.11.8):* it stays structurally negative.
+  - (b) *Local co-occurrence support:* biased against connecting ideas (see the revision); it would need its own
+    protocol, declared before new runs.
+  - (c) *Lower the check's 0.10 after seeing 0.05:* that would fit the instrument to the data.
+  - (d) *A blinded LLM judge now:* it is the next step, but it is not deterministic, it costs about twelve
+    subagents a run, and the user chose the lexical method first.
+- **Pinned in:** `tests/test_fix_grounded_novelty.py`. `tests/test_fix_experiment_measurement.py` moves its
+  0.11.8 blind-guard pins onto the replacement. `tests/fusion/test_experiment_arm.py` and
+  `tests/test_harness.py` follow the new rule and keys.

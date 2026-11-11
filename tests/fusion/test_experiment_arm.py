@@ -12,18 +12,24 @@ SOURCE = ("entropy grounds the arrow of time. betweenness measures bridges. "
           "provenance carries spans. communities connect through genuine bridges.")
 
 
-def _ideas(diverse: bool) -> list[str]:
+def _ideas(diverse: bool, prompts: int = 10) -> list[str]:
+    # 0.12.0 compares arms prompt by prompt with a one-sided sign test, which needs at least five prompts to
+    # decide (10 of 12, as in D1); three ideas are cycled over `prompts` prompts.
     if diverse:
-        return [
-            "Because compression predicts observations, a bridge between communities earns trust.",
-            "Falsification defends against failures, therefore betweenness needs provenance spans.",
-            "If provenance carries spans, genuine bridges connect communities because entropy grounds order.",
+        # the source's own terms in new orders: novel word sequences whose key terms still meet in the source
+        # (0.12.0 scores grounded novelty, and a word the source lacks counts against support)
+        base = [
+            "Genuine bridges connect communities, and provenance carries spans.",
+            "Falsification defends betweenness against failures through genuine provenance.",
+            "Compression predicts bridges; communities carries entropy through observations.",
         ]
-    return [
-        "entropy grounds the arrow of time in the graph.",
-        "entropy grounds the arrow of time for bridges.",
-        "entropy grounds the arrow of time again.",
-    ]
+    else:
+        base = [
+            "entropy grounds the arrow of time in the graph.",
+            "entropy grounds the arrow of time for bridges.",
+            "entropy grounds the arrow of time again.",
+        ]
+    return [base[k % len(base)] for k in range(prompts)]
 
 
 def test_arm_is_canonical_and_ordered_after_graph_generate():
@@ -36,7 +42,7 @@ def test_dpp_verdict_present_and_directional():
                     "graph+generate": _ideas(False), "graph+generate+dpp": _ideas(True)},
                    source_text=SOURCE)
     assert list(out["table"])[:4] == ["control", "graph", "graph+generate", "graph+generate+dpp"]
-    assert out["dpp_verdict"].startswith("graph+generate+dpp beat graph+generate")
+    assert out["dpp_verdict"].startswith("graph+generate+dpp beat graph+generate on grounded novelty")
 
     flipped = ideation({"graph+generate": _ideas(True), "graph+generate+dpp": _ideas(False)},
                        source_text=SOURCE)

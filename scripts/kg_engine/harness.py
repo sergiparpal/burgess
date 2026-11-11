@@ -74,8 +74,8 @@ def agreement(label_sets: list[dict]) -> float:
 # A word starts with a letter and has at least two characters, so short alpha labels like "AI"/"ML"/"OS"
 # still match a term and carry their IDF rarity into node_specificity, instead of matching nothing and
 # silently falling back to the corpus default (finding harness-f4-4). Single-char tokens stay excluded as
-# noise. Determinism is unaffected — the same regex drives idf_seeds, _ngrams, _key_terms, node_specificity
-# and the rag arm's retrieval alike.
+# noise. Determinism is unaffected — the same regex drives idf_seeds, _ngrams, the support check's key terms,
+# node_specificity and the rag arm's retrieval alike.
 #
 # Letters are Unicode letters (0.11.8). The pattern was `[A-Za-z][A-Za-z0-9_-]{1,}` through 0.11.7, which
 # cut every word at its first letter outside ASCII: on the Windows corpus (Spanish, 2026-11-10) "revisión"
@@ -303,15 +303,32 @@ def absorption(graph_data: dict, history: dict, *, now=None, absorb_growth: int 
 
 _SENT = re.compile(r"[.!?]+\s+")
 
-# a "key term" is a word longer than this; sentences whose words are all this short or shorter yield no
-# key terms and are excluded from both numerator and denominator of unsupported_rate (see _score_condition).
+# A "key term" is a word longer than this. A sentence is judged for support when it has at least four words
+# and at least _MIN_KEY_TERMS key terms; shorter or vaguer sentences are left out of both sides of the mean.
 _KEY_TERM_MIN_LEN = 5
-_KEY_TERMS_PER_SENTENCE = 3              # cap on key terms sampled per sentence
+_MIN_KEY_TERMS = 2
+_STEM_CHARS = 6                          # support compares key terms by their first six folded characters
 _UTILITY_SATURATION = 5                  # utility hits saturate the per-output score at this count
 # The causal/structural marker terms whose presence counts as "utility" in an ideation output —
 # named beside its saturation knob instead of living inline in the scoring loop (review-r5).
 _UTILITY_MARKERS = re.compile(r"\bbecause\b|\bif\b|\btherefore\b|\bbridge|\bconnect")
-_UNSUPPORTED_SLACK = 0.05                # hallucination-guard slack allowed on unsupported_rate in _beats
+
+# The 0.12.0 method (docs/fusion/EXPERIMENT.md, "Stage 8 method, 0.12.0"): ideas are scored on grounded
+# novelty — novelty × support — and arms are compared prompt by prompt with a sign test. Every constant below
+# is the pre-declared one; none was tuned on a field run.
+#
+# Through 0.11.x the verdict needed graph ≥ control on novelty, which is distance from a source the control arm
+# never sees (0.91 against 0.71-0.76 on three field runs), and its unsupported-claim guard called a sentence
+# supported when any of its first three long words occurred anywhere in the source (blind on a 445,018-char
+# corpus: 140/143, 171/173 and 181/181 probes passed). Support is now weighted: a sentence's support is the share
+# of its key terms' IDF weight that the source holds, so a common word that every paragraph has counts for little
+# and a term the source lacks, an invented one, counts the most. Terms are compared by stem, so an inflection the
+# source does not use is not taken for an invention.
+_UNSUPPORTED_BELOW = 0.5        # a judged sentence whose best paragraph covers less than this counts as unsupported
+_MIN_SUPPORT_GAP = 0.10         # instrument check: rag's mean support must exceed control's by at least this
+_TIE_BAND = 0.005               # a per-prompt difference within this is a tie
+_SIGN_ALPHA = 0.05              # one-sided sign-test level for "X beats Y"
+_PROBE_WORD = "zqxjvbrelkf"     # absent from any real text, longer than _KEY_TERM_MIN_LEN
 
 
 def _ngrams(text: str, n=3) -> set:
@@ -337,123 +354,110 @@ def _as_outputs(outputs) -> list[str]:
     return [o for o in outputs if isinstance(o, str)]
 
 
-def _judged_terms(output: str) -> list[list[str]]:
-    """The key terms of each sentence of one idea that unsupported_rate can judge, in order."""
-    # only sentences that have >=1 scorable key term can be judged supported/unsupported.
-    # a sentence whose words are all short (<= _KEY_TERM_MIN_LEN chars) yields no key terms — we
-    # can't decide it either way, so it's excluded from BOTH numerator and denominator rather than
-    # counted as a free "unsupported" (which would bias the unsupported_rate axis upward — finding
-    # harness-f4-1). Each sentence is tokenized once and its terms serve both filter and numerator.
-    terms = [_key_terms(s) for s in _SENT.split(output) if len(s.split()) >= 4]
-    return [t for t in terms if t]
+def _by_prompt(outputs) -> list[str]:
+    """One condition's ideas kept in prompt order, a non-string idea read as an empty one, so position k is
+    always prompt k (the paired comparison needs that; `_as_outputs` drops instead)."""
+    if isinstance(outputs, str):
+        outputs = [outputs]
+    elif not isinstance(outputs, list):
+        outputs = []
+    return [o if isinstance(o, str) else "" for o in outputs]
 
 
-def _score_condition(outputs: list[str], source_text: str) -> dict:
+def _stem(word: str) -> str:
+    """A key term as support compares it: accents and case folded, cut to its first _STEM_CHARS characters, so
+    an inflection the source does not use ("compararía" where it says "compara") still counts as present."""
+    return _fold(word)[:_STEM_CHARS]
+
+
+def _sentence_stems(sentence: str) -> list[str]:
+    """A sentence's key terms (words longer than _KEY_TERM_MIN_LEN) as stems, in order of first use, each once."""
+    out: list[str] = []
+    for w in _WORD.findall(sentence):
+        if len(w) > _KEY_TERM_MIN_LEN:
+            s = _stem(w)
+            if s not in out:
+                out.append(s)
+    return out
+
+
+def _judged_sentences(idea: str) -> list[list[str]]:
+    """The key-term stems of each sentence of one idea that support can judge, in order."""
+    stems = [_sentence_stems(s) for s in _SENT.split(idea) if len(s.split()) >= 4]
+    return [t for t in stems if len(t) >= _MIN_KEY_TERMS]
+
+
+class _SupportIndex:
+    """The source's key-term stems and their weights: each stem's BM25-form IDF over the source's paragraphs
+    (cut as `rag-slices` cuts them). A stem no paragraph holds has df 0, the highest weight."""
+
+    def __init__(self, documents: "dict[str, str] | None" = None, source_text: str = ""):
+        texts = list(documents.values()) if documents else [source_text or ""]
+        passages = [p for text in texts for p in _passages(text)]
+        self.n = len(passages)
+        df: Counter = Counter()
+        for p in passages:
+            df.update({_stem(w) for w in _WORD.findall(p) if len(w) > _KEY_TERM_MIN_LEN})
+        self._df = df
+
+    def idf(self, stem: str) -> float:
+        d = self._df.get(stem, 0)
+        return math.log((self.n - d + 0.5) / (d + 0.5) + 1.0)
+
+    def coverage(self, stems: list[str]) -> float:
+        """The share of `stems`' total IDF weight held by stems the source contains (0 with no source). Summed
+        in sorted order so the floating-point result never depends on hash order."""
+        ordered = sorted(set(stems))
+        total = sum(self.idf(s) for s in ordered)
+        if not total or not self.n:
+            return 0.0
+        return sum(self.idf(s) for s in ordered if s in self._df) / total
+
+
+def _idea_scores(idea: str, src_ng: set, index: _SupportIndex) -> dict:
+    """novelty, support, grounded novelty, the share of unsupported judged sentences (None when none was
+    judged) and the probe's coverage drops, for one idea."""
+    ong = _ngrams(idea)
+    # an empty/too-short output has no n-grams; score it 0 novelty rather than a free 1.0, so a
+    # condition can't game the experiment by emitting blank or one-word "ideas".
+    novelty = (1.0 - len(ong & src_ng) / len(ong)) if ong else 0.0
+    covs, drops = [], []
+    for terms in _judged_sentences(idea):
+        c = index.coverage(terms)
+        covs.append(c)
+        drops.append(c - index.coverage([_PROBE_WORD] + terms[1:]))
+    support = sum(covs) / len(covs) if covs else 0.0
+    return {"novelty": novelty, "support": support, "grounded": novelty * support,
+            "unsupported": (sum(1 for c in covs if c < _UNSUPPORTED_BELOW) / len(covs)) if covs else None,
+            "drops": drops}
+
+
+def _score_condition(outputs: list[str], source_text: str, index: "_SupportIndex | None" = None) -> dict:
     outputs = _as_outputs(outputs)
     # coerce a non-string source like the outputs (review: harness ideation crashes on non-string source)
     source_text = source_text if isinstance(source_text, str) else ""
     if not outputs:
-        return {"n": 0, "diversity": 0.0, "novelty": 0.0, "utility": 0.0, "unsupported_rate": 0.0}
+        return {"n": 0, "diversity": 0.0, "novelty": 0.0, "support": 0.0, "grounded_novelty": 0.0,
+                "utility": 0.0, "unsupported_rate": 0.0}
+    index = index if index is not None else _SupportIndex(source_text=source_text)
     all_ng: Counter = Counter()
     for o in outputs:
         all_ng.update(_ngrams(o))
     diversity = (len(all_ng) / max(sum(all_ng.values()), 1))
     src_ng = _ngrams(source_text)
-    novelties, util, unsupported = [], [], []
-    src_norm = source_text.lower()
-    for o in outputs:
-        ong = _ngrams(o)
-        overlap = len(ong & src_ng) / max(len(ong), 1)
-        # an empty/too-short output has no n-grams; score it 0 novelty rather than a free 1.0, so a
-        # condition can't game the experiment by emitting blank or one-word "ideas".
-        novelties.append(1.0 - overlap if ong else 0.0)
-        util.append(min(1.0, len(_UTILITY_MARKERS.findall(o.lower())) / _UTILITY_SATURATION))
-        scored = _judged_terms(o)
-        if scored:
-            unsup = sum(1 for t in scored if not any(x in src_norm for x in t))
-            unsupported.append(unsup / len(scored))
+    scores = [_idea_scores(o, src_ng, index) for o in outputs]
+    util = [min(1.0, len(_UTILITY_MARKERS.findall(o.lower())) / _UTILITY_SATURATION) for o in outputs]
+    unsupported = [s["unsupported"] for s in scores if s["unsupported"] is not None]
+    mean = lambda xs: sum(xs) / len(xs)  # noqa: E731 — every list here is non-empty
     return {
         "n": len(outputs),
         "diversity": round(diversity, 3),
-        "novelty": round(sum(novelties) / len(novelties), 3),
-        "utility": round(sum(util) / len(util), 3),
-        "unsupported_rate": round(sum(unsupported) / max(len(unsupported), 1), 3),
+        "novelty": round(mean([s["novelty"] for s in scores]), 3),
+        "support": round(mean([s["support"] for s in scores]), 3),
+        "grounded_novelty": round(mean([s["grounded"] for s in scores]), 3),
+        "utility": round(mean(util), 3),
+        "unsupported_rate": round(mean(unsupported), 3) if unsupported else 0.0,
     }
-
-
-def _key_terms(sentence: str) -> list[str]:
-    return [w.lower() for w in _WORD.findall(sentence)
-            if len(w) > _KEY_TERM_MIN_LEN][:_KEY_TERMS_PER_SENTENCE]
-
-
-# --------------------------------------------------------------------------- columns that cannot tell (0.11.8)
-
-# On the Windows corpus (eight Spanish documents, 445,018 characters, 2026-11-10) every arm scored 0.0
-# unsupported_rate and 0.0 utility, and the log read as "no arm made an unsupported claim". Neither column
-# had measured anything:
-# - the guard calls a sentence supported when ANY of its first three long words occurs ANYWHERE in the
-#   source, and a corpus that size holds nearly every ordinary long word. A sentence invented outright
-#   ("El sistema Zorblax de Quantifex redujo las reversiones un 93 % en 2019") passed; on the 2,741-char
-#   demo corpus the same sentence is caught.
-# - _UTILITY_MARKERS are English words, and no Spanish idea contains one.
-# Both rules stay as they are (what the verdict should measure is a separate decision); the harness now
-# says when one of them cannot tell the arms apart, so a 0.0 is not read as a clean result.
-#
-# The probe: every sentence the guard judged, in every arm, with its first long word replaced by a word no
-# source contains. It still names everything else it named, so it is the arm's own sentence about one
-# invented thing. The guard is blind when it lets almost all of them through. On the field run 140 of 143
-# probes passed (0.979). On the demo corpus, twelve English ideas written from its text passed at 0.83 and
-# twelve written without it at 0.27, 0.57 pooled, and there the guard told the two sets apart (unsupported_rate
-# 0.08 against 0.54).
-_PROBE_WORD = "zqxjvbrelkf"     # absent from any real text, longer than _KEY_TERM_MIN_LEN
-_GUARD_BLIND_AT = 0.9           # probe pass rate at and above which unsupported_rate is reported as blind
-
-
-def guard_probe(outputs_by_condition: dict, source_text: str) -> dict:
-    """How often the unsupported-claim guard passes the arms' own sentences once each names one invented
-    thing: `{"probes", "passed", "pass_rate", "source_chars"}` over every arm present. `pass_rate` is None
-    when no sentence was judged."""
-    source_text = source_text if isinstance(source_text, str) else ""
-    src_norm = source_text.lower()
-    probes = passed = 0
-    for _, outs in _ordered_conditions(outputs_by_condition):
-        for o in _as_outputs(outs):
-            for terms in _judged_terms(o):
-                probes += 1
-                passed += any(x in src_norm for x in [_PROBE_WORD] + terms[1:])
-    return {"probes": probes, "passed": passed,
-            "pass_rate": round(passed / probes, 3) if probes else None,
-            "source_chars": len(source_text)}
-
-
-def _caveats(table: dict, probe: dict) -> list[str]:
-    """Plain sentences naming each column that cannot tell the arms apart in this run, for the log."""
-    out = []
-    rate = probe.get("pass_rate")
-    if rate is not None and rate >= _GUARD_BLIND_AT:
-        out.append(
-            f"unsupported_rate cannot tell the arms apart on this source: {probe['passed']} of "
-            f"{probe['probes']} of the ideas' own sentences still passed the guard with their first long word "
-            f"replaced by an invented one, because a sentence passes when any of its first three long words "
-            f"occurs anywhere in the source ({probe['source_chars']:,} characters). Read its values as not "
-            f"measured, not as no unsupported claims: the verdicts' unsupported-claim check could not have "
-            f"caught an arm that invents things.")
-    scored = [row for row in table.values() if row.get("n")]
-    if scored and all(row.get("utility", 0.0) == 0.0 for row in scored):
-        out.append(
-            "utility counts only the English markers because, if, therefore, bridge and connect; no arm's "
-            "ideas contain one, so the column is 0 everywhere and says nothing about this run. It is not "
-            "part of any verdict.")
-    return out
-
-
-def _beats(a: dict, c: dict) -> bool:
-    """`a` beats baseline `c`: no regression on diversity/novelty/unsupported (with 0.05 slack on the
-    hallucination guard) AND a strict gain on at least one of diversity/novelty (a tie is not a win)."""
-    no_regression = (a["diversity"] >= c["diversity"] and a["novelty"] >= c["novelty"]
-                     and a["unsupported_rate"] <= c["unsupported_rate"] + _UNSUPPORTED_SLACK)
-    strict_gain = (a["diversity"] > c["diversity"] or a["novelty"] > c["novelty"])
-    return no_regression and strict_gain
 
 
 # the canonical arm order for a STABLE, readable `table` — but the scorer never requires any of
@@ -462,6 +466,15 @@ def _beats(a: dict, c: dict) -> bool:
 # missing from `table`, never an error. Any non-canonical key is still scored and appended in input
 # order, so the harness tolerates whatever arms the evaluator actually emitted.
 _CANONICAL_ARMS = ("control", "graph", "graph+generate", "graph+generate+dpp", "rag", "lightrag")
+
+# The pre-declared pairs (EXPERIMENT.md): (output key, X, Y, how Y is named in the verdict).
+_PAIRS = (
+    ("verdict", "graph", "rag", "rag"),
+    ("control_verdict", "graph", "control", "control"),
+    ("generate_verdict", "graph+generate", "graph", "graph"),
+    ("dpp_verdict", "graph+generate+dpp", "graph+generate", "graph+generate"),
+    ("lightrag_verdict", "graph", "lightrag", "the LightRAG baseline"),
+)
 
 
 def _ordered_conditions(outputs_by_condition: dict):
@@ -476,80 +489,115 @@ def _ordered_conditions(outputs_by_condition: dict):
             yield cond, outs
 
 
+def sign_test_needed(n: int) -> "int | None":
+    """The fewest wins out of n prompts that a one-sided sign test at _SIGN_ALPHA accepts: the smallest k with
+    P(Bin(n, 1/2) >= k) <= _SIGN_ALPHA. None when even n of n is not enough (n < 5 at 5 %)."""
+    for k in range(n + 1):
+        if sum(math.comb(n, i) for i in range(k, n + 1)) / 2 ** n <= _SIGN_ALPHA:
+            return k
+    return None
 
-def _arm_beats(a, b) -> "bool | None":
-    """One experiment arm's outcome: None when either side lacks data (the guard every arm used to
-    repeat, review-r5), else whether `a` beats `b` under the hallucination-guarded rule (_beats)."""
-    if not (a and b and a["n"] and b["n"]):
-        return None
-    return _beats(a, b)
+
+def _paired(xs: list, ys: list) -> dict:
+    """X vs Y on per-prompt grounded novelty: wins, losses and ties (within _TIE_BAND) over the prompts both
+    have, the wins needed, and the median difference."""
+    n = min(len(xs), len(ys))
+    diffs = [xs[k] - ys[k] for k in range(n)]
+    wins = sum(1 for d in diffs if d > _TIE_BAND)
+    losses = sum(1 for d in diffs if d < -_TIE_BAND)
+    ordered = sorted(diffs)
+    median = (ordered[n // 2] if n % 2 else (ordered[n // 2 - 1] + ordered[n // 2]) / 2) if n else 0.0
+    return {"n": n, "wins": wins, "losses": losses, "ties": n - wins - losses,
+            "needed": sign_test_needed(n), "median_diff": round(median, 3)}
 
 
-def ideation(outputs_by_condition: dict, source_text: str = "") -> dict:
-    """Score pooled outputs per condition and emit a verdict.
+def _pair_verdict(x: str, y_name: str, cmp: dict, not_measured: "str | None") -> str:
+    if not cmp["n"]:
+        return "insufficient data"
+    if not_measured:
+        return f"not measured: {not_measured}"
+    if cmp["needed"] is None:
+        return (f"{x} vs {y_name}: too few prompts to decide ({cmp['n']}; a one-sided sign test at 5 % needs at "
+                f"least 5)")
+    if cmp["wins"] >= cmp["needed"]:
+        return f"{x} beat {y_name} on grounded novelty in {cmp['wins']} of {cmp['n']} prompts"
+    return (f"{x} did NOT clearly beat {y_name} on grounded novelty ({cmp['wins']} of {cmp['n']} prompts; "
+            f"{cmp['needed']} needed)")
 
-    Arm-tolerant: every condition key actually present in `outputs_by_condition` is scored (canonical
-    arms — control | graph | graph+generate | rag | lightrag — first, then any extras), and a missing
-    optional arm is simply absent from `table` rather than an error. The default experiment ships four
-    arms (control/graph/graph+generate/rag); `lightrag` is the optional fifth (§Stage 8).
 
-    The headline `verdict` is graph-vs-control. When a `graph+generate` arm is present (the graph context
-    PLUS the hypothesized slate from /kg-generate, PLAN Stage 9), a second `generate_verdict` reports
-    whether generation lifted ideation further — diversity/novelty up vs control without materially more
-    unsupported claims, and whether it exceeded `graph` alone. When the optional `lightrag` arm is present
-    (a published GraphRAG baseline over the same prose corpus), a `lightrag_verdict` reports whether the
-    grounded `graph` arm beat that baseline — letting "grounding-with-falsification is worth it" stand
-    against a real GraphRAG, not only against flat retrieval."""
+def _caveats(table: dict, check: dict) -> list[str]:
+    """Plain sentences naming each column or check that cannot tell the arms apart in this run, for the log."""
+    out = []
+    if check["valid"] is False:
+        out.append(
+            f"support does not separate text written from the source from text written without it on this "
+            f"source: rag's mean support is {check['rag']:.3f} and control's {check['control']:.3f}, a gap of "
+            f"{check['gap']:.3f} below the {_MIN_SUPPORT_GAP:.2f} the method requires. Every verdict that uses "
+            f"grounded novelty reads not measured.")
+    elif check["valid"] is None:
+        out.append("support was not checked: the check needs both a rag and a control arm, and this run lacks "
+                   "one. The verdicts stand on an unchecked measure.")
+    scored = [row for row in table.values() if row.get("n")]
+    if scored and all(row.get("utility", 0.0) == 0.0 for row in scored):
+        out.append(
+            "utility counts only the English markers because, if, therefore, bridge and connect; no arm's "
+            "ideas contain one, so the column is 0 everywhere and says nothing about this run. It is not "
+            "part of any verdict.")
+    return out
+
+
+def ideation(outputs_by_condition: dict, source_text: str = "",
+             documents: "dict[str, str] | None" = None) -> dict:
+    """Score each arm and compare the pre-declared pairs prompt by prompt (docs/fusion/EXPERIMENT.md,
+    "Stage 8 method, 0.12.0").
+
+    Arm-tolerant: every condition key present is scored (canonical arms first, then any extras), and a pair
+    with a missing arm is simply absent from the output. `documents` ({name: text}) gives the source's
+    documents one by one, so no paragraph straddles two of them; without it the paragraphs come from
+    `source_text`.
+
+    Returns `table` (per arm: n, diversity, novelty, support, grounded_novelty, utility, unsupported_rate),
+    `comparisons` (per present pair: wins, losses, ties, n, needed, median_diff), the verdicts of the present
+    pairs (`verdict` graph vs rag, `control_verdict`, `generate_verdict`, `dpp_verdict`, `lightrag_verdict`),
+    `support_check` and `caveats`. `verdict` is always present ("insufficient data" without both arms)."""
     # shape guard (mirrors agreement()'s): a top-level JSON list — or any non-object — would otherwise
     # reach _ordered_conditions' .items() and raise an opaque AttributeError. Surface a usage error so
     # _main's ValueError handler prints a clean message instead.
     if not isinstance(outputs_by_condition, dict):
         raise ValueError("outputs must be a {condition: [outputs]} object")
-    table = {cond: _score_condition(outs, source_text) for cond, outs in _ordered_conditions(outputs_by_condition)}
-    g, c = table.get("graph"), table.get("control")
-    out = {"table": table, "verdict": "insufficient data"}
+    source_text = source_text if isinstance(source_text, str) else ""
+    if documents:
+        source_text = source_text or "\n".join(documents.values())
+    index = _SupportIndex(documents=documents, source_text=source_text)
+    src_ng = _ngrams(source_text)
+    conds = list(_ordered_conditions(outputs_by_condition))
+    table = {cond: _score_condition(outs, source_text, index) for cond, outs in conds}
+    per_prompt, drops = {}, []
+    for cond, outs in conds:
+        scores = [_idea_scores(o, src_ng, index) for o in _by_prompt(outs)]
+        per_prompt[cond] = [s["grounded"] for s in scores]
+        for s in scores:
+            drops.extend(s["drops"])
 
-    # One arm = one _arm_beats call (review-r5: each of the four arms — and history says arms keep
-    # being ADDED; dpp and lightrag were already accretions — copy-pasted the same
-    # both-sides-have-data guard around _beats).
-    res = _arm_beats(g, c)
-    if res is not None:
-        out["verdict"] = ("graph condition produced more diverse/novel ideas without more unsupported claims"
-                          if res else "graph condition did NOT clearly beat control")
+    rag, control = table.get("rag"), table.get("control")
+    check = {"rag": None, "control": None, "gap": None, "min_gap": _MIN_SUPPORT_GAP, "valid": None,
+             "probe_drop": round(sum(drops) / len(drops), 3) if drops else None, "probes": len(drops)}
+    if rag and control and rag["n"] and control["n"]:
+        gap = rag["support"] - control["support"]
+        check.update(rag=rag["support"], control=control["support"], gap=round(gap, 3),
+                     valid=gap >= _MIN_SUPPORT_GAP)
+    not_measured = ("support does not separate rag from control on this source" if check["valid"] is False
+                    else None)
 
-    gg = table.get("graph+generate")
-    res = _arm_beats(gg, c)
-    if res is not None:
-        if res:
-            exceeds_graph = bool(g and g["n"]) and (gg["diversity"] > g["diversity"] or gg["novelty"] > g["novelty"])
-            out["generate_verdict"] = ("graph+generate beat control on diversity/novelty without more "
-                                       "unsupported claims" + (" — and exceeded graph alone" if exceeds_graph
-                                                               else " (on par with graph alone)"))
-        else:
-            out["generate_verdict"] = "graph+generate did NOT clearly beat control"
-
-    # FUSION Stage 6: the D1 comparison arm — the SAME hypothesized slate, presented in
-    # advisory-DPP order with geometry labels. Beating graph+generate here means the
-    # PRESENTATION (order + labels) lifted ideation, since the candidate set is identical.
-    res = _arm_beats(table.get("graph+generate+dpp"), gg)
-    if res is not None:
-        out["dpp_verdict"] = (
-            "graph+generate+dpp beat graph+generate on diversity/novelty without more "
-            "unsupported claims" if res
-            else "graph+generate+dpp did NOT clearly beat graph+generate")
-
-    # NB the operands invert here: the question is whether GRAPH beats the baseline.
-    res = _arm_beats(g, table.get("lightrag"))
-    if res is not None:
-        out["lightrag_verdict"] = (
-            "graph condition beat the LightRAG GraphRAG baseline on diversity/novelty without more "
-            "unsupported claims" if res
-            else "graph condition did NOT clearly beat the LightRAG GraphRAG baseline")
-
-    # 0.11.8: name each column that could not tell the arms apart in this run (see _caveats); the list is
-    # empty when every column could. The verdicts above are unchanged by it.
-    out["guard_probe"] = guard_probe(outputs_by_condition, source_text)
-    out["caveats"] = _caveats(table, out["guard_probe"])
+    out: dict = {"table": table, "comparisons": {}, "verdict": "insufficient data"}
+    for key, x, y, y_name in _PAIRS:
+        if x not in per_prompt or y not in per_prompt:
+            continue
+        cmp = _paired(per_prompt[x], per_prompt[y])
+        out["comparisons"][f"{x} vs {y}"] = cmp
+        out[key] = _pair_verdict(x, y_name, cmp, not_measured)
+    out["support_check"] = check
+    out["caveats"] = _caveats(table, check)
     return out
 
 
@@ -947,12 +995,14 @@ def _cmd_ideation(argv: list[str]) -> int:
     # source_path here, so the evaluator no longer pastes a whole corpus into the JSON (eight documents on
     # the Windows install). Read like the projector reads it; a given path wins over an embedded "source".
     spath = _positional_path(argv, 2)
+    documents = None
     if spath:
         src_text = _source_text(spath)
+        documents = SourceSet(spath).texts  # one document at a time, so no paragraph straddles two (0.12.0)
     # when outputs aren't nested under "outputs", treat the rest of the blob as conditions but
     # never let the top-level "source" string leak in as a fake (char-iterated) condition.
     obc = blob.get("outputs", {k: v for k, v in blob.items() if k != "source"})
-    res = ideation(obc, src_text)
+    res = ideation(obc, src_text, documents=documents)
     print(json.dumps(res, indent=2))
     return 0
 

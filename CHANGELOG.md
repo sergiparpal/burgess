@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.12.0 — 2026-11-11
+
+`/kg-experiment` measures what it was built to ask, and says "not measured" when it cannot. The method is
+pre-declared in `docs/fusion/EXPERIMENT.md` ("Stage 8 method, 0.12.0"), along with its retroactive results on
+the three field runs.
+
+### Changed
+
+- **The verdicts compare grounded novelty, prompt by prompt.**
+  - Three field runs on the Windows corpus returned the same negative headline, and the 0.11.x rule could not
+    have returned another:
+    - It required graph ≥ control on novelty, which is distance from a source the control arm never sees:
+      0.91 against the graph arm's 0.71–0.76.
+    - Its unsupported-claim guard let 140 of 143, 171 of 173 and 181 of 181 sentences with an invented word
+      through.
+    - Single pooled numbers let differences of 0.003 decide.
+  - Each idea now gets a **grounded novelty**: its novelty × its **support**. Support is the share of its
+    sentences' key-term weight held by terms the source contains:
+    - each term is weighted by its IDF over the source's paragraphs;
+    - terms are compared by stem, so a verb form the source does not use is not an invention;
+    - a term the source lacks weighs the most.
+  - Pairs are compared prompt by prompt and won at the one-sided sign test's 5 % level: 10 of 12, as in D1.
+    Below five prompts nothing is decided.
+  - The pairs:
+    - **graph vs rag** (`verdict`): the headline, both arms fed by the same source;
+    - **graph vs control** (`control_verdict`);
+    - **graph+generate vs graph** (`generate_verdict`), which through 0.11.x was compared with control;
+    - **graph+generate+dpp vs graph+generate** (`dpp_verdict`);
+    - **graph vs lightrag** (`lightrag_verdict`).
+  - **An instrument check gates them.** `rag` writes from source passages and `control` from nothing, so
+    `rag`'s support must exceed `control`'s by 0.10. Otherwise every verdict reads "not measured", and a
+    caveat says why.
+  - The output adds `support` and `grounded_novelty` to every row, plus `comparisons` (wins, losses, ties,
+    needed and median per pair) and `support_check`. It drops `guard_probe` and the any-of-three-words guard.
+    `unsupported_rate` is now the share of sentences with support below 0.5. Diversity and utility stay in
+    the table, outside every verdict.
+- **The verdict strings changed.** `/kg-experiment`'s log adds `support`, `grounded_novelty`, the control
+  verdict and the support check. The evaluator's own text describes the new scoring.
+- **Retroactive results.** The pre-declared rule was applied to the three saved runs, unchanged. The check
+  failed in all three: rag's support exceeded control's by only 0.048, 0.022 and 0.049, because on eight
+  documents about the prompts' topics an uninformed writer already uses the corpus's vocabulary. So every
+  verdict reads "not measured", where 0.11.x said "did NOT clearly beat". The next instrument would be a
+  blinded pairwise judge.
+
+### Tests
+
+- `tests/test_fix_grounded_novelty.py` (23 tests):
+  - **support:** stems match inflections; an invented term weighs more than a rare or a common one; terms from
+    two paragraphs count together; an idea with nothing to judge has no support;
+  - **the measure:** grounded novelty is novelty × support, and the table carries every column;
+  - **the rule:** the wins needed are the sign test's, and 12 prompts need 10; 10 of 12 beats and 9 does not;
+    a tie counts against the challenger; too few prompts are reported;
+  - **the field shape:** an arm can now win against a more novel but unanchored control;
+  - **the pairs:** they are the declared ones, and the headline is always present;
+  - **the check:** a failed check marks every verdict "not measured", and an unchecked run says so;
+  - **alignment and determinism:** prompts stay aligned past a malformed idea, a folder source is indexed one
+    document at a time, and scores do not depend on the hash seed.
+- `tests/test_fix_experiment_measurement.py` (0.11.8):
+  - the blind-guard tests now pin its replacement, keeping their intent: an invented sentence the old guard
+    passed is now unsupported, and the support check names a source where rag and control look alike;
+  - the stems check replaces the whole-word one.
+- `tests/fusion/test_experiment_arm.py`: the dpp verdict needs at least five prompts now, so the arm's ideas
+  cycle over ten, written from the source's own terms.
+- `tests/test_harness.py`: the metric keys and the short-sentence pin follow the new names.
+- 1925 → 1949 passed, 3 skipped.
+
 ## 0.11.10 — 2026-11-11
 
 Found in the first Windows session after the 0.11.9 update. Its Burgess server connected after 29.5 s, against

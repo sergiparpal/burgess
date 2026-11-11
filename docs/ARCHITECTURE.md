@@ -608,14 +608,19 @@ and re-extracts (0.11.4).
   betweenness earns `gate_on=true` only when the generality confound is detected (raw-betweenness
   leaders vaguer than average), leaderboard rank-churn > 0.2, and specificities actually spread.
   Until then plain degree is the honest advisory.
-- `python -m kg_engine.harness ideation` — scores pooled outputs per experiment arm (control /
-  graph / graph+generate / graph+generate+dpp / rag / lightrag) on diversity, novelty, utility,
-  unsupported rate; a win requires no regression (0.05 slack on the hallucination guard) plus a
-  strict gain on diversity or novelty. Its `caveats` name each column that could not tell the arms
-  apart in the run (0.11.8): the hallucination guard, when `guard_probe` shows it passing the ideas' own
-  sentences with an invented word in them (a large source holds nearly every ordinary word), and
-  utility, whose markers are English. `harness rag-slices` builds the `rag` arm's context
-  deterministically (BM25 over the source's paragraphs), so the kg-evaluator needs no shell.
+- `python -m kg_engine.harness ideation` — scores each experiment arm (control / graph /
+  graph+generate / graph+generate+dpp / rag / lightrag) and compares the pre-declared pairs prompt by
+  prompt (0.12.0, `docs/fusion/EXPERIMENT.md`). Per idea:
+  - **grounded novelty**: novelty × support;
+  - **support**: the share of a sentence's key-term IDF weight held by the source, terms compared by stem,
+    so an invented term costs the most.
+  - A pair is won at the one-sided sign test's 5 % level: 10 of 12 prompts, as in D1.
+  - The headline is graph vs rag, then graph vs control, graph+generate vs graph, the dpp arm vs
+    graph+generate, and graph vs lightrag.
+  - An instrument check (rag's support at least 0.10 above control's) gates every such verdict.
+  - Diversity and utility are reported outside the verdicts, and `caveats` name what could not be measured.
+  - `harness rag-slices` builds the `rag` arm's context deterministically (BM25 over the source's paragraphs),
+    so the kg-evaluator needs no shell.
 - Every harness count and the projector's node specificity read words as runs of Unicode letters
   (0.11.8; through 0.11.7 only ASCII letters, which cut "revisión" to "revisi"). `PROJECTION_RULES` "3"
   rebuilds an index built under the old reading.

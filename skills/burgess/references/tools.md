@@ -1162,52 +1162,64 @@ average), rank churn `> 0.2`, **and** the node specificities actually spread (a 
 bridge metric stays advisory and `kg_context` exposes only the structural-bridge heuristic. (Graphs with
 `< 3` nodes return `{"gate_on": false, "reason": "graph too small", "n": …}`.)
 
-#### `ideation [outputs.json]`
+#### `ideation [outputs.json] [source]`
 
-Scores pooled ideation outputs per condition (the value-of-the-graph experiment). **Input JSON**:
+Scores the value-of-the-graph experiment (method 0.12.0, pre-declared in `docs/fusion/EXPERIMENT.md`).
+**Input JSON**: one list of ideas per arm, idea *k* answering prompt *k*:
 
 ```json
 {
   "outputs": {
-    "control": ["A is connected to B."],
-    "graph":   ["A bridges B and C because entropy grounds time."],
-    "rag":     ["A relates to B somehow."]
+    "control": ["A is connected to B.", "…"],
+    "graph":   ["A bridges B and C because entropy grounds time.", "…"],
+    "rag":     ["A relates to B somehow.", "…"]
   },
-  "source": "<full source text for novelty/unsupported scoring>"
+  "source": "<full source text, used only when no source path is given>"
 }
 ```
 
 (`source` optional; if the top-level object isn't `{outputs, source}` it is treated as the
-outputs-by-condition map directly.) Emits a per-condition `table` with `n, diversity, novelty, utility,
-unsupported_rate` and a `verdict` comparing **graph vs control**:
+outputs-by-condition map directly. A source path as the second argument wins, and its documents are indexed
+one at a time.)
 
-```json
-{
-  "table": {
-    "control": {"n": 5, "diversity": 0.71, "novelty": 0.62, "utility": 0.3, "unsupported_rate": 0.2},
-    "graph":   {"n": 5, "diversity": 0.83, "novelty": 0.74, "utility": 0.6, "unsupported_rate": 0.18},
-    "rag":     {"n": 5, "diversity": 0.7,  "novelty": 0.55, "utility": 0.2, "unsupported_rate": 0.25}
-  },
-  "verdict": "graph condition produced more diverse/novel ideas without more unsupported claims"
-}
-```
+**Per idea:**
+- **novelty**: 1 − the share of its word trigrams that occur in the source.
+- **support**: for each sentence of four or more words with two or more key terms (words longer than five
+  characters, compared by stem: folded, first six characters), the share of its terms' IDF weight held by
+  terms the source contains. IDF is in BM25 form over the source's paragraphs, and a term the source lacks
+  has the highest weight. An idea's support is the mean over its sentences, and 0 with none.
+- **grounded novelty**: novelty × support.
 
-The `graph` condition "wins" only if it is `>=` control on diversity AND novelty, **strictly greater** on at least one of them, AND its `unsupported_rate` is no more than `control + 0.05` — i.e. measurably more/better ideas **without** more unsupported claims (an exact tie on both axes is not a win).
-The canonical arm names are `control | graph | graph+generate | graph+generate+dpp | rag | lightrag`; when
-the extra arms are present the output also carries `generate_verdict`, `dpp_verdict`, and
-`lightrag_verdict` under the same win rule.
+**Per arm**, the `table` gives `n, diversity, novelty, support, grounded_novelty, utility, unsupported_rate`.
+`unsupported_rate` is the share of sentences with support below 0.5.
 
-Since 0.11.8 the output also carries `guard_probe` and `caveats`. `caveats` is a list of plain sentences, each
-naming a column that could not tell the arms apart in this run; it is empty when every column could. The
-verdicts do not change with it.
-- **unsupported_rate.** A sentence passes when any of its first three long words occurs anywhere in the
-  source, so a large source passes nearly everything: on the 445,018-character Windows corpus an invented
-  sentence passed. `guard_probe` (`{probes, passed, pass_rate, source_chars}`) re-checks every sentence the
-  guard judged, in every arm, with its first long word replaced by an invented one. At a `pass_rate` of
-  0.9 or more the caveat reports the column as not measured. The field run passed 140 of 143 (0.979). On the
-  demo corpus, English ideas pass at about 0.57 pooled.
-- **utility.** Its markers are English words. When no arm's ideas contain one, the caveat says the column
-  measures nothing in this run.
+**Pairs:**
+- `comparisons` gives, per pre-declared pair, the prompt-by-prompt wins, losses and ties (a difference within
+  0.005 is a tie), the wins `needed` and the median difference.
+- `needed` is the fewest wins out of `n` that a one-sided sign test at 5 % accepts: 10 of 12, none below five
+  prompts.
+- The verdicts: `verdict` (graph vs rag, always present: "insufficient data" without both), `control_verdict`
+  (graph vs control), `generate_verdict` (graph+generate vs graph), `dpp_verdict` (graph+generate+dpp vs
+  graph+generate) and `lightrag_verdict` (graph vs lightrag). Each reads:
+  - `"<X> beat <Y> on grounded novelty in <w> of <n> prompts"`;
+  - `"<X> did NOT clearly beat <Y> on grounded novelty (<w> of <n> prompts; <k> needed)"`;
+  - a too-few-prompts sentence;
+  - `"not measured: …"`.
+
+**`support_check`** (`{rag, control, gap, min_gap, valid, probe_drop, probes}`) is the instrument check.
+`rag`'s mean support must exceed `control`'s by 0.10, or support measures nothing on this source, and every
+verdict reads "not measured". `probe_drop` is information: the mean support lost when each judged sentence's
+first key term is replaced by an invented one.
+
+**`caveats`** is a list of plain sentences naming what this run could not measure:
+- a failed support check;
+- an unchecked one, without a `rag` or `control` arm;
+- utility, when no arm uses an English marker.
+
+The verdicts do not change with them.
+
+Through 0.11.x the verdict needed graph ≥ control on novelty, measured from a source control never sees. Its
+any-of-three-words guard let 140/143, 171/173 and 181/181 invented-word probes through on the Windows corpus.
 
 #### `rag-slices <prompts> <source> <out_dir> [budget_tokens]` (0.11.8)
 

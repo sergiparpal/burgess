@@ -33,15 +33,18 @@ The generator is BLIND to which condition it is in (it receives only an opaque c
 scoring is not contaminated by the model "trying harder" for one arm. That blindness is procedural: one
 evaluator subagent assembles the contexts and writes the ideas, so it answers each arm from that arm's
 context alone and writes every control answer before it sees any context. Scoring is **deterministic** —
-`python -m kg_engine.harness ideation` computes diversity / novelty / utility / unsupported_rate per
-condition, the verdicts, and `caveats` naming any column that could not tell the arms apart in this run.
-Per §4 **no metric gates execution**: this command logs the table + verdict to the project's
-`.kg/PROGRESS.md` and returns, regardless of whether graph wins.
+`python -m kg_engine.harness ideation` scores each idea's **grounded novelty** (how far it goes beyond the
+source's wording × how much of its key-term weight the source holds), compares the arms prompt by prompt, and
+names in `caveats` anything it could not measure in this run. The method is pre-declared in the plugin's
+`docs/fusion/EXPERIMENT.md` ("Stage 8 method, 0.12.0"). Per §4 **no metric gates execution**: this command logs
+the table + verdicts to the project's `.kg/PROGRESS.md` and returns, regardless of whether graph wins.
 
 The headline question the verdict answers:
-> **Does the `graph` condition beat `control` on diversity + novelty WITHOUT raising the unsupported-claim rate?**
-> (the harness allows `graph.unsupported_rate <= control.unsupported_rate + 0.05` slack — beating control by
-> hallucinating more is not a win.)
+> **Given the same source and budget, do the `graph` arm's ideas score higher grounded novelty than flat
+> retrieval's (`rag`), prompt by prompt?** It wins when it does in enough prompts for a one-sided sign test at
+> 5 % (10 of 12). `control` is compared the same way in a second verdict. Through 0.11.x the headline compared
+> graph with control on novelty, which is distance from a source the control arm never sees, so the graph arm
+> could not win it.
 
 Arguments, as typed (optional): `$ARGUMENTS`. The whole line is one path, without any surrounding quotes,
 to a JSON or newline-delimited file of custom ideation prompts. If omitted, Step 1 picks the prompt set.
@@ -278,92 +281,108 @@ EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
 ```
 
 The second path is the source, read exactly as the projector reads it (one file, or a folder of
-documents). `harness ideation` prints a JSON object:
+documents, each indexed on its own). `harness ideation` prints a JSON object like this one (numbers
+illustrative):
 
 ```json
 {
   "table": {
-    "control":            {"n": 12, "diversity": 0.71, "novelty": 0.34, "utility": 0.20, "unsupported_rate": 0.41},
-    "graph":              {"n": 12, "diversity": 0.83, "novelty": 0.52, "utility": 0.60, "unsupported_rate": 0.38},
-    "graph+generate":     {"n": 12, "diversity": 0.88, "novelty": 0.61, "utility": 0.64, "unsupported_rate": 0.40},
-    "graph+generate+dpp": {"n": 12, "diversity": 0.86, "novelty": 0.63, "utility": 0.58, "unsupported_rate": 0.42},
-    "rag":                {"n": 12, "diversity": 0.69, "novelty": 0.40, "utility": 0.30, "unsupported_rate": 0.55}
+    "control":            {"n": 12, "diversity": 0.99, "novelty": 0.90, "support": 0.41, "grounded_novelty": 0.37, "utility": 0.0, "unsupported_rate": 0.48},
+    "graph":              {"n": 12, "diversity": 0.96, "novelty": 0.76, "support": 0.83, "grounded_novelty": 0.63, "utility": 0.0, "unsupported_rate": 0.10},
+    "graph+generate":     {"n": 12, "diversity": 0.90, "novelty": 0.82, "support": 0.78, "grounded_novelty": 0.64, "utility": 0.0, "unsupported_rate": 0.14},
+    "graph+generate+dpp": {"n": 12, "diversity": 0.89, "novelty": 0.82, "support": 0.77, "grounded_novelty": 0.63, "utility": 0.0, "unsupported_rate": 0.15},
+    "rag":                {"n": 12, "diversity": 0.99, "novelty": 0.64, "support": 0.95, "grounded_novelty": 0.61, "utility": 0.0, "unsupported_rate": 0.02}
   },
-  "verdict": "graph condition produced more diverse/novel ideas without more unsupported claims",
-  "generate_verdict": "graph+generate beat control on diversity/novelty without more unsupported claims",
-  "dpp_verdict": "graph+generate+dpp did NOT clearly beat graph+generate",
-  "guard_probe": {"probes": 96, "passed": 51, "pass_rate": 0.531, "source_chars": 2741},
-  "caveats": []
+  "comparisons": {
+    "graph vs rag": {"n": 12, "wins": 9, "losses": 3, "ties": 0, "needed": 10, "median_diff": 0.03},
+    "graph vs control": {"n": 12, "wins": 12, "losses": 0, "ties": 0, "needed": 10, "median_diff": 0.25}
+  },
+  "verdict": "graph did NOT clearly beat rag on grounded novelty (9 of 12 prompts; 10 needed)",
+  "control_verdict": "graph beat control on grounded novelty in 12 of 12 prompts",
+  "generate_verdict": "graph+generate did NOT clearly beat graph on grounded novelty (6 of 12 prompts; 10 needed)",
+  "dpp_verdict": "graph+generate+dpp did NOT clearly beat graph+generate on grounded novelty (5 of 12 prompts; 10 needed)",
+  "support_check": {"rag": 0.95, "control": 0.41, "gap": 0.54, "min_gap": 0.1, "valid": true, "probe_drop": 0.31, "probes": 180},
+  "caveats": ["utility counts only the English markers ..."]
 }
 ```
 
-What each column means (all in `_score_condition`):
-- **diversity** — distinct trigrams / total trigrams pooled across that arm's outputs (vocabulary spread).
-- **novelty** — `1 − (trigram overlap with source)`, averaged; how far ideas travel from the source text.
-- **utility** — density of reasoning/connective markers (`because`, `if`, `therefore`, `bridge`, `connect`),
-  capped at 1.0; a rough proxy for "actually does inferential work."
-- **unsupported_rate** — fraction of ≥4-word sentences whose key terms never appear in the source; the
-  hallucination guard. **Higher is worse.**
+What each column means (per idea, then averaged over the arm):
+- **novelty**: `1 − (the share of the idea's word trigrams that occur in the source)`, how far it travels
+  from the source's wording.
+- **support**: for each sentence of four or more words with two or more key terms, the share of its key
+  terms' IDF weight held by terms the source contains. Key terms are words longer than five characters,
+  compared by stem (folded, first six characters), so an inflection the source does not use is not an
+  invention. A word every paragraph has weighs little; a term the source lacks weighs the most.
+- **grounded_novelty**: novelty × support. It is the one the verdicts compare. It is high only for an idea
+  that leaves the source's wording while its terms stay in the source.
+- **diversity, utility, unsupported_rate**: reported, in no verdict.
+  - diversity: distinct trigrams over total, pooled.
+  - utility: English reasoning markers.
+  - unsupported_rate: the share of judged sentences with support below 0.5.
 
-The headline **verdict** strings (from `harness.ideation`, graph-vs-control) are:
-- `"graph condition produced more diverse/novel ideas without more unsupported claims"` → graph wins.
-- `"graph condition did NOT clearly beat control"` → it did not. (Or `"insufficient data"` if a list is empty.)
+**`comparisons`** lists each pre-declared pair, prompt by prompt:
+- a **win** is a prompt where the first arm's grounded novelty exceeds the second's by more than 0.005, a
+  **loss** the reverse, and a **tie** anything closer;
+- `needed` is the fewest wins out of `n` that a one-sided sign test at 5 % accepts: 10 of 12, and no number
+  below five prompts.
 
-When the `graph+generate` arm is present, a second **`generate_verdict`** (graph+generate-vs-control) is one of:
-- `"graph+generate beat control on diversity/novelty without more unsupported claims"` → generating helped.
-- `"graph+generate did NOT clearly beat control"` → it did not.
+**The verdicts.**
+- `verdict` (graph vs rag, the headline);
+- `control_verdict` (graph vs control);
+- `generate_verdict` (graph+generate vs graph: does the slate add to grounded context);
+- `dpp_verdict` (the dpp arm vs graph+generate);
+- `lightrag_verdict` (graph vs the LightRAG baseline, only when that arm ran).
 
-When the optional `lightrag` arm is present, a **`lightrag_verdict`** (graph-vs-LightRAG) is one of:
-- `"graph condition beat the LightRAG GraphRAG baseline on diversity/novelty without more unsupported claims"`
-  → grounding beat the published GraphRAG, not just flat grep.
-- `"graph condition did NOT clearly beat the LightRAG GraphRAG baseline"` → it did not.
+Each reads one of:
+- `"<X> beat <Y> on grounded novelty in <w> of <n> prompts"`;
+- `"<X> did NOT clearly beat <Y> on grounded novelty (<w> of <n> prompts; <k> needed)"`;
+- `"<X> vs <Y>: too few prompts to decide (…)"`;
+- `"not measured: support does not separate rag from control on this source"`;
+- `"insufficient data"` when an arm is missing or empty.
 
-(Both the `lightrag` table row and `lightrag_verdict` are present **only** when the optional arm was run; when
-it was not enabled the harness emits the table without it, with no `lightrag_verdict` and no error.)
+**`support_check`** is the instrument check. `rag` answers from source passages and `control` from nothing,
+so `rag`'s mean support must exceed `control`'s by at least 0.10. When it does not, support measures nothing
+on this source, and every verdict reads "not measured". `probe_drop` is information: the mean support lost
+when each judged sentence's first key term is replaced by an invented one.
 
-**`caveats`** lists, in plain sentences, each column that could not tell the arms apart in this run; it is
-empty when every column could. The verdict strings do not change with it, so a verdict must always be read
-with its caveats. Two exist:
+**`caveats`** lists, in plain sentences, what this run could not measure:
+- a failed support check;
+- an unchecked one (no `rag` or no `control` arm);
+- utility, when no arm's ideas contain one of its English markers.
 
-- **unsupported_rate.** A sentence counts as supported when any of its first three long words occurs anywhere
-  in the source, and a large source holds nearly every ordinary word: on a 445,000-character corpus a
-  sentence invented outright passed. `guard_probe` measures this on the run's own ideas: each sentence the
-  guard judged, with its first long word replaced by an invented one. When at least 90 % of those still pass,
-  the caveat says the column was not measured, and the verdicts' unsupported-claim check could not have
-  caught an arm that invents things.
-- **utility.** Its markers are the English words above. When no arm's ideas contain one (any corpus in
-  another language), the column is 0 everywhere and the caveat says it measures nothing. It is not part of
-  any verdict.
+The verdict strings do not change with them, so a verdict must always be read with its caveats.
 
 ---
 
 ## Step 4 — append to the log (then return, win or lose — §4)
 
-Render the harness JSON as a Markdown table and append it, with the verdict, the prompt file and a UTC
-timestamp, to `${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md` (create the file with an `# Experiment log` header if
-absent). Use a heredoc so the run is reproducible from the log:
+Render the harness JSON as a Markdown table and append it, with the verdicts, the support check, the prompt
+file and a UTC timestamp, to `${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md` (create the file with an
+`# Experiment log` header if absent). Use a heredoc so the run is reproducible from the log:
 
 ```bash
 PROGRESS="${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md"; mkdir -p "${CLAUDE_PROJECT_DIR}/.kg"
 [ -f "$PROGRESS" ] || printf '# Experiment log\n\n' > "$PROGRESS"
 {
-  printf '\n## kg-experiment (Stage 8) — %s\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '\n## kg-experiment (Stage 8, method 0.12.0) — %s\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'Prompts: %s (%s): %s\n\n' "$N_PROMPTS" "$PROMPT_SOURCE" "$PROMPT_FILE"   # e.g. "12 (drafted from the graph): <path>"
-  printf '| condition | n | diversity | novelty | utility | unsupported_rate |\n'
-  printf '|-----------|---|-----------|---------|---------|------------------|\n'
+  printf '| condition | n | novelty | support | grounded_novelty | diversity | utility | unsupported_rate |\n'
+  printf '|-----------|---|---------|---------|------------------|-----------|---------|------------------|\n'
   # one row per condition, values pulled from the harness JSON above
-  printf '| control        | %s | %s | %s | %s | %s |\n' "$c_n"  "$c_div"  "$c_nov"  "$c_util"  "$c_unsup"
-  printf '| graph          | %s | %s | %s | %s | %s |\n' "$g_n"  "$g_div"  "$g_nov"  "$g_util"  "$g_unsup"
-  printf '| graph+generate | %s | %s | %s | %s | %s |\n' "$gg_n" "$gg_div" "$gg_nov" "$gg_util" "$gg_unsup"
-  printf '| graph+generate+dpp | %s | %s | %s | %s | %s |\n' "$gd_n" "$gd_div" "$gd_nov" "$gd_util" "$gd_unsup"
-  printf '| rag            | %s | %s | %s | %s | %s |\n' "$r_n"  "$r_div"  "$r_nov"  "$r_util"  "$r_unsup"
+  printf '| control | %s | %s | %s | %s | %s | %s | %s |\n' "$c_n" "$c_nov" "$c_sup" "$c_gn" "$c_div" "$c_util" "$c_unsup"
+  printf '| graph | %s | %s | %s | %s | %s | %s | %s |\n' "$g_n" "$g_nov" "$g_sup" "$g_gn" "$g_div" "$g_util" "$g_unsup"
+  printf '| graph+generate | %s | %s | %s | %s | %s | %s | %s |\n' "$gg_n" "$gg_nov" "$gg_sup" "$gg_gn" "$gg_div" "$gg_util" "$gg_unsup"
+  printf '| graph+generate+dpp | %s | %s | %s | %s | %s | %s | %s |\n' "$gd_n" "$gd_nov" "$gd_sup" "$gd_gn" "$gd_div" "$gd_util" "$gd_unsup"
+  printf '| rag | %s | %s | %s | %s | %s | %s | %s |\n' "$r_n" "$r_nov" "$r_sup" "$r_gn" "$r_div" "$r_util" "$r_unsup"
   # OPTIONAL row — emit only if the lightrag arm was present in the harness table (else skip it):
-  [ -n "$lr_n" ] && printf '| lightrag       | %s | %s | %s | %s | %s |\n' "$lr_n" "$lr_div" "$lr_nov" "$lr_util" "$lr_unsup"
-  printf '\n**Verdict:** %s\n' "$VERDICT"
-  printf '\n**Generate verdict:** %s\n' "$GEN_VERDICT"
+  [ -n "$lr_n" ] && printf '| lightrag | %s | %s | %s | %s | %s | %s | %s |\n' "$lr_n" "$lr_nov" "$lr_sup" "$lr_gn" "$lr_div" "$lr_util" "$lr_unsup"
+  printf '\n**Verdict (graph vs rag):** %s\n' "$VERDICT"
+  printf '\n**Control verdict:** %s\n' "$CONTROL_VERDICT"
+  printf '\n**Generate verdict (graph+generate vs graph):** %s\n' "$GEN_VERDICT"
   printf '\n**DPP verdict:** %s\n' "$DPP_VERDICT"
   # OPTIONAL — only when the harness emitted a lightrag_verdict:
   [ -n "$LIGHTRAG_VERDICT" ] && printf '\n**LightRAG verdict:** %s\n' "$LIGHTRAG_VERDICT"
+  printf '\n**Support check:** rag %s, control %s, gap %s (needs 0.10); probe drop %s\n' "$S_RAG" "$S_CONTROL" "$S_GAP" "$S_DROP"
   # one line per entry of the harness's "caveats", verbatim; none when the list is empty:
   printf '\n**Caveat:** %s\n' "$CAVEAT_1"
 } >> "$PROGRESS"
@@ -374,11 +393,11 @@ caveat lines out, one per entry, or leave them out when `caveats` is empty.)
 
 Then print a one-paragraph summary to the user:
 
-- The verdict, verbatim, plus the head-to-head: `graph` vs `control` on diversity / novelty / unsupported_rate.
-- Every entry of `caveats`, verbatim, right after the verdict: each names a column whose values in this run
+- The headline `verdict`, verbatim, with its wins and losses out of the prompts, and the arms' grounded
+  novelty, novelty and support.
+- Every entry of `caveats`, verbatim, right after the verdict: each names something whose values in this run
   are not a result.
-- Whether `graph` also beat the `rag` strawman (the honest comparison — beating control is the bar, beating
-  rag is the bonus).
+- The `control_verdict`, `generate_verdict` and `dpp_verdict`, verbatim.
 - If the optional `lightrag` arm ran: the `lightrag_verdict` — whether `graph` beat the **published GraphRAG
   baseline**, the strongest comparison available (beating LightRAG, not just flat `rag`, is what shows
   grounding-with-falsification earns its keep against real graph retrieval).
@@ -387,6 +406,6 @@ Then print a one-paragraph summary to the user:
   the adversarial grounder before trusting a `graph`-wins verdict.
 - Path to the appended log: `${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md`, and to the saved prompt file.
 
-**Execution proceeds regardless of the verdict (§4).** A `graph did NOT clearly beat control` result is a
-legitimate, logged outcome — it is *negative information* about the pipeline itself, not an error. Do not
+**Execution proceeds regardless of the verdict (§4).** A "did NOT clearly beat" or a "not measured" result is
+a legitimate, logged outcome — it is *negative information* about the pipeline itself, not an error. Do not
 retry, re-shuffle to fish for a win, or hide the row. Report it and stop.
