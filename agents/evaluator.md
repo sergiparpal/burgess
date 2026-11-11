@@ -71,6 +71,15 @@ reads the prose only, through LightRAG's own retrieval, and never sees OUR graph
 - Generate condition-by-condition so no answer can quote a sibling answer.
 - Write every CONTROL answer before your first tool call after reading the prompt file. Once you have seen
   graph context or source passages you cannot unsee them.
+- **Write about the domain, never about your materials** (every arm). Each idea is later read against the
+  source alone, by a reader who must not be able to tell from its form which arm wrote it. So name what the
+  source names (studies, companies, systems, figures) and state what your context gives you as a claim about
+  them, in the source's terms. Never mention the graph, its nodes, edges or relation names (`grounds`,
+  `confounded_by`, …), epistemic states, degrees, bridges or communities, the candidates or the slate, the
+  passages ("the text", "the sources") or a tool. An unverified candidate becomes a hedged hypothesis ("it
+  may be that…", "if…, then…"), never "a candidate suggests". The field runs showed why: "the graph keeps 59
+  failed edges" or "an unverified compression candidate" holds in no source passage, and blind judges marked
+  such ideas down (docs/fusion/EXPERIMENT.md, option D pilots).
 
 ---
 
@@ -93,8 +102,9 @@ between real terms, so the rule below holds whatever the score. So in the GRAPH 
    fact. Do not assert a vague node "connects everything" — that is the spurious-centrality trap.
 4. Respect the **memory of failures** (§1.7): if `kg_context` reports
    `falsification_counters.failed_or_rejected_edges > 0`, those edges are NEGATIVE information.
-   Do not propose ideas that re-tread a known-failed connection; if anything, mention that the
-   graph *records* the failure (that is a structural advantage RAG cannot offer).
+   Do not propose ideas that re-tread a known-failed connection. Use the failure to steer away from it,
+   and do not cite the record itself: the advantage shows in what you propose, not in a mention (see
+   *Write about the domain* under Blindness).
 
 An idea that invents loses support, and with it the prompt, and the harness compares arms prompt by
 prompt: the graph arm wins only when its grounded novelty is higher in enough prompts (10 of 12 at a 5 %
@@ -169,11 +179,13 @@ answer *k* of every arm must answer prompt *k*.
 3. **GRAPH pass.** Probe the surface (see Input). For each prompt: call
    `mcp__plugin_burgess_burgess__kg_context(query="<the prompt>", budget=2000)` (optionally
    `query_graph(relation=..., epistemic_state="grounded")` to expand). Ground each idea in returned
-   `items[]` edges / `advisory.nodes[]`. Obey the anti-smuggling invariant. Collect into `outputs.graph`.
+   `items[]` edges / `advisory.nodes[]`, and state it in the source's terms, not as an edge. Obey the
+   anti-smuggling invariant. Collect into `outputs.graph`.
 
 4. **GRAPH+GENERATE pass.** Reuse each prompt's **same** `kg_context` result and add the hypothesized
    slate (see "The hypothesized slate") as *additional* context, treated as *unverified candidates* (never
-   as fact — no fabricated verdicts or spans). Collect into `outputs["graph+generate"]`. This arm's only
+   as fact — no fabricated verdicts or spans). Write each candidate you use as a hedged hypothesis about the
+   domain, without calling it a candidate. Collect into `outputs["graph+generate"]`. This arm's only
    difference from GRAPH is the added slate, so its delta isolates the value of generation (Stage 9).
 
 5. **GRAPH+GENERATE+DPP pass.** See "The dpp arm" below. Collect into `outputs["graph+generate+dpp"]`.
@@ -210,21 +222,22 @@ Suppose it returns, among `items[]`:
 and `advisory:{signal:"structural-bridge", note:"advisory heuristic, not a guarantee", nodes:[{label:"betweenness", degree:5}, ...]}`,
 and `falsification_counters:{failed_or_rejected_edges:2}`.
 ```
-[0] "The graph marks span-present as grounds-ing a claim with epistemic_state=grounded, so trust attaches to the verifiable span itself, not the assertion — an inferred claim with no span is rejected at the boundary, not weakly believed."
-[1] "Because the graph keeps failed edges as falsification_counters (2 here) rather than pruning them, a failed claim becomes a guard: a new claim that collapses_into a recorded failure is rejected on sight — negative information defends_against re-proposal."
-[2] "Betweenness surfaces as a structural-bridge advisory, but it is flagged 'advisory heuristic, not a guarantee'; a real bridge is one whose betweenness survives specificity-weighting (term rarity), so it bridges communities instead of being a vague hub that is confounded_by generality."
+[0] "A span-present claim earns trust through the verbatim span a reader can check, not through the assertion, so an inferred claim with no span is rejected at the boundary rather than weakly believed."
+[1] "Keeping failed claims instead of pruning them turns each one into a guard: a new claim that collapses into a recorded failure can be rejected on sight, so negative information defends against re-proposal."
+[2] "Raw betweenness is only a heuristic for bridges: a real bridge is one whose betweenness survives specificity weighting by term rarity, which separates it from a vague hub that scores high through generality."
 ```
-Note: every GRAPH idea names a relation/state the graph *actually returned* (`grounds`,
-`epistemic_state=grounded`, `falsification_counters`, `structural-bridge`, `confounded_by`) and uses
-source vocabulary — no invented edges. The failure-counter idea is a structural advantage RAG cannot
-reach. This is grounding, not smuggling.
+Note: every GRAPH idea rests on a relation or state the graph *actually returned* (`grounds`,
+`epistemic_state=grounded`, `falsification_counters`, `structural-bridge`, `confounded_by`), and states its
+content in the source's own words: no invented edges, and no edge names, states or counters in the text.
+Keeping failures as guards is a structural advantage RAG cannot reach. It shows in what the idea proposes,
+not in a citation of the counter. This is grounding, not smuggling.
 
 **RAG** — **Read** `01.md` of the rag folder (on the demo's `examples/source.md` it holds §2's prose
 among other passages) and answer from those passages:
 ```
-[0] "The text says a span-present claim cites a verbatim span a reader can check, and that this grounds a claim more strongly than inference; a claim with no supporting span is rejected."
-[1] "The source says a failed claim is negative information that must be recorded and never pruned, because the record of what was refuted defends against re-proposing it."
-[2] "Per the prose, raw betweenness is the natural bridge metric but is confounded by the generality confound; specificity-weighted betweenness reconciles the intuition by weighting term rarity."
+[0] "A span-present claim cites a verbatim span a reader can check, which grounds it more strongly than inference; a claim with no supporting span is rejected."
+[1] "A failed claim is negative information that must be recorded and never pruned, because the record of what was refuted defends against re-proposing it."
+[2] "Raw betweenness is the natural bridge metric but is confounded by generality; specificity-weighted betweenness reconciles the intuition by weighting term rarity."
 ```
 RAG faithfully paraphrases the prose but has no access to epistemic state, the live falsification
 *count*, or the bridge advisory ranking — that gap is exactly what the experiment measures.
@@ -234,22 +247,24 @@ RAG faithfully paraphrases the prose but has no access to epistemic state, the l
 {
   "outputs": {
     "control":        ["Citing a verifiable source ...", "Failed attempts can seed ...", "A real bridge sits ..."],
-    "graph":          ["The graph marks span-present ...", "Because the graph keeps failed edges ...", "Betweenness surfaces ..."],
-    "graph+generate": ["The graph marks span-present ...; a hypothesized bridge candidate further suggests ...", "Because failed edges persist ...; an unverified proposal hints ...", "Betweenness surfaces ...; a proposed compression candidate would ..."],
-    "rag":            ["The text says a span-present ...", "The source says a failed claim ...", "Per the prose, raw betweenness ..."]
+    "graph":          ["A span-present claim earns trust ...", "Keeping failed claims instead of pruning them ...", "Raw betweenness is only a heuristic ..."],
+    "graph+generate": ["A span-present claim earns trust ...; it may also be that ...", "Keeping failed claims ...; if so, a recorded failure could ...", "Raw betweenness is only a heuristic ...; one possibility is that ..."],
+    "rag":            ["A span-present claim cites a verbatim span ...", "A failed claim is negative information ...", "Raw betweenness is the natural bridge metric ..."]
   }
 }
 ```
 
 (GRAPH+GENERATE reuses the GRAPH answers' grounded context and layers in the `kg_generate` slate's
-candidates, always flagged as unverified — never asserted as fact.)
+candidates, each phrased as a hedged hypothesis about the domain: never asserted as fact, never called a
+candidate.)
 
 ---
 
 ## Self-check before you write
 - [ ] Every **present** arm's list has length `n` (the number of prompts), all in the same prompt order. `control`, `graph`, `graph+generate`, `graph+generate+dpp` and `rag` are always present; `lightrag` is present **iff** the command gave you its answers file.
 - [ ] CONTROL was written before any tool call; RAG used only its rag-folder file per prompt; GRAPH used `kg_context` `items[]`/`query_graph`; GRAPH+GENERATE and GRAPH+GENERATE+DPP added the same slate on top of `items[]`; LIGHTRAG (if present) is the command's answers, copied unchanged.
-- [ ] Every GRAPH idea traces to a real `items[]` edge or `advisory.nodes[]` node — no invented structure; every GRAPH+GENERATE idea traces to a real `items[]` edge or a slate candidate (flagged unverified).
+- [ ] Every GRAPH idea traces to a real `items[]` edge or `advisory.nodes[]` node — no invented structure; every GRAPH+GENERATE idea traces to a real `items[]` edge or a slate candidate (phrased as a hypothesis).
+- [ ] No idea in any arm mentions the graph, a node, an edge or relation name, an epistemic state, a degree, bridge or community, a candidate or the slate, the passages ("the text", "the sources") or a tool: each states facts and hypotheses about the domain, in the source's terms.
 - [ ] No GRAPH sentence asserts a vague node "connects everything" (generality confound, §1.6).
 - [ ] If `failed_or_rejected_edges > 0`, no GRAPH idea re-treads a known-failed connection.
 - [ ] The JSON holds `outputs` only — no pasted source; the harness reads the source by path.

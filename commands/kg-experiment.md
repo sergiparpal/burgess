@@ -239,6 +239,10 @@ with Read, writes its one file with Write, and reaches the graph through its thr
      `outputs.lightrag` unchanged, in prompt order; otherwise it omits the key. That arm reads the same prose
      corpus as `rag`, through LightRAG's retrieval — never our graph's structure.
 3. Treat the arms the same: one idea of 2–4 sentences per (prompt × arm), no answer quoting a sibling answer.
+   Write every idea about the domain, never about its materials: no mention of the graph, its nodes, edges or
+   relation names, epistemic states, degrees, the candidates or the slate, the passages or a tool. An
+   unverified candidate becomes a hedged hypothesis. A reader holding only the source must not be able to
+   tell the arms apart by their form.
 4. Write a single JSON object in EXACTLY the shape `harness ideation` consumes to
    `${CLAUDE_PROJECT_DIR}/.kg/experiment/ideation_outputs.json`, then read it back to check it parses:
 

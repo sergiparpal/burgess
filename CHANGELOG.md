@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.12.1 — 2026-11-11
+
+Found by the two blind-judge pilots recorded in `docs/fusion/EXPERIMENT.md` (option D). This release also
+pre-declares the third pilot, which will judge the first `/kg-experiment` run made with it.
+
+### Fixed
+
+- **The evaluator wrote about its materials, not about the domain.**
+  - In the fourth field run, all 36 ideas of the three graph-based arms named the graph, an edge, a candidate
+    or a relation name: "el grafo guarda 59 aristas fallidas o rechazadas", "un candidato de compresión sin
+    verificar", "la conexión sería defends_against". None of control's or rag's 24 ideas did.
+  - No source passage can hold such a statement. Blind judges read each idea against the source and marked
+    those ideas down in 7 of 12 prompts. The form alone also told which arm wrote an idea.
+  - The evaluator had been taught to write that way:
+    - its worked example opened with "The graph marks span-present as grounds-ing …" and "a proposed
+      compression candidate would …";
+    - rule 4 of the anti-smuggling invariant told it to mention that the graph records a failure.
+  - Every arm now writes about the domain. Facts are stated in the source's terms, and an unverified
+    candidate becomes a hedged hypothesis. No arm mentions the graph, its nodes, edges or relation names,
+    epistemic states, degrees, the candidates, the passages or a tool. A recorded failure steers an idea away
+    from a connection, and the idea does not cite it.
+  - The grounding discipline is unchanged: every graph idea still traces to an edge the graph returned.
+  - `/kg-experiment` passes the rule to the evaluator, and the evaluator's self-check carries it.
+
+### Tests
+
+- `tests/test_fix_neutral_style.py` (5 tests):
+  - the rule sits in the evaluator's blindness section;
+  - the worked example's answers name no material;
+  - a failure steers an idea and is not cited;
+  - the grounding discipline stays;
+  - the self-check and the command both carry the rule.
+
+### Docs
+
+- `docs/fusion/EXPERIMENT.md`:
+  - the records of the first two blind-judge pilots (#94, #95);
+  - the third pilot's protocol, pre-declared before its run:
+    - a fresh run under this rule;
+    - evidence per clause in four rounds, then filled by figures and names;
+    - the same decoys, and two positive controls rephrased as hypotheses;
+    - a neutrality check before any judge runs.
+
 ## 0.12.0 — 2026-11-11
 
 `/kg-experiment` measures what it was built to ask, and says "not measured" when it cannot. The method is
