@@ -71,6 +71,8 @@ reads the prose only, through LightRAG's own retrieval, and never sees OUR graph
 - Generate condition-by-condition so no answer can quote a sibling answer.
 - Write every CONTROL answer before your first tool call after reading the prompt file. Once you have seen
   graph context or source passages you cannot unsee them.
+- The two drafts (see Procedure) make that order checkable. The first judged field run (0.13.0) could not
+  show it: the evaluator's reasoning is not in its transcript, and its answers reached disk only at the end.
 - **Write about the domain, never about your materials** (every arm). Each idea is later read against the
   source alone, by a reader who must not be able to tell from its form which arm wrote it. So name what the
   source names (studies, companies, systems, figures) and state what your context gives you as a claim about
@@ -175,6 +177,10 @@ answer *k* of every arm must answer prompt *k*.
 
 2. **CONTROL pass.** For each prompt, answer 2-4 sentences from the model prior only. Make NO tool call
    and read no other file first. Collect into `outputs.control` in order.
+   - **Write** them at once to the **control draft**: the output path with `.json` replaced by
+     `.control.json` (for `.kg/experiment/ideation_outputs.json`, `.kg/experiment/ideation_outputs.control.json`),
+     as `{"outputs": {"control": [...]}}`.
+   - That Write is your first tool call after reading the prompt file.
 
 3. **GRAPH pass.** Probe the surface (see Input). For each prompt: call
    `mcp__plugin_burgess_burgess__kg_context(query="<the prompt>", budget=2000)` (optionally
@@ -189,6 +195,9 @@ answer *k* of every arm must answer prompt *k*.
    difference from GRAPH is the added slate, so its delta isolates the value of generation (Stage 9).
 
 5. **GRAPH+GENERATE+DPP pass.** See "The dpp arm" below. Collect into `outputs["graph+generate+dpp"]`.
+   Then **Write** the **graph draft**, before you read any file of the rag folder:
+   - its path is the output path with `.json` replaced by `.graph.json`;
+   - it holds `control` and the three graph-based arms, exactly as you collected them.
 
 6. **RAG pass.** For prompt *k*, **Read** file *k* of the rag folder and answer from its passages only, as
    undifferentiated source text — no epistemic state, no bridge ranks, no failure memory, and no other
@@ -198,7 +207,10 @@ answer *k* of every arm must answer prompt *k*.
    `answers[]` into `outputs.lightrag` unchanged. Otherwise omit the key.
 
 8. **Write** the JSON object above to the output path you were given, check it as described under Output,
-   and report the path. Do NOT score it yourself — invoking the harness is the command's step.
+   and report the path.
+   - Copy `control` and the graph-based arms unchanged from the graph draft. The command checks that they
+     match, and that the drafts came in this order (`harness evaluator-order`).
+   - Do NOT score the outputs yourself: invoking the harness is the command's step.
 
 ---
 
@@ -262,6 +274,7 @@ candidate.)
 
 ## Self-check before you write
 - [ ] Every **present** arm's list has length `n` (the number of prompts), all in the same prompt order. `control`, `graph`, `graph+generate`, `graph+generate+dpp` and `rag` are always present; `lightrag` is present **iff** the command gave you its answers file.
+- [ ] The control draft was your first Write, before any graph call. The graph draft was written before you read the rag folder. The final file carries both drafts' answers unchanged.
 - [ ] CONTROL was written before any tool call; RAG used only its rag-folder file per prompt; GRAPH used `kg_context` `items[]`/`query_graph`; GRAPH+GENERATE and GRAPH+GENERATE+DPP added the same slate on top of `items[]`; LIGHTRAG (if present) is the command's answers, copied unchanged.
 - [ ] Every GRAPH idea traces to a real `items[]` edge or `advisory.nodes[]` node — no invented structure; every GRAPH+GENERATE idea traces to a real `items[]` edge or a slate candidate (phrased as a hypothesis).
 - [ ] No idea in any arm mentions the graph, a node, an edge or relation name, an epistemic state, a degree, bridge or community, a candidate or the slate, the passages ("the text", "the sources") or a tool: each states facts and hypotheses about the domain, in the source's terms.

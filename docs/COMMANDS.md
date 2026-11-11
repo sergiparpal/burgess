@@ -978,6 +978,11 @@ source the control arm never sees, so on three field runs the graph arm could no
 The subagent that writes the ideas has no shell (since 0.11.8). Only the command's own steps use one: the
 environment check, the rag passages, the scoring and the log entry.
 
+It answers every arm in one context, so its blindness is procedural. Since 0.13.1 it writes two drafts on the
+way: the control answers before its first graph call, and the graph-based arms before it reads any rag
+passage. `harness evaluator-order` checks two things: that the drafts came in that order, and that the final
+file carries them unchanged. The log records the result as **Evaluator order**.
+
 ### The blind judge (`--judge`, 0.13.0)
 
 The lexical score cannot tell a good idea from a bad one, only how it uses the source's words. With `--judge`,

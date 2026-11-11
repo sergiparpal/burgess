@@ -621,6 +621,12 @@ and re-extracts (0.11.4).
   - Diversity and utility are reported outside the verdicts, and `caveats` name what could not be measured.
   - `harness rag-slices` builds the `rag` arm's context deterministically (BM25 over the source's paragraphs),
     so the kg-evaluator needs no shell.
+- `python -m kg_engine.harness evaluator-order` (0.13.1) — checks that the kg-evaluator's two drafts show its
+  order:
+  - the control draft is written before any graph call, and the graph draft before any rag file is read;
+  - each draft predates the next file, and the final outputs carry both drafts' answers unchanged.
+
+  The command logs a failure as a caveat; it gates nothing.
 - `python -m kg_engine.harness judge-packets` and `judge-aggregate` (0.13.0, `scripts/kg_engine/judge.py`) — the
   deterministic half of the blind judge, run by `/kg-experiment --judge`:
   - one packet per prompt, holding every arm's idea, a decoy and a positive control, each with its own BM25

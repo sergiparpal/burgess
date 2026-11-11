@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.13.1 — 2026-11-11
+
+Found in the first judged field run (0.13.0). Its result held, but one part of its blinding could not be
+shown.
+
+### Fixed
+
+- **The evaluator's order is now checkable.**
+  - The kg-evaluator answers every arm in one context, so its blindness is procedural: control first, from
+    the prompt alone; then the graph-based arms; rag last.
+  - In the field run, the evaluator's first pass read all twelve rag files before it wrote any answer. The
+    session set that output aside and reran it.
+  - The second pass improvised a draft of control and the graph arms before reading rag, and the final file
+    kept them unchanged. That excluded a rag-to-graph leak.
+  - Nothing could show that control was written before the graph calls. The evaluator's reasoning is redacted
+    in its transcript, and its answers reached disk only after those calls.
+  - The evaluator now writes two drafts:
+    - `ideation_outputs.control.json`, as its first tool call after reading the prompts;
+    - `ideation_outputs.graph.json`, before it reads any rag file.
+
+    The final file copies both drafts unchanged.
+  - The new `harness evaluator-order` checks two things on disk: that each file predates the next, and that
+    the final outputs carry the drafted answers unchanged.
+  - `/kg-experiment` runs the check after scoring and logs it as **Evaluator order**. When the check fails,
+    the summary says the arms' blinding is not shown for that run. It gates nothing (§4).
+
+### Tests
+
+- `tests/test_fix_evaluator_order.py` (9 tests):
+  - drafts in order and unchanged are verified;
+  - a changed control or graph answer, files out of order, and a missing draft are each caught;
+  - an arm the run lacks is not required;
+  - the subcommand prints the check;
+  - the evaluator writes both drafts in order;
+  - the command checks the order and logs it.
+- 1982 → 1991 passed, 3 skipped.
+
+### Docs
+
+- `COMMANDS.md`, `ARCHITECTURE.md` and the skill's tools reference describe the drafts and the check.
+
 ## 0.13.0 — 2026-11-11
 
 `/kg-experiment --judge`: blind judges read each idea the way a careful reader would. Three pilots and a
