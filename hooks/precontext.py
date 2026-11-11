@@ -43,6 +43,60 @@ def emit(ctx: str) -> None:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": ctx}}))
 
 
+# Reads that must stay blind (0.11.9). The context this hook injects is meant for the session exploring the
+# project; a measurement must not receive it. In the second field /kg-experiment (0.11.8, Windows, 2026-11-10)
+# the kg-evaluator subagent's Reads came back with grounded edges attached: the prompt file's, read before the
+# control answers that must see no context, and three of the rag arm's passage files. The query is a file's
+# stem, so "prompts-<run>" and "08" matched edges as readily as a document title does. The kg-annotator reads
+# the source documents it labels, where the attached edges carry the grounding verdicts it must not see.
+# So the hook stays silent when:
+# - the call comes from a measurement subagent. Claude Code puts `agent_id` and `agent_type` in a hook's input
+#   when a subagent made the call (2.1.316's schema; absent on the main thread), and a plugin's agent type is
+#   "<plugin>:<name>";
+# - the target lies under the project's `.kg/`: Burgess's own working files (prompts, rag passages, eval
+#   sheets, labels, the divergence archives), never the project's knowledge. This holds on a Claude Code too
+#   old to name the caller, and for the main session reading the run's files.
+_BLIND_AGENTS = frozenset({"kg-evaluator", "kg-annotator"})
+_WORKSPACE_DIRNAME = ".kg"
+_GLOB_CHARS = "*?[{"
+
+
+def _blind_caller(payload: dict) -> bool:
+    agent = payload.get("agent_type")
+    return isinstance(agent, str) and agent.rsplit(":", 1)[-1].strip() in _BLIND_AGENTS
+
+
+def _norm(path: "str | os.PathLike") -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
+def _targets_workspace(payload: dict, project: "str | os.PathLike") -> bool:
+    """True when the Read/Grep/Glob targets the project's `.kg/` (or a path under it)."""
+    ti = payload.get("tool_input") or {}
+    if not isinstance(ti, dict):
+        return False
+    base = pathlib.Path(payload.get("cwd") or project)
+    candidates = [ti.get("file_path"), ti.get("path")]
+    pattern = ti.get("pattern")
+    if payload.get("tool_name") == "Glob" and isinstance(pattern, str):
+        # a Glob pattern is a path: its literal head, up to the first wildcard, names where it looks
+        head = pattern
+        for ch in _GLOB_CHARS:
+            head = head.split(ch, 1)[0]
+        candidates.append(str(pathlib.Path(ti.get("path") or base) / head) if head else None)
+    workspace = _norm(pathlib.Path(project) / _WORKSPACE_DIRNAME)
+    for value in candidates:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        p = pathlib.Path(value)
+        if not p.is_absolute():
+            p = base / p
+        target = _norm(p)
+        if target == workspace or target.startswith(workspace + os.sep):
+            return True
+    return False
+
+
 # Render/latency knobs, named (review-r5). This hook fires on every Grep/Glob/Read, so the injected
 # context is kept small and the work bounded:
 _CONTEXT_BUDGET = 800          # token budget passed to kg_context (a fraction of a normal read)
@@ -66,6 +120,8 @@ def main() -> int:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     except Exception:
         return 0
+    if not isinstance(payload, dict) or _blind_caller(payload):
+        return 0  # a measurement subagent works blind (see _BLIND_AGENTS)
     # Every resolution below goes through kg_engine.envconfig — the SAME single-homed rules the
     # server's build_engine_from_env uses (review-r5: this hook used to carry a hand-synced copy of
     # the whole chain, and the review-r4 ${...} placeholder-filter fix had landed only in the server
@@ -82,6 +138,11 @@ def main() -> int:
     project = envconfig.resolve_project(payload.get("cwd"))
     if not project:
         return 0
+    try:
+        if _targets_workspace(payload, project):
+            return 0  # Burgess's own working files, never the project's knowledge (see _BLIND_AGENTS)
+    except (OSError, ValueError):
+        pass  # an unresolvable path is no reason to withhold context
     data = envconfig.resolve_data_dir(project, plugin_data_fallback=True)
     # Check the index exists BEFORE constructing the engine — this hook runs on every Grep/Glob/Read;
     # don't build context (or touch the derived tree) when nothing has been projected yet. The names

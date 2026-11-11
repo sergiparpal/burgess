@@ -465,7 +465,10 @@ divergence templates ship as pack fragments under `pack/domains/`.
   filesystem. It fails silent on every error path, bails if the derived index doesn't exist,
   declares a 15 s lease TTL (so a SIGKILLed hook can't wedge writers), and size-gates synchronous
   reprojection at 400 notes. Above that it serves the index only while it is fresh, and injects
-  nothing while it is stale, until the server's next read reprojects (0.10.1).
+  nothing while it is stale, until the server's next read reprojects (0.10.1). It also stays silent
+  (0.11.9) for the measurement subagents, `kg-evaluator` and `kg-annotator`, which must work blind;
+  it recognises them by the `agent_type` Claude Code puts in a subagent's hook input. And it stays
+  silent for any Read, Grep or Glob of the project's `.kg/`, where Burgess keeps its working files.
 
 ## 9. Runtime: provisioning and supervision
 
