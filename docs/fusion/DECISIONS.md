@@ -755,3 +755,25 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The field run's evaluator transcript shows the four attachments and which Reads they rode on.
   - The Windows install runs 2.1.322.
 - **Pinned in:** `tests/test_fix_precontext_blind_reads.py`. Against 0.11.8, 8 of its 13 tests fail. The other 5 check calls that were already served.
+
+## A release that only bumps the version leaves the engine venv current (2026-11-11)
+
+- **Decision:** `bootstrap.compute_stamp` hashes `pyproject.toml` without `[project]`'s version line, and with its line endings made LF. `SCHEMA` goes to "2".
+- **What it fixes:** found on 2026-11-11, in the first Windows session after the 0.11.9 update.
+  - Its MCP server connected after 29,554 ms, against Claude Code's 30 s `MCP_TIMEOUT` default. The launcher found the venv stale and waited 18 s for a rebuild (`stampFresh` → `waitUntilReady`), and the engine then took 11 s to answer.
+  - The rebuild installed nothing (`uv sync`: "Checked 57 packages"). The stamp had hashed the whole file, and the version line is the one line every release changes.
+  - Read-only on that machine, `bootstrap.py --check` passed with the 0.11.9 copy and failed with the 0.11.8 one.
+  - Over the 30 s, the session starts without the Burgess tools until the user reconnects the server in `/mcp`.
+- **Why only the version line:** it is the only part of the file that changes without changing what the venv installs.
+  - `kg_engine` is read off PYTHONPATH. With uv it is never installed (`uv sync --no-install-project`).
+  - The pip fallback does install a copy into site-packages, but `PYTHONPATH=<plugin>/scripts` shadows it and nothing reads its metadata. So an older copy left there by a version-only release is never run.
+  - Every other line stays in the hash, `[tool.*]` tables included, even where they do not affect the install. A false rebuild costs a slow first session; a missed one costs a broken engine.
+  - The table scope follows `bump_version.py`'s own discipline: only the `[project]` table's `version` key is dropped. A header of either form moves the cursor, so an array of tables cannot inherit `[project]`.
+- **Why LF:** the Windows marketplace clone checks text files out with CRLF. A clone made with other git settings would otherwise change the stamp without changing a byte that matters.
+- **Why bump SCHEMA:** the hashed content changes for every existing venv anyway. "2" says so where the next reader looks, and keeps a stamp written the old way from ever matching. The cost is one more rebuild, on the first session after this update. From then on, a release with the same dependencies starts without one.
+- **Rejected alternatives:**
+  - (a) *Hash only `dependencies` and `requires-python`, parsed with `tomllib`:* `tomllib` is not in Python 3.10, which bootstrap supports, and a parsed subset can miss an input such as the build system or an extra.
+  - (b) *Raise the launcher's wait or the engine-start reserve:* the window is Claude Code's `MCP_TIMEOUT`, not ours, and the rebuild had nothing to do.
+  - (c) *Accept the previous release's stamp during a transition:* the old stamp hashed a version we cannot know, so there is nothing to compare.
+- **Checked:** `bootstrap.py --check` on the Windows venv, read-only, with the 0.11.8 and 0.11.9 copies, and the timings in `provision.log`, `server.log` and the session's MCP log.
+- **Pinned in:** `tests/test_fix_stamp_ignores_version.py`. Against 0.11.9, 5 of its 14 tests fail. The other 9 check inputs that already moved the stamp.

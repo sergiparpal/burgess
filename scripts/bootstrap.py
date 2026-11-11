@@ -39,12 +39,12 @@ Where the venv lives (first match wins):
 
 Idempotency & robustness:
 
-* A content stamp (hash of ``pyproject.toml`` — the dependency source of truth — plus the
-  backing interpreter's minor version + platform + arch) lets a fast path skip work when the
-  venv is current, and forces a rebuild when a plugin update changes dependencies OR a
-  same-path interpreter swap would leave its compiled wheels ABI-mismatched. (Engine
-  *source* edits need no rebuild: ``kg_engine`` is read live off ``PYTHONPATH``, never
-  installed.)
+* A content stamp (hash of ``pyproject.toml`` — the dependency source of truth — less its
+  [project] version line, plus the backing interpreter's minor version + platform + arch) lets a
+  fast path skip work when the venv is current, and forces a rebuild when a plugin update changes
+  dependencies OR a same-path interpreter swap would leave its compiled wheels ABI-mismatched. A
+  release that only bumps the version leaves the venv current. (Engine *source* edits need no
+  rebuild: ``kg_engine`` is read live off ``PYTHONPATH``, never installed.)
 * An atomic lock dir serializes concurrent provisions (the SessionStart worker, extra
   terminals, the launcher racing the hook) so two builds never clobber a venv.
 * ``--background`` re-spawns a fully detached worker and returns in milliseconds, so
@@ -62,6 +62,7 @@ import contextlib
 import hashlib
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -108,7 +109,8 @@ STALE_LOCK_SECS = 30 * 60           # treat a lock older than this as abandoned
 HEARTBEAT_SECS = STALE_LOCK_SECS / 4
 POLL_SECS = 2.0                     # how often a foreground waiter re-checks the lock
 LOG_NAME = "provision.log"          # where the detached worker logs
-SCHEMA = "1"                        # bump to force every venv to rebuild
+SCHEMA = "2"                        # bump to force every venv to rebuild
+#   "2" (0.11.10): the stamp leaves out pyproject.toml's [project] version line (_install_inputs)
 # Every provisioning subprocess is bounded. Without this, a child that never returns — a dead NFS/network
 # mount, an AV scanner holding the unsigned `_c_leiden` DLL, a stalled index fetch — blocks do_install
 # forever WHILE `_heartbeat_pulse` keeps the provision lock fresh from another thread. The lock therefore
@@ -204,12 +206,37 @@ def _interp_identity(python_exe=None) -> str:
     return _running_identity()
 
 
+# The one line of pyproject.toml that every release changes and no venv depends on: [project]'s version.
+# Through 0.11.9 the stamp hashed the file whole, so each release left every venv stale. The first session
+# after an update then rebuilt it (a `uv sync` with nothing to install, then the import checks) while the MCP
+# launcher waited inside its connect window. On the Windows install the first 0.11.9 session connected after
+# 29.5 s, against Claude Code's 30 s default (2026-11-11). Headers of both table forms move the cursor, so a
+# `version` key of any other table, an array of tables included, still counts.
+_TABLE_HEADER = re.compile(r"^\s*\[\[?\s*([^\[\]]+?)\s*\]\]?\s*(?:#.*)?$")
+_VERSION_KEY = re.compile(r"^\s*version\s*=")
+
+
+def _install_inputs(text: str) -> str:
+    """``pyproject.toml`` as the stamp hashes it: line endings made LF, and [project]'s version line left out."""
+    out, table = [], None
+    for line in text.replace("\r\n", "\n").splitlines(keepends=True):
+        header = _TABLE_HEADER.match(line)
+        if header:
+            table = header.group(1)
+        elif table == "project" and _VERSION_KEY.match(line):
+            continue
+        out.append(line)
+    return "".join(out)
+
+
 def compute_stamp(interp_identity: "str | None" = None) -> str:
     """Hash the inputs whose change should trigger a rebuild.
 
     ``pyproject.toml`` is the declared source of the engine's dependencies (``uv.lock`` is
     gitignored and so never ships in the plugin payload, and ``kg_engine`` is read off
-    PYTHONPATH rather than installed, so engine source edits do not require a rebuild).
+    PYTHONPATH rather than installed, so engine source edits do not require a rebuild). Its
+    [project] version line is left out (``_install_inputs``, 0.11.10): a release bumps it whether or
+    not anything the venv installs changed.
 
     The backing interpreter's identity (minor version + platform + arch) is folded in too:
     the venv's compiled wheels (pydantic-core, igraph, leidenalg) are ABI-bound to the
@@ -228,7 +255,8 @@ def compute_stamp(interp_identity: "str | None" = None) -> str:
     h.update(b"\0")
     h.update(PYPROJECT.name.encode())
     h.update(b"\0")
-    h.update(PYPROJECT.read_bytes() if PYPROJECT.exists() else b"")
+    text = PYPROJECT.read_bytes().decode("utf-8", "surrogateescape") if PYPROJECT.exists() else ""
+    h.update(_install_inputs(text).encode("utf-8", "surrogateescape"))
     return h.hexdigest()
 
 

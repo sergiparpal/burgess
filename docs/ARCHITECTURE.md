@@ -475,7 +475,9 @@ divergence templates ship as pack fragments under `pack/domains/`.
 - **Provisioning**: the SessionStart hook runs `hooks/provision.mjs` (async, 600 s cap), which
   finds a system Python ≥ 3.10 and hands off to `scripts/bootstrap.py --background --reconcile` — a
   detached worker that builds the engine venv (`uv sync` if available, else stdlib `venv`+`pip`),
-  stamp-gated on a hash of `pyproject.toml` + interpreter ABI so it's a no-op when current. Venv
+  stamp-gated on a hash of `pyproject.toml` + interpreter ABI so it's a no-op when current. The hash
+  leaves out `[project]`'s version line (0.11.10), so a release that changes no dependency leaves the
+  venv current and the first session after an update starts without a rebuild. Venv
   precedence: `--venv` > `$KG_ENGINE_VENV` > `$CLAUDE_PLUGIN_DATA/.venv` > `<repo>/.venv` (dev).
   The stamp is written as soon as the core imports verify; the advisory leidenalg/divergence probes
   run after it, so they never hold readiness back. On Windows the worker gets a windowless console
