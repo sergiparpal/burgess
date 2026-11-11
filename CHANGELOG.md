@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.11.9 — 2026-11-11
+
+Found by the kg-evaluator itself, in the second field `/kg-experiment` (0.11.8, Windows). That run needed no
+shell in the subagent and no approval from it. But its report said the plugin had shown it graph edges where
+it must work blind.
+
+### Fixed
+
+- **The read hook broke the experiment's blinding.**
+  - The PreToolUse hook on Grep, Glob and Read attaches a few grounded edges to the result, so that a session
+    queries the graph first. It also fired inside the evaluator, four times.
+    - Once was the prompt file, read before the control answers, which must see no context.
+    - Three were the `rag` arm's passage files 08, 11 and 12, which must give the source's prose and nothing
+      else.
+  - The hook's query is the file's stem, so "prompts-<run>" and "08" matched edges as readily as a document
+    title does. 0.11.8 had widened this path, since the `rag` passages became files the evaluator reads.
+  - The evaluator said none of its answers used those edges.
+  - The same hook would show the kg-annotator, which reads the source documents it labels, edges carrying the
+    grounding verdicts it must not see.
+  - Since 2.1.316, Claude Code puts `agent_id` and `agent_type` in a hook's input when a subagent made the
+    call. The hook now stays silent for the measurement subagents, `kg-evaluator` and `kg-annotator`.
+  - It also stays silent for any Read, Grep or Glob of the project's `.kg/`, where Burgess keeps its working
+    files: prompts, `rag` passages, sheets, labels and the divergence archives. That holds for the main session
+    too, and on a Claude Code too old to name the caller.
+  - Every other call is served as before, other subagents included.
+- The hook ignores a payload that is not a JSON object, which used to raise instead of failing silent.
+
+### Tests
+
+- `tests/test_fix_precontext_blind_reads.py` (13 tests):
+  - **who calls:** the evaluator and the annotator get nothing, with or without the plugin prefix. The main
+    session, another plugin's subagent, a Burgess grounder and a lookalike name are served as before.
+  - **what is read:** a Read under `.kg/` gets nothing, while the same file name elsewhere is served.
+  - **paths:** a relative path resolves against the session's folder. A Grep or a Glob of `.kg/` gets nothing.
+    Another folder's `.kg/`, or a name that only ends in `.kg`, is served.
+  - **robustness:** a payload that is not an object is ignored.
+  - **the agents:** the names the rule lists are the agents the plugin ships.
+  - **Against 0.11.8:** 8 fail. The other 5 check calls that were already served.
+- 1898 → 1911 passed, 3 skipped.
+
 ## 0.11.8 — 2026-11-10
 
 Found while reviewing the first field `/kg-experiment`, on the Windows corpus with 0.11.7: eight Spanish

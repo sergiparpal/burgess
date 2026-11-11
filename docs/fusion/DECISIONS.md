@@ -727,3 +727,31 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - `rag-slices` on the twelve field prompts found 7 to 14 passages each, from all eight documents. For the selection-bias prompt the first passage is the source's own paragraph on it.
 - **Not checked end to end:** the headless `/kg-experiment` could not start, because the CLI's login had expired.
 - **Pinned in:** `tests/test_fix_experiment_measurement.py`. Against 0.11.7, 34 of its 36 tests fail; the other 2 check that ASCII text tokenizes as before. `tests/test_fix_field_eval_experiment.py` drops the evaluator from its "resolves Python first" check and moves its LightRAG `--source` check to the command.
+
+## Measurement subagents read blind (2026-11-11)
+
+- **Decision:** the PreToolUse precontext hook injects nothing:
+  - into a call made by the `kg-evaluator` or the `kg-annotator` subagent. It reads the caller from the hook input's `agent_type`, the part after the plugin prefix.
+  - into a Read, Grep or Glob whose target lies under the project's `.kg/`.
+  - Every other call is served as before.
+- **What it fixes:** found on 2026-11-10 by the kg-evaluator itself, in the second field `/kg-experiment` (0.11.8, Windows).
+  - Four of its fourteen Reads came back with grounded edges and the failure counter attached:
+    - the prompt file, read before the control answers that must see no context;
+    - the `rag` arm's passage files 08, 11 and 12.
+  - The hook's query is the file's stem, and "prompts-<run>" and "08" matched edges. 0.11.8 had widened the path by turning the `rag` arm's context into files the evaluator reads.
+  - The kg-annotator reads the source documents it labels, and the edges attached there carry the grounding verdicts that `/kg-eval` keeps from it (0.11.7: a verdict column would unblind it).
+- **Why by agent type:** Claude Code's hook input carries `agent_id` and `agent_type` when a subagent made the call, and neither on the main thread. That is its documented way to tell the two apart (2.1.316's input schema). A plugin's agent type is `<plugin>:<name>`, so the rule compares the name after the last colon, and the plugin prefix does not matter. Only the two measurement agents are named:
+  - The hook's injection is the plugin's design for exploration, and the user's other subagents and Burgess's grounders get no less than before. Whether a grounder should judge with graph context attached is a separate question that no field report has raised.
+- **Why also `.kg/`:** it covers a Claude Code too old to name the caller, and a main session reading a run's files.
+  - Everything under `.kg/` is Burgess's own working state: prompts, `rag` passages, eval sheets and labels, the log, the divergence archives. It is never the project's knowledge, so context attached there is noise at best.
+  - Only the project's own `.kg/` counts. A relative path resolves against the session's folder, and a Glob's pattern counts by its literal head.
+- **Rejected alternatives:**
+  - (a) *Silence the hook for every subagent:* it would change what other plugins' and the user's own subagents see, for a problem only measurement has.
+  - (b) *Tell the evaluator to ignore attached context:* it cannot unsee it, and the control answers are written after the prompt file is read.
+  - (c) *Give the evaluator its prompts in the brief instead of a file:* the `rag` passages would still be files, and the annotator's documents too.
+  - (d) *An environment switch the command sets:* a slash command cannot set the environment of the hooks its subagents trigger.
+- **Checked:**
+  - The hook input schema (`agent_id` and `agent_type`) was read from the Claude Code 2.1.316 binary.
+  - The field run's evaluator transcript shows the four attachments and which Reads they rode on.
+  - The Windows install runs 2.1.322.
+- **Pinned in:** `tests/test_fix_precontext_blind_reads.py`. Against 0.11.8, 8 of its 13 tests fail. The other 5 check calls that were already served.
