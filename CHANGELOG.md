@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.13.0 — 2026-11-11
+
+`/kg-experiment --judge`: blind judges read each idea the way a careful reader would. Three pilots and a
+calibration, recorded in `docs/fusion/EXPERIMENT.md` (option D), fixed the method.
+
+### Added
+
+- **A blind judge for the experiment, opt-in.**
+  - **Controls.** With `--judge`, the command writes two controls per prompt: a decoy whose central support is
+    invented, and a positive control whose real facts come from two documents.
+  - **Packets.** `harness judge-packets` checks both controls, then builds one packet per prompt.
+    - A packet holds every arm's idea and the two controls, labelled in a seeded order that rotates per prompt.
+    - Each item carries its own evidence from the source.
+    - What the labels stand for stays in a private file.
+  - **Judges.** One `kg-judge` subagent per prompt, with Read and Write only, scores each idea for grounded and
+    useful and ranks them.
+  - **Aggregation.** `harness judge-aggregate` first checks the judge itself, in every run:
+    - V1: the decoy is the least grounded item;
+    - V3: the positive control scores 4 or more;
+    - V1 and V3 must each hold in 10 of 12 prompts;
+    - V2: the arms beat the decoys on grounded by 1.0.
+
+    Then it decides the pairs on the judges' rankings by the sign test.
+  - **Headline.** When the checks pass, the judge's graph vs rag verdict is the headline, and the lexical
+    verdicts follow. When one fails, the judge's verdicts read "not measured".
+  - **No novelty.** The judges never score it. Evidence retrieved for an idea's own words cannot show that the
+    idea restates the source in other words. On twelve fresh negative controls, the best evidence rule found
+    carried every restated passage in only 4 of 9 prompts.
+  - **Cost.** About 1.5 million tokens for 12 prompts, which is why the judge is opt-in.
+- The precontext hook stays silent for `kg-judge`, as it does for the other measurement subagents.
+
+### Tests
+
+- `tests/test_fix_blind_judge.py` (25 tests):
+  - the evidence rule: clauses, rounds, the fill by figures and names, and the cap;
+  - the pilots' rotation;
+  - the controls' checks;
+  - packets: written only when the controls pass, deterministic, with the mapping kept private;
+  - aggregation: the checks, the verdicts, the "not measured" paths and the dropped verdicts;
+  - the two harness subcommands;
+  - the agent, the command's opt-in step and the hook.
+- On the field data, `judge.py` rebuilt the third pilot's packets byte for byte and reproduced its aggregate.
+- 1954 → 1982 passed, 3 skipped.
+
+### Docs
+
+- `COMMANDS.md`, `ARCHITECTURE.md`, the skill and its tools reference describe `--judge`.
+- `EXPERIMENT.md` records the calibration (#98) and the decision to ship the judge without novelty.
+- The subagent count is now seven.
+
 ## 0.12.1 — 2026-11-11
 
 Found by the two blind-judge pilots recorded in `docs/fusion/EXPERIMENT.md` (option D). This release also

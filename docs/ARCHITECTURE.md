@@ -20,7 +20,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
-2. **Language layer** — 9 slash commands (`commands/kg-*.md`), 6 subagents (`agents/`), the
+2. **Language layer** — 9 slash commands (`commands/kg-*.md`), 7 subagents (`agents/`), the
    operating-guide skill (`skills/burgess/SKILL.md` + on-demand `references/`). All LLM work
    happens here; agents hand structured JSON back across the MCP boundary. The engine stays
    rule-bound: it validates, projects, measures and orders — it never invents content and never
@@ -621,6 +621,15 @@ and re-extracts (0.11.4).
   - Diversity and utility are reported outside the verdicts, and `caveats` name what could not be measured.
   - `harness rag-slices` builds the `rag` arm's context deterministically (BM25 over the source's paragraphs),
     so the kg-evaluator needs no shell.
+- `python -m kg_engine.harness judge-packets` and `judge-aggregate` (0.13.0, `scripts/kg_engine/judge.py`) — the
+  deterministic half of the blind judge, run by `/kg-experiment --judge`:
+  - one packet per prompt, holding every arm's idea, a decoy and a positive control, each with its own BM25
+    evidence, in a seeded order that rotates per prompt. The label mapping stays in `private/`.
+  - Both controls are checked before any judge runs: the decoy must cite something the source lacks, and the
+    positive control must carry real facts from two documents.
+  - The `kg-judge` verdicts are aggregated with the pilots' rules: V1–V3 first, then the pairs, decided on
+    the judges' rankings by the sign test.
+  - The judges score grounded and useful, never novelty (`docs/fusion/EXPERIMENT.md`, option D).
 - Every harness count and the projector's node specificity read words as runs of Unicode letters
   (0.11.8; through 0.11.7 only ASCII letters, which cut "revisión" to "revisi"). `PROJECTION_RULES` "3"
   rebuilds an index built under the old reading.

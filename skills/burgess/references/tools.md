@@ -1237,6 +1237,38 @@ characters is cut at line, then word boundaries.
 Through 0.11.7 the kg-evaluator subagent retrieved this context itself. On the Windows corpus it wrote a
 retrieval script and ran it through a shell, and no later run could reproduce what it picked.
 
+#### `judge-packets <outputs> <prompts> <source> <controls> <out_dir>` and `judge-aggregate <judge_dir> [outputs]` (0.13.0)
+
+The deterministic half of `/kg-experiment --judge`, in `scripts/kg_engine/judge.py`.
+
+**`judge-packets`** writes one packet per prompt to `out_dir/packets/NN.md`.
+- A packet holds every arm's idea and the two controls from `controls` (`{"decoys": [...], "positives": [...]}`),
+  labelled A, B, …, in a seed-7 order rotated by one position per prompt.
+- Each item carries its own evidence, under the third pilot's rule:
+  - sentences are split into clauses at `, ; :` and before a coordinating conjunction;
+  - each clause's four best BM25 passages are taken in rounds;
+  - then one passage is added for each figure or name of the item that the source holds and the evidence still
+    lacks;
+  - an item carries at most 20,000 characters.
+- The mapping from labels to items goes to `out_dir/private/mapping.json`.
+- First it checks both controls of every prompt. The decoy must cite a name or figure the source lacks. The
+  positive control must cite nothing the source lacks, hold two or more of its figures or names, carry all of
+  them in its own evidence, and draw them from at least two documents.
+- If a control fails, it exits 3 and writes no packet. The failures are printed and saved in
+  `private/checks.json`.
+
+**`judge-aggregate`** reads the `kg-judge` verdicts in `judge_dir/verdicts/NN.json`, each shaped like
+`{"scores": {"A": {"grounded": 1-5, "useful": 1-5}, …}, "ranking": [...], "notes": "..."}`, and prints JSON.
+- **`checks`:**
+  - V1: the decoy is the least grounded item;
+  - V3: the positive control scores 4 or more;
+  - V1 and V3 must each hold in the prompts the sign test needs, 10 of 12;
+  - V2: the arms' mean grounded score beats the decoys' by 1.0.
+- **The verdicts**, keyed like `harness ideation`'s, decided on the judges' rankings. Each reads "not measured"
+  when a check fails or fewer than five prompts were judged.
+- **Reported alongside:** `means`, `mean_rank`, `first_by_label`, `words` and `problems`. A missing or malformed
+  verdict drops its prompt.
+
 #### `convergence [generation_labels.json]`
 
 The **convergence gate** for `kg_generate`'s advisory tally. Input: labeled generated edges, each with its

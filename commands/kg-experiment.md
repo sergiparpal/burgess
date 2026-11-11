@@ -1,7 +1,7 @@
 ---
-description: Stage 8/9 — blind ideation experiment (control|graph|graph+generate|graph+generate+dpp|rag); score with the harness and append the verdict to the project's .kg/PROGRESS.md
-argument-hint: "[prompts_path]"
-allowed-tools: Task, Bash, Write, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_agenda
+description: Stage 8/9 — blind ideation experiment (control|graph|graph+generate|graph+generate+dpp|rag); score with the harness, optionally have blind judges score each idea (--judge), and append the verdicts to the project's .kg/PROGRESS.md
+argument-hint: "[--judge] [prompts_path]"
+allowed-tools: Task, Bash, Read, Write, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_agenda
 ---
 
 # /kg-experiment — does the graph actually help ideation? (§Stage 8, §4)
@@ -46,8 +46,10 @@ The headline question the verdict answers:
 > graph with control on novelty, which is distance from a source the control arm never sees, so the graph arm
 > could not win it.
 
-Arguments, as typed (optional): `$ARGUMENTS`. The whole line is one path, without any surrounding quotes,
-to a JSON or newline-delimited file of custom ideation prompts. If omitted, Step 1 picks the prompt set.
+Arguments, as typed (optional): `$ARGUMENTS`. Split them this way:
+- If the line holds the word `--judge` standing alone, take it out. It turns on Step 3b, the blind judge.
+- What remains, trimmed and without any surrounding quotes, is one path to a JSON or newline-delimited file of
+  custom ideation prompts. If nothing remains, Step 1 picks the prompt set.
 
 ## Where things are
 
@@ -358,6 +360,79 @@ The verdict strings do not change with them, so a verdict must always be read wi
 
 ---
 
+## Step 3b — the blind judge (only with `--judge`)
+
+Skip this step unless the arguments held `--judge`. It reads every idea the way a careful reader would, which
+the lexical score cannot. One judge per prompt sees that prompt's ideas from every arm, plus two controls, each
+idea with passages retrieved from the source for it. The judge scores each idea for **grounded** (its claims
+hold in its evidence) and **useful** (specific enough to test or apply), then ranks them.
+
+Judges never score novelty. Evidence retrieved for an idea's own words cannot show that the idea restates the
+source in other words. Three pilots fixed this method; the plugin's `docs/fusion/EXPERIMENT.md` records them
+(option D, and "novelty and paraphrase").
+
+**Cost.** Each judge reads a packet of about 35,000–40,000 tokens, so 12 prompts cost about 1.5 million tokens
+on top of the experiment. Tell the user so before launching the judges.
+
+1. **Write the controls** with the Write tool, two per prompt, to
+   `${CLAUDE_PROJECT_DIR}/.kg/experiment/judge-<RUN>/private/controls.json` as
+   `{"decoys": [...], "positives": [...]}`, one string per prompt, in prompt order. Before writing a prompt's
+   pair, Read that prompt's file in the rag folder.
+   - **decoy**: a plausible idea of two to four sentences, in the prompts' language and the arms' register.
+     Its central support is invented: it cites a study, an organisation or a figure that the source does not
+     contain. Do not copy an arm's idea.
+   - **positive control**: a plausible idea of two to four sentences whose facts are real. Every figure and
+     name it cites comes from that prompt's rag passages, drawn from at least two different documents. Any
+     relation it draws between them is stated as a hypothesis.
+   - Neither control mentions the graph, its edges or candidates, the passages or a tool, so the judges cannot
+     tell the controls from the arms by their form.
+2. **Build the packets** (Bash → harness):
+
+   ```bash
+   PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+   export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+   EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; J="$EXP/judge-<RUN>"
+   "$PY" -m kg_engine.harness judge-packets "$EXP/ideation_outputs.json" "$EXP/prompts-<RUN>.json" \
+     "${user_config.source_path}" "$J/private/controls.json" "$J"
+   ```
+
+   - **Exit 0:** the packets are in `$J/packets/`.
+   - **Exit 3:** a control failed its check, and the printed JSON names the prompt and the reason. The reasons
+     are: a decoy with nothing invented; or a positive control that cites something the source lacks, cites
+     fewer than two of its figures or names, has a fact missing from its evidence, or draws on one document
+     only.
+   - **On exit 3:** rewrite those controls once and run the command again. If it exits 3 a second time, skip
+     the judges, record the judge as "not measured: the controls failed their checks", and go to Step 4.
+3. **Launch the judges.** Make one `Task(subagent_type: "kg-judge", …)` call per packet, all in one message so
+   they run in parallel. Give each judge only its packet path and its verdict path:
+   `Packet: <$J/packets/NN.md>. Verdict file: <$J/verdicts/NN.json>.`
+   - Never tell a judge which arm is which, what the experiment tests, or that controls exist.
+   - Never put anything from `$J/private/` into a judge's prompt.
+4. **Aggregate** (Bash → harness), once every judge has returned:
+
+   ```bash
+   PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+   export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+   EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; J="$EXP/judge-<RUN>"
+   "$PY" -m kg_engine.harness judge-aggregate "$J" "$EXP/ideation_outputs.json" > "$EXP/judge_score-<RUN>.json"
+   cat "$EXP/judge_score-<RUN>.json"
+   ```
+
+   It prints:
+   - **`checks`**, three validity checks; if any fails, every judge verdict reads "not measured: the judge failed
+     its validity checks (…)":
+     - V1: the decoy was the least grounded item;
+     - V3: the positive control scored 4 or more;
+     - V1 and V3 must each hold in as many prompts as the sign test needs, 10 of 12;
+     - V2: the arms' mean grounded score beat the decoys' by 1.0 or more.
+   - **The verdicts**, keyed like the lexical ones (`verdict`, `control_verdict`, `generate_verdict`,
+     `dpp_verdict`, `lightrag_verdict`). Each is decided on the judges' rankings by the same sign test.
+   - **`means`**: grounded and useful per arm and per control. Also `mean_rank`, `first_by_label` (position
+     balance) and `words`.
+   - **`problems`**: a missing or malformed verdict drops its prompt, and is listed here.
+
+---
+
 ## Step 4 — append to the log (then return, win or lose — §4)
 
 Render the harness JSON as a Markdown table and append it, with the verdicts, the support check, the prompt
@@ -389,6 +464,17 @@ PROGRESS="${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md"; mkdir -p "${CLAUDE_PROJECT_DIR
   printf '\n**Support check:** rag %s, control %s, gap %s (needs 0.10); probe drop %s\n' "$S_RAG" "$S_CONTROL" "$S_GAP" "$S_DROP"
   # one line per entry of the harness's "caveats", verbatim; none when the list is empty:
   printf '\n**Caveat:** %s\n' "$CAVEAT_1"
+  # OPTIONAL — only when Step 3b ran: the judge's checks, means and verdicts, from judge_score-<RUN>.json
+  if [ -n "$J_RAN" ]; then
+    printf '\n**Judge (blind; grounded and useful, not novelty):** %s prompts judged; V1 %s of %s, V2 gap %s, V3 %s of %s; valid: %s\n' \
+      "$J_N" "$J_V1" "$J_N" "$J_GAP" "$J_V3" "$J_N" "$J_VALID"
+    printf '\n| item | grounded | useful | mean rank |\n|---|---|---|---|\n'
+    printf '| %s | %s | %s | %s |\n' "$J_ITEM" "$J_GROUNDED" "$J_USEFUL" "$J_RANK"   # one row per item of "means"
+    printf '\n**Judge verdict (graph vs rag):** %s\n' "$J_VERDICT"
+    printf '\n**Judge control verdict:** %s\n' "$J_CONTROL_VERDICT"
+    printf '\n**Judge generate verdict:** %s\n' "$J_GEN_VERDICT"
+    printf '\n**Judge DPP verdict:** %s\n' "$J_DPP_VERDICT"
+  fi
 } >> "$PROGRESS"
 ```
 
@@ -397,7 +483,12 @@ caveat lines out, one per entry, or leave them out when `caveats` is empty.)
 
 Then print a one-paragraph summary to the user:
 
-- The headline `verdict`, verbatim, with its wins and losses out of the prompts, and the arms' grounded
+- **When Step 3b ran and the judge's checks passed** (`valid: true`), the judge's `verdict` is the headline.
+  Give it first, verbatim, with its wins out of the prompts and the arms' grounded and useful means. Then give
+  the lexical verdicts below as a second reading.
+- **When the judge did not run, or reads "not measured",** the lexical `verdict` stays the headline. If the
+  judge ran, say why it is not measured.
+- The lexical `verdict`, verbatim, with its wins and losses out of the prompts, and the arms' grounded
   novelty, novelty and support.
 - Every entry of `caveats`, verbatim, right after the verdict: each names something whose values in this run
   are not a result.

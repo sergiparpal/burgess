@@ -900,10 +900,12 @@ def _load_json_or_demo(path, demo, *, notice: str):
 def _main(argv: list[str]) -> int:
     if not argv:
         print("usage: python -m kg_engine.harness "
-              "{agreement|specificity|ideation|convergence|writers|legacy-log|rag-slices} [path...]\n"
+              "{agreement|specificity|ideation|convergence|writers|legacy-log|rag-slices|"
+              "judge-packets|judge-aggregate} [path...]\n"
               "  specificity GRAPH [SOURCE]   ideation OUTPUTS [SOURCE]\n"
               "  writers LABELS.csv PROJECT   legacy-log PROJECT SOURCE\n"
               "  rag-slices PROMPTS SOURCE OUT_DIR [BUDGET_TOKENS]\n"
+              "  judge-packets OUTPUTS PROMPTS SOURCE CONTROLS OUT_DIR   judge-aggregate JUDGE_DIR [OUTPUTS]\n"
               "  SOURCE is a file, or a folder of .md/.txt documents, read as the projector reads it",
               file=sys.stderr)
         return 2
@@ -1088,6 +1090,17 @@ def _cmd_rag_slices(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_judge_packets(argv: list[str]) -> int:
+    # the blind judge (0.13.0) lives in its own module, which imports this one; import it lazily
+    from .judge import cmd_packets
+    return cmd_packets(argv)
+
+
+def _cmd_judge_aggregate(argv: list[str]) -> int:
+    from .judge import cmd_aggregate
+    return cmd_aggregate(argv)
+
+
 # command table (review-r5: a fifth metric used to mean copying a whole if-branch inside one long
 # _dispatch; now it is one _cmd_* function + one row here).
 _COMMANDS = {
@@ -1098,6 +1111,8 @@ _COMMANDS = {
     "writers": _cmd_writers,
     "legacy-log": _cmd_legacy_log,
     "rag-slices": _cmd_rag_slices,
+    "judge-packets": _cmd_judge_packets,
+    "judge-aggregate": _cmd_judge_aggregate,
 }
 
 
