@@ -819,3 +819,46 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_grounded_novelty.py`. `tests/test_fix_experiment_measurement.py` moves its
   0.11.8 blind-guard pins onto the replacement. `tests/fusion/test_experiment_arm.py` and
   `tests/test_harness.py` follow the new rule and keys.
+
+## Blind subagents start without the project's instructions and memory (2026-11-11)
+
+- **Decision:** `kg-evaluator`, `kg-judge` and `kg-annotator` declare `omitClaudeMd: true` in their frontmatter.
+  Claude Code then starts them without the user, project and local CLAUDE.md files and without its auto-memory
+  index (`MEMORY.md`); managed policy files still reach them. The judge's prompt no longer says how the ideas
+  were written or that controls exist.
+- **What it fixes:** found on 2026-11-11 while reviewing the first field `/kg-experiment` on 0.13.1 (Windows).
+  - Claude Code hands every subagent those files and the memory index by default, in an `instructions`
+    attachment. The field session saves each run's results in its memory.
+  - In the first judged run (0.13.0), all twelve judges and both evaluator passes received the index line "5
+    runs of the 5-arm ideation on the Spanish prompts…: graph never beat control".
+  - In the first 0.13.1 run, the evaluator received the judges' verdict: "graph loses to rag 3/9, beats control
+    11/1".
+  - The pilots' judges, started from the development session, received the repository's CLAUDE.md and that
+    session's memory index. In the third pilot the index reported the first pilot's "decoy caught 12/12".
+  - The annotators get the same index, which names an edge and how the three coders of an earlier eval
+    labelled it.
+  - Separately, 0.13.0's judge prompt said "some were written with help, some without, and two are controls
+    planted to check you". The command forbids telling a judge that controls exist, and the pilots' prompts
+    said only that the judge did not know who wrote the ideas or how. The release's byte-for-byte check covered
+    the packets and the aggregation, not the prompt.
+- **Why the frontmatter key:** it is Claude Code's own switch for an agent "that takes everything it needs from
+  the delegation prompt", read from a plugin agent's file. Claude Code's built-in Explore and web-fetch agents
+  use it, and so does Anthropic's claude-test plugin. It removes the memory index along with the instruction
+  files.
+- **Why only the measurement agents:** the extractor, the grounders and the generator may follow a project's
+  CLAUDE.md. Whether stale memory notes should keep reaching the grounders (2026-11-08) is a separate decision,
+  not taken here.
+- **Rejected alternatives:**
+  - (a) *Ask the session not to save results in memory:* the memory belongs to the user's session, its index
+    already holds the results, and a command's rule does not bind other sessions.
+  - (b) *Tell the blind agents to ignore their context:* they cannot unsee it (as in 0.11.9's (b)).
+  - (c) *Turn auto memory off:* a user setting, not the plugin's, and it leaves the CLAUDE.md files in place.
+- **Checked:** headless on Claude Code 2.1.316 and 2.1.321, with a throwaway plugin holding copies of the three
+  agent files and of the judge without the key. The project had a CLAUDE.md marker and a memory marker.
+  - The judge without the key received both markers in its `instructions` attachment and named both.
+  - The three agents received no attachment, named neither, and their transcripts hold neither.
+  - The Windows install runs 2.1.322, whose binary carries the key.
+- **What it leaves on record:** the first judged run's verdict stands as recorded, with these caveats.
+  `docs/fusion/EXPERIMENT.md` says what each pilot and run could see.
+- **Pinned in:** `tests/test_fix_blind_memory.py`. Against 0.13.1, 2 of its 3 tests fail. The third pins that
+  the other agents keep the project's instructions.

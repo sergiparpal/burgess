@@ -450,12 +450,18 @@ divergence templates ship as pack fragments under `pack/domains/`.
 - **Commands** (9): `/kg-build` (wave-parallel extraction), `/kg-ground` (the grounding loop),
   `/kg-generate`, `/kg-perturb`, `/kg-query`, `/kg-eval`, `/kg-experiment`, `/kg-view`,
   `/kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
-- **Subagents** (6): `kg-extractor` (one per planned section, whose text it fetches with
+- **Subagents** (7): `kg-extractor` (one per planned section, whose text it fetches with
   `kg_section`; emits `kg_write` payloads),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
   `attacked_by` edges + `failed` verdicts), `kg-generator` (phrases structural candidates —
   language only, never structure), `kg-annotator` (label passes for precision/agreement),
-  `kg-evaluator` (the blind multi-arm ideation experiment).
+  `kg-evaluator` (the blind multi-arm ideation experiment), `kg-judge` (one blind verdict per
+  prompt for `/kg-experiment --judge`).
+  - The three measurement subagents (`kg-annotator`, `kg-evaluator` and `kg-judge`) declare
+    `omitClaudeMd: true` (0.13.2). Claude Code starts them without the user, project and local
+    CLAUDE.md files and without its auto-memory index, which it hands a subagent by default. A session
+    that saves a run's results in its memory would otherwise tell the next run's blind agents what the
+    last one found. Managed policy files still reach them.
 - **Skill**: `skills/burgess/SKILL.md` is the operating guide; `references/` holds the
   load-on-demand contracts (write contract, tool shapes, pack schema, divergence operators, judge
   rubric, axis inference).
@@ -466,9 +472,10 @@ divergence templates ship as pack fragments under `pack/domains/`.
   declares a 15 s lease TTL (so a SIGKILLed hook can't wedge writers), and size-gates synchronous
   reprojection at 400 notes. Above that it serves the index only while it is fresh, and injects
   nothing while it is stale, until the server's next read reprojects (0.10.1). It also stays silent
-  (0.11.9) for the measurement subagents, `kg-evaluator` and `kg-annotator`, which must work blind;
-  it recognises them by the `agent_type` Claude Code puts in a subagent's hook input. And it stays
-  silent for any Read, Grep or Glob of the project's `.kg/`, where Burgess keeps its working files.
+  (0.11.9) for the measurement subagents, `kg-evaluator`, `kg-annotator` and (0.13.0) `kg-judge`,
+  which must work blind; it recognises them by the `agent_type` Claude Code puts in a subagent's hook
+  input. And it stays silent for any Read, Grep or Glob of the project's `.kg/`, where Burgess keeps
+  its working files.
 
 ## 9. Runtime: provisioning and supervision
 

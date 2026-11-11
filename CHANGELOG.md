@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.13.2 — 2026-11-11
+
+Found while reviewing the first field run on 0.13.1. Two things reached the agents that must work blind. Neither
+told a judge which label was which arm.
+
+### Fixed
+
+- **The blind agents start without the project's instructions and memory.**
+  - By default Claude Code hands every subagent the user, project and local CLAUDE.md files and its
+    auto-memory index (`MEMORY.md`). The field session saves each run's results in its memory, so the index
+    reached the blind agents:
+    - in the first judged run (0.13.0), the twelve judges and both evaluator passes read "5 runs of the 5-arm
+      ideation…: graph never beat control";
+    - in the first 0.13.1 run, the evaluator read the judges' verdict: "graph loses to rag 3/9, beats control
+      11/1";
+    - the `/kg-eval` annotators get the same index, which names an edge and how an earlier eval's coders
+      labelled it.
+  - `kg-evaluator`, `kg-judge` and `kg-annotator` now declare `omitClaudeMd: true`. Claude Code starts them
+    without those files and without the memory index; managed policy files still reach them.
+  - Checked headless on Claude Code 2.1.316 and 2.1.321, with a CLAUDE.md marker and a memory marker in the
+    project. The same judge file without the key received and named both; the three agents received neither.
+    The Windows install's 2.1.322 carries the key.
+- **The judge is no longer told how the ideas were made.**
+  - 0.13.0's judge prompt said "some were written with help, some without, and two are controls planted to
+    check you".
+  - The command forbids telling a judge that controls exist, and the pilots' judges were told only that they did
+    not know who wrote the ideas or how. The prompt now says just that.
+
+### On record
+
+- The first judged run's verdicts (graph vs rag 3 of 12, graph vs control 11 of 12) stay as recorded, with both
+  caveats. `docs/fusion/EXPERIMENT.md` says what each pilot and run could see. It also declares, before it
+  runs, the clean replication a `--judge` run on 0.13.2 will be.
+
+### Tests
+
+- `tests/test_fix_blind_memory.py` (3 tests):
+  - every blind agent declares `omitClaudeMd: true`;
+  - the other agents keep the project's instructions;
+  - the judge's prompt names nothing of the study's design.
+- 1991 → 1994 passed, 3 skipped.
+
+### Docs
+
+- `ARCHITECTURE.md` lists the seven subagents and the blind ones; it had kept six since 0.13.0.
+- `COMMANDS.md` says what the blind agents start without.
+- `DECISIONS.md` records the decision.
+- The README's command table shows `--judge`, missing since 0.13.0.
+
 ## 0.13.1 — 2026-11-11
 
 Found in the first judged field run (0.13.0). Its result held, but one part of its blinding could not be

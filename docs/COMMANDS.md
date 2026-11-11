@@ -852,6 +852,9 @@ Grade a specific projection — for instance, an archived build you want to comp
 Annotators can label a CSV but hold no graph-write tools: they **cannot** forge a verdict into the
 canon. Precision is measured *about* the graph, never written *into* it.
 
+Since 0.13.2 the annotators also start without your CLAUDE.md files and without Claude Code's memory index,
+which a subagent gets by default. A note about an earlier eval could tell them how its coders labelled an edge.
+
 ---
 
 <a id="kg-experiment"></a>
@@ -983,6 +986,10 @@ way: the control answers before its first graph call, and the graph-based arms b
 passage. `harness evaluator-order` checks two things: that the drafts came in that order, and that the final
 file carries them unchanged. The log records the result as **Evaluator order**.
 
+Since 0.13.2 the evaluator and the judges start without your CLAUDE.md files and without Claude Code's memory
+index, which a subagent gets by default. A session that saves each run's results in its memory would otherwise
+tell the next run's blind agents what the last one found.
+
 ### The blind judge (`--judge`, 0.13.0)
 
 The lexical score cannot tell a good idea from a bad one, only how it uses the source's words. With `--judge`,
@@ -994,6 +1001,8 @@ one fresh `kg-judge` subagent per prompt reads that prompt's ideas the way a car
   before any judge runs.
 - Each item labelled A, B, …, in a seeded order that rotates per prompt, with its own passages from the source.
   The labels' meaning stays out of the judges' reach.
+- Nothing about the study. A judge's prompt does not say how the ideas were written or that controls exist
+  (0.13.2; 0.13.0's said both).
 
 **What a judge scores.**
 - **grounded:** its claims hold in its evidence;
