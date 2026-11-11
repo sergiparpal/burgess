@@ -858,7 +858,7 @@ canon. Precision is measured *about* the graph, never written *into* it.
 ## `/kg-experiment`
 
 ```
-/kg-experiment [prompts_path]
+/kg-experiment [--judge] [prompts_path]
 ```
 
 **What it does.** Runs the one experiment that justifies the whole pipeline: a **blind** multi-arm
@@ -882,6 +882,7 @@ the pipeline itself, not an error.
 
 | Argument | Required | Accepted values | Default |
 | --- | --- | --- | --- |
+| `--judge` | No | The word `--judge`, anywhere in the line | Off: no judge runs |
 | `prompts_path` | No | A path to a JSON array or newline-delimited file of prompts | 12 prompts drafted from your graph |
 
 ### `prompts_path` — what it does
@@ -912,6 +913,12 @@ Same, from a JSON array:
 
 ```text
 /kg-experiment experiments/prompts.json
+```
+
+Repeat a run on its saved prompts, with blind judges (about 1.5 million tokens more for 12 prompts):
+
+```text
+/kg-experiment --judge .kg/experiment/prompts-<run>.json
 ```
 
 ### The arms
@@ -970,6 +977,40 @@ source the control arm never sees, so on three field runs the graph arm could no
 
 The subagent that writes the ideas has no shell (since 0.11.8). Only the command's own steps use one: the
 environment check, the rag passages, the scoring and the log entry.
+
+### The blind judge (`--judge`, 0.13.0)
+
+The lexical score cannot tell a good idea from a bad one, only how it uses the source's words. With `--judge`,
+one fresh `kg-judge` subagent per prompt reads that prompt's ideas the way a careful reader would.
+
+**What a judge sees.**
+- Every arm's idea, plus two controls the command writes: a **decoy**, whose central support is invented, and
+  a **positive control**, whose facts are real and come from at least two documents. The harness checks both
+  before any judge runs.
+- Each item labelled A, B, …, in a seeded order that rotates per prompt, with its own passages from the source.
+  The labels' meaning stays out of the judges' reach.
+
+**What a judge scores.**
+- **grounded:** its claims hold in its evidence;
+- **useful:** it is specific enough to test or apply.
+
+It ranks the items, and never scores novelty. Evidence retrieved for an idea's own words cannot show that the
+idea restates the source in other words, so a novelty score could reward an idea for its phrasing alone
+([`EXPERIMENT.md`](fusion/EXPERIMENT.md), "novelty and paraphrase").
+
+**Checks and verdicts.** Every run checks the judge itself:
+- **V1:** the decoy must be the least grounded item;
+- **V3:** the positive control must score 4 or more;
+- V1 and V3 must each hold in 10 of 12 prompts;
+- **V2:** the arms must out-score the decoys on grounded by 1.0.
+
+If any check fails, the judge's verdicts read "not measured". Otherwise its graph vs rag verdict, decided on
+the rankings by the same sign test, becomes the headline, and the lexical verdicts follow as a second reading.
+The judge's score is saved as `.kg/experiment/judge_score-<run>.json`, and its packets and verdicts stay in
+`.kg/experiment/judge-<run>/`.
+
+**Cost.** Each judge reads a packet of about 35,000–40,000 tokens, about 1.5 million for 12 prompts. That cost
+is why the judge is opt-in.
 
 ---
 

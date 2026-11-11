@@ -56,7 +56,9 @@ def emit(ctx: str) -> None:
 # - the target lies under the project's `.kg/`: Burgess's own working files (prompts, rag passages, eval
 #   sheets, labels, the divergence archives), never the project's knowledge. This holds on a Claude Code too
 #   old to name the caller, and for the main session reading the run's files.
-_BLIND_AGENTS = frozenset({"kg-evaluator", "kg-annotator"})
+# The kg-judge (0.13.0) reads only its packet under `.kg/experiment/`, which the second rule already silences;
+# naming it here keeps it blind even if a packet ever lived elsewhere.
+_BLIND_AGENTS = frozenset({"kg-evaluator", "kg-annotator", "kg-judge"})
 _WORKSPACE_DIRNAME = ".kg"
 _GLOB_CHARS = "*?[{"
 

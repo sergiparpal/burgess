@@ -647,3 +647,28 @@ over a control's clauses, sentences and whole text. Carrying them would take ten
 **Ways forward, neither tried:**
 - let the judge search the whole source before it scores novelty;
 - drop novelty from the judge and read grounded and useful only.
+
+---
+
+# Option D ships in 0.13.0, without novelty
+
+The blind judge becomes an opt-in step of `/kg-experiment`: `--judge`. It scores grounded and useful, never
+novelty, for the reason the calibration above records.
+
+**What a run does.**
+- **Controls.** The command writes a decoy and a positive control per prompt. The positive control's facts come
+  from the prompt's own rag passages.
+- **Packets.** `harness judge-packets` checks both controls, then builds the packets with the third pilot's
+  evidence rule and order.
+- **Judges.** One fresh `kg-judge` subagent per prompt writes a verdict.
+- **Aggregation.** `harness judge-aggregate` applies the pilots' rules.
+
+**Validity, every run.** V1–V3 are checked on each run, so the two-criterion rubric needs no pilot of its own.
+A run whose judge fails a check reads "not measured". When the checks pass, the judge's graph vs rag verdict is
+the headline, and the lexical verdicts follow as a second reading.
+
+**Checked before release.** On the field data, `judge.py` rebuilt the third pilot's packets byte for byte,
+1,632,453 bytes in all. From that pilot's verdicts it reproduced:
+- V1 12/12, V2 3.60 and V3 12/12;
+- the four pairs: 2, 3, 7 and 3 of 12;
+- the means for grounded and useful.
