@@ -865,14 +865,18 @@ canon. Precision is measured *about* the graph, never written *into* it.
 test over a fixed set of ideation prompts, in conditions that differ *only* in what context the
 idea-generator is given. The generator never knows which arm it is in. Scoring is deterministic.
 
-The headline question:
+The headline question (0.12.0):
 
-> Does the `graph` condition beat `control` on diversity and novelty **without raising the
-> unsupported-claim rate?** (Beating control by hallucinating more is not a win.)
+> Given the same source and the same budget, do the `graph` arm's ideas score higher **grounded novelty**
+> than flat retrieval's (`rag`), prompt by prompt? Grounded novelty is how far an idea leaves the source's
+> wording, times how much of its key-term weight the source still holds, so inventing things does not pay.
 
-The verdict is appended to `.kg/PROGRESS.md` in your project and the command returns — **win or lose**. A "graph did NOT
-clearly beat control" result is a legitimate, logged outcome: negative information about the pipeline
-itself, not an error.
+`control` is compared the same way in a second verdict. The method is pre-declared in
+[`docs/fusion/EXPERIMENT.md`](fusion/EXPERIMENT.md).
+
+The verdicts are appended to `.kg/PROGRESS.md` in your project and the command returns — **win or lose**. A
+"did NOT clearly beat" or a "not measured" result is a legitimate, logged outcome: negative information about
+the pipeline itself, not an error.
 
 ### Arguments
 
@@ -935,20 +939,34 @@ unchanged and emits no error. To enable it, **all three** must hold:
 
 | Column | Meaning |
 | --- | --- |
-| `diversity` | Distinct trigrams / total trigrams pooled across the arm's outputs — vocabulary spread. |
-| `novelty` | `1 − trigram overlap with the source` — how far the ideas travel from the source text. |
-| `utility` | Density of reasoning markers (`because`, `if`, `therefore`, `bridge`, `connect`). A rough proxy for "does inferential work". |
-| `unsupported_rate` | Fraction of sentences whose key terms never appear in the source. The hallucination guard. **Higher is worse.** |
+| `novelty` | `1 − trigram overlap with the source` — how far the ideas travel from the source's wording. |
+| `support` | The share of a sentence's key-term weight (IDF over the source's paragraphs) held by terms the source contains, averaged. Terms are compared by stem, so a verb form the source does not use is not an invention; a term the source lacks weighs the most. |
+| `grounded_novelty` | `novelty × support`, per idea. **The verdicts compare this one**, prompt by prompt. |
+| `diversity` | Distinct trigrams / total trigrams pooled across the arm's outputs. Reported, not in a verdict. |
+| `utility` | Density of English reasoning markers (`because`, `if`, `therefore`, `bridge`, `connect`). Reported, not in a verdict. |
+| `unsupported_rate` | The share of judged sentences with support below 0.5. Reported, not in a verdict. |
 
-The command surfaces three caveats when they apply:
+An arm beats another when its grounded novelty is higher in enough prompts for a one-sided sign test at
+5 %: 10 of 12. Ties within 0.005 count against it. Below five prompts, nothing can be decided.
+
+The pairs:
+- **graph vs rag:** the headline;
+- **graph vs control;**
+- **graph+generate vs graph:** does the hypothesized slate add to grounded context;
+- **graph+generate+dpp vs graph+generate:** does the DPP presentation help;
+- **graph vs lightrag:** when that arm ran.
+
+The command surfaces these caveats when they apply:
 - **No recorded failures.** If your graph has **zero** of them, the `graph` arm looks artificially clean.
   Run `/kg-ground` with the adversarial grounder before trusting a `graph`-wins verdict.
-- **The hallucination guard is blind** (since 0.11.8). It calls a sentence supported when any of its first
-  three long words appears anywhere in the source, so a large source passes nearly everything. The harness
-  tests this on the run's own sentences with an invented word swapped in. When nearly all of them still
-  pass, `unsupported_rate` is reported as not measured.
+- **Support could not be checked, or failed its check.** `rag` writes from source passages and `control`
+  from nothing, so `rag`'s support must exceed `control`'s by 0.10. When it does not, support measures
+  nothing on your source, and every verdict reads "not measured".
 - **Utility measures nothing.** Its markers are English words, so on a corpus in another language it is 0
-  for every arm. It is not part of any verdict.
+  for every arm.
+
+Through 0.11.x the headline asked whether `graph` beat `control` on novelty. Novelty is distance from a
+source the control arm never sees, so on three field runs the graph arm could not have won it.
 
 The subagent that writes the ideas has no shell (since 0.11.8). Only the command's own steps use one: the
 environment check, the rag passages, the scoring and the log entry.

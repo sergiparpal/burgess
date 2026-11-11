@@ -91,3 +91,135 @@ semantic_novelty (about 0.18-0.25)…"), which the harness correctly scores as u
 rendering the raw label VALUES into the generator's context measurably hurt. A future
 refinement (out of scope for 0.1.0, noted in BLOCKERS.md as FUTURE): present geometry labels
 to the human only, or strip numeric values from the generator-facing block — then re-run D1.
+
+---
+
+# Stage 8 method, 0.12.0 — grounded novelty, compared prompt by prompt
+
+## Pre-declared protocol (written 2026-11-11, before the new measure was computed on any field run)
+
+**Why the method changes.** Three field runs of `/kg-experiment` on the Windows corpus (eight Spanish
+documents, 445,018 characters; 2026-11-10 and 2026-11-11) returned the same negative headline verdict. The
+rule that produced it could not have returned another:
+- **novelty** is distance from the source text. The control arm never sees the source and scored 0.91, 0.90
+  and 0.90; the graph arm, whose context quotes the source verbatim, scored 0.71, 0.74 and 0.76. The 0.11.x
+  rule required graph ≥ control on novelty.
+- **the unsupported-claim guard** called a sentence supported when any of its first three long words
+  occurred anywhere in the source. Its own probe let 140 of 143, 171 of 173 and 181 of 181 sentences with an
+  invented word through.
+- **pooled single numbers** with a no-regression rule let differences of 0.003 decide a verdict.
+
+**Question.** Given the same source and the same budget, does structured grounded context (`graph`) lead to
+ideas that go further beyond the source while staying anchored to it than flat retrieval (`rag`) does? The
+comparison with `control` (no context) is secondary. `graph+generate` is compared with `graph` (does the
+hypothesized slate add to grounded context, Stage 9), and `graph+generate+dpp` with `graph+generate` (D1).
+
+**Measures, per idea.** Deterministic and language-neutral.
+- **novelty**: unchanged, 1 − the share of the idea's word trigrams that occur in the source.
+- **support**:
+  - A sentence's **key terms** are its words longer than five characters. Each is compared by its **stem**: accents
+    and case folded, cut to the first six characters, each stem counted once. A sentence is judged when it has
+    four or more words and at least two stems.
+  - The weight of a stem is its IDF over the source's paragraphs, cut as `harness rag-slices` cuts them (a heading
+    stays with its paragraph, none longer than 1,200 characters), in BM25 form:
+    log((N − df + 0.5)/(df + 0.5) + 1). A stem that no paragraph holds has df = 0 and the highest weight.
+  - The **coverage** of a judged sentence is the share of its stems' total weight held by stems the source
+    contains. A word every paragraph has weighs little; a term the source lacks, such as an invented one, weighs
+    the most.
+  - An idea's support is the mean coverage of its judged sentences, and 0 when it has none.
+- **grounded novelty** = novelty × support. An idea scores high only when it goes beyond the source's
+  wording and its terms still meet in the source.
+- Reported, in no verdict:
+  - diversity;
+  - utility (English markers; 0.11.8's caveat stays);
+  - unsupported_rate: per idea, the share of judged sentences with coverage below 0.5, averaged over ideas.
+
+**Revised before any field run was scored.** The first draft of this protocol, written the same morning,
+required a sentence's key terms to meet in one paragraph, and compared whole words. Two things showed it
+wrong, on the demo corpus and synthetic Spanish sentences only:
+- **Inflections.** On a large source, one inflection the source does not use ("compararía" where it says
+  "compara") took the highest weight and sank a sentence's coverage, so ideation text full of conditionals read
+  as invented. Stems fix most of these.
+- **One paragraph.** The requirement penalizes an idea that links concepts from two paragraphs, which is what a
+  bridging idea does and what the graph arm exists to produce. Coverage is now over the whole source; the weight
+  still makes an invented term cost the most.
+
+No field output had been scored under either draft when this revision was made.
+
+**Instrument check.** When the run has both `rag` and `control`, `rag`'s mean support must exceed
+`control`'s by at least **0.10**. `rag` answers from source passages and `control` from nothing, so a
+support measure that cannot tell them apart measures nothing on this source. When the check fails, every
+verdict that uses grounded novelty reads "not measured", and a caveat says why. The probe stays as
+information: the mean coverage drop when each judged sentence's first stem is replaced by a word that no
+source holds.
+
+**Decision rule, for a pair X vs Y.**
+- Grounded novelty is compared prompt by prompt.
+- A prompt is a **win** for X when X exceeds Y by more than 0.005, a **loss** when Y exceeds X by more than
+  0.005, and a **tie** otherwise.
+- X beats Y when its wins reach the one-sided sign test's 5 % level over all n prompts, ties counting
+  against X: the smallest k with P(Bin(n, ½) ≥ k) ≤ 0.05. That is 10 of 12, as in D1.
+- With fewer than five prompts no k qualifies, and the verdict says so.
+
+**Pairs and verdict keys.**
+- `verdict`: graph vs rag (the headline);
+- `control_verdict`: graph vs control;
+- `generate_verdict`: graph+generate vs graph;
+- `dpp_verdict`: graph+generate+dpp vs graph+generate;
+- `lightrag_verdict`: graph vs lightrag.
+
+**Retroactive test.** The three saved field runs are scored with the rule exactly as written above, and the
+results are recorded below whatever they are. The runs are 2026-11-10T16:58Z on 0.11.7, 2026-11-10T22:43Z on
+0.11.8 and 2026-11-11T09:28Z on 0.11.10. In the first two, the read hook attached graph context to some of
+the evaluator's reads (fixed in 0.11.9); the third is clean. No parameter above changes after the scores are
+seen.
+
+## Retroactive results (scored 2026-11-11 with the protocol above, unchanged)
+
+The three saved field runs, scored with the engine of 0.12.0 on copies of the outputs and the eight documents.
+Grounded novelty is shown as **gn**.
+
+| run | arm | novelty | support | gn |
+|---|---|---|---|---|
+| 1 (0.11.7) | control | 0.917 | 0.923 | 0.846 |
+| | graph | 0.717 | 0.933 | 0.669 |
+| | graph+generate | 0.831 | 0.911 | 0.757 |
+| | graph+generate+dpp | 0.830 | 0.953 | 0.791 |
+| | rag | 0.624 | 0.971 | 0.606 |
+| 2 (0.11.8) | control | 0.900 | 0.931 | 0.837 |
+| | graph | 0.738 | 0.962 | 0.708 |
+| | graph+generate | 0.816 | 0.928 | 0.757 |
+| | graph+generate+dpp | 0.841 | 0.924 | 0.776 |
+| | rag | 0.682 | 0.953 | 0.650 |
+| 3 (0.11.10, clean) | control | 0.903 | 0.937 | 0.845 |
+| | graph | 0.758 | 0.879 | 0.666 |
+| | graph+generate | 0.823 | 0.904 | 0.744 |
+| | graph+generate+dpp | 0.818 | 0.920 | 0.751 |
+| | rag | 0.638 | 0.986 | 0.628 |
+
+**Instrument check: failed in all three runs.**
+- rag's support exceeded control's by 0.048, 0.022 and 0.049, below the 0.10 required.
+- Every verdict therefore reads "not measured: support does not separate rag from control on this source".
+- The measure does respond to invention: replacing a sentence's first key term with an invented word cost it
+  0.155, 0.159 and 0.162 of support on average.
+- But the control arm, writing from nothing, used the corpus's own vocabulary almost everywhere: 92-94 % of its
+  key-term weight. On eight documents, 445,018 characters, about the topics the prompts name, lexical support
+  cannot tell an idea written from the source from one written without it.
+
+**Prompt-by-prompt counts.** These are recorded for completeness and are not verdicts, because the check
+failed:
+
+| pair | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| graph vs rag | 9 of 12 | 7 of 12 | 8 of 12 |
+| graph vs control | 1 of 12 | 0 of 12 | 0 of 12 |
+| graph+generate vs graph | 10 of 12 | 6 of 12 | 12 of 12 |
+| graph+generate+dpp vs graph+generate | 8 of 12 | 8 of 12 | 4 of 12 |
+
+**Reading.** On this corpus, no lexical measure the harness has can carry a verdict. Support passes the
+probe and fails the known-groups check, so what remains is novelty, which favors whoever saw the least source.
+The method now says "not measured" where 0.11.x said "did NOT clearly beat". The next instrument would be the
+blinded pairwise judge (option D of the 2026-11-11 proposal), or a source whose vocabulary an uninformed
+writer does not already share. A local-co-occurrence variant of support was rejected before any scoring (see
+the revision above). Testing it now would mean a new protocol, declared before new runs, not a re-scoring of
+these.

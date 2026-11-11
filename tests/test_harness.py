@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from kg_engine.harness import (
-    _key_terms,
+    _judged_sentences,
     _main,
     _score_condition,
     node_specificity,
@@ -100,7 +100,7 @@ def test_ideation_table_and_verdict():
 # --------------------------------------------------------------------------- optional lightrag arm
 
 
-_METRIC_KEYS = {"n", "diversity", "novelty", "utility", "unsupported_rate"}
+_METRIC_KEYS = {"n", "diversity", "novelty", "support", "grounded_novelty", "utility", "unsupported_rate"}
 
 
 def test_ideation_scores_lightrag_arm_when_present():
@@ -166,9 +166,9 @@ def test_short_worded_present_sentence_not_counted_unsupported():
     """A sentence whose words are all <=5 chars yields no scorable key terms; it must be excluded
     from the unsupported_rate (numerator AND denominator), not counted as a free 'unsupported'."""
     src = "the cat sat on the mat and the dog ran by the bus"
-    # every word is <=5 chars, so _key_terms() is empty for this sentence
+    # every word is <=5 chars, so the sentence has no key terms and is not judged (0.12.0: _judged_sentences)
     out = "the cat sat on the mat."
-    assert not _key_terms(out)
+    assert not _judged_sentences(out)
     res = _score_condition([out], src)
     # with the only sentence un-scorable, there's nothing to judge -> rate is 0, not 1.0
     assert res["unsupported_rate"] == 0.0

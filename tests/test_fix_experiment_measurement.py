@@ -163,7 +163,9 @@ def test_kg_generate_says_k_is_per_mechanism():
 
 def test_words_keep_their_letters_outside_ascii():
     assert harness._WORD.findall("más revisión rápido Ámbito ¿Qué?") == ["más", "revisión", "rápido", "Ámbito", "Qué"]
-    assert harness._key_terms("La revisión automática detecta") == ["revisión", "automática", "detecta"]
+    # 0.12.0's support compares key terms by stem (folded, first six characters) on purpose, so an inflection
+    # the source does not use still counts; the tokenizer above keeps every letter
+    assert harness._sentence_stems("La revisión automática detecta") == ["revisi", "automa", "detect"]
 
 
 @pytest.mark.parametrize("text", [
@@ -188,6 +190,12 @@ def test_an_index_built_under_the_ascii_tokenizer_is_rebuilt():
 
 
 # --------------------------------------------------------------------------- columns that cannot tell
+#
+# 0.11.8 reported the any-term guard as blind on a large source. 0.12.0 retired that guard: support is now
+# local (a sentence's key terms must meet in one paragraph, weighted by rarity; docs/fusion/EXPERIMENT.md), and
+# the instrument check asks whether support tells rag (written from the source) from control (written from
+# nothing). These tests pin the replacement and keep 0.11.8's intent: a column that cannot tell the arms apart
+# is named in `caveats`, and a 0.0 is never read as a clean result.
 
 INVENTED_ES = "El sistema Zorblax de Quantifex redujo las reversiones un 93 % en 2019."
 
@@ -211,42 +219,45 @@ def _scored(outputs: dict, source: str) -> dict:
     return harness.ideation(outputs, source)
 
 
-def test_the_guard_is_reported_blind_when_invented_sentences_pass():
-    outs = {"control": _SPANISH_IDEAS, "graph": _SPANISH_IDEAS[::-1], "rag": [INVENTED_ES + " " + _SPANISH_IDEAS[0]]}
+def test_an_invented_sentence_the_old_guard_passed_is_now_unsupported():
+    # through 0.11.x "sistema" alone carried this sentence past the guard on a large source
+    row = harness._score_condition([INVENTED_ES], _LARGE)
+    assert row["unsupported_rate"] == 1.0 and row["support"] < 0.5
+    real = harness._score_condition(["El sistema de revisión redujo las reversiones en producción."], _LARGE)
+    assert real["unsupported_rate"] == 0.0 and real["support"] > 0.9
+
+
+def test_the_support_check_names_a_source_where_rag_and_control_look_alike():
+    # control written exactly like rag: support cannot tell them apart, so no grounded-novelty verdict stands
+    outs = {"control": _SPANISH_IDEAS, "graph": _SPANISH_IDEAS[::-1], "rag": _SPANISH_IDEAS}
     res = _scored(outs, _LARGE)
-    # the field case: the guard passes an invented claim, so every arm scores a clean 0.0
-    assert harness._score_condition([INVENTED_ES], _LARGE)["unsupported_rate"] == 0.0
-    assert all(row["unsupported_rate"] == 0.0 for row in res["table"].values())
-    probe = res["guard_probe"]
-    assert probe["probes"] > 0 and probe["pass_rate"] >= harness._GUARD_BLIND_AT
-    assert probe["source_chars"] == len(_LARGE)
-    blind = [c for c in res["caveats"] if c.startswith("unsupported_rate cannot tell the arms apart")]
-    assert len(blind) == 1
-    assert f"{probe['passed']} of {probe['probes']}" in blind[0] and f"{len(_LARGE):,} characters" in blind[0]
-    assert "could not have caught an arm that invents things" in blind[0]
+    check = res["support_check"]
+    assert check["valid"] is False and check["gap"] < check["min_gap"] == 0.10
+    caveat = [c for c in res["caveats"] if c.startswith("support does not separate")]
+    assert len(caveat) == 1 and f"{check['gap']:.3f}" in caveat[0]
+    assert res["verdict"].startswith("not measured: ") and res["control_verdict"].startswith("not measured: ")
 
 
-def test_the_guard_is_not_reported_blind_where_it_can_tell():
+def test_the_support_check_passes_where_rag_reads_the_source():
     demo = DEMO.read_text(encoding="utf-8")
-    # the invented sentence is caught on the small demo corpus
-    assert harness._score_condition([INVENTED_ES], demo)["unsupported_rate"] == 1.0
     outs = {
         "control": ["Popularity bias lets heavily mentioned nodes accumulate centrality regardless of content.",
                     "Participation coefficients measure how evenly links spread across separate modules."],
-        "graph": ["Specificity weighting exposes a vague node because its terms are not rare in the corpus.",
-                  "A failed claim is negative information that defends against re-proposing a refuted edge."],
+        "rag": ["A compression is a single idea that stands in for many observations and earns its keep.",
+                "Raw betweenness is the natural bridge metric, but it is confounded by the generality confound."],
     }
     res = _scored(outs, demo)
-    assert res["guard_probe"]["pass_rate"] < harness._GUARD_BLIND_AT
-    assert not any(c.startswith("unsupported_rate") for c in res["caveats"])
+    assert res["support_check"]["valid"] is True and res["support_check"]["gap"] >= 0.10
+    assert not any(c.startswith("support") for c in res["caveats"])
 
 
-def test_the_probe_judges_the_same_sentences_as_the_guard():
+def test_the_probe_judges_the_same_sentences_as_support():
     ideas = ["Short one. " + _SPANISH_IDEAS[0], "Tiny. Too short.", _SPANISH_IDEAS[1]]
-    judged = sum(len(harness._judged_terms(o)) for o in ideas)
-    assert harness.guard_probe({"graph": ideas}, _LARGE)["probes"] == judged
-    assert harness.guard_probe({"graph": ideas}, "")["pass_rate"] == 0.0
-    assert harness.guard_probe({"graph": ["Too short."]}, _LARGE)["pass_rate"] is None
+    judged = sum(len(harness._judged_sentences(o)) for o in ideas)
+    check = harness.ideation({"graph": ideas}, _LARGE)["support_check"]
+    assert check["probes"] == judged and check["probe_drop"] > 0.10   # an invented term costs real support
+    assert check["valid"] is None                                      # no rag/control pair to check
+    assert harness.ideation({"graph": ["Too short."]}, _LARGE)["support_check"]["probe_drop"] is None
 
 
 def test_utility_is_reported_when_no_arm_uses_a_marker():
@@ -257,20 +268,25 @@ def test_utility_is_reported_when_no_arm_uses_a_marker():
 
 
 def test_caveats_never_change_a_verdict():
-    outs = {"control": _SPANISH_IDEAS, "graph": _SPANISH_IDEAS[::-1]}
-    res = _scored(outs, _LARGE)
-    assert res["caveats"]  # blind guard and no utility marker
-    assert res["verdict"] in ("graph condition produced more diverse/novel ideas without more unsupported claims",
-                              "graph condition did NOT clearly beat control")
-    plain = harness._arm_beats(res["table"]["graph"], res["table"]["control"])
-    assert res["verdict"].startswith("graph condition produced") == plain
+    demo = DEMO.read_text(encoding="utf-8")
+    outs = {"control": ["Popularity bias lets nodes accumulate centrality regardless of content."] * 6,
+            "graph": ["Genuine nodes join communities, and specificity weighting exposes vague hubs."] * 6,
+            "rag": ["A compression is a single idea that stands in for many observations and earns its keep."] * 6}
+    res = _scored(outs, demo)
+    assert res["caveats"]                                   # the utility caveat: no idea uses a marker
+    for key, x, y, y_name in harness._PAIRS:
+        if key in res:
+            cmp = res["comparisons"][f"{x} vs {y}"]
+            assert res[key] == harness._pair_verdict(x, y_name, cmp, None if res["support_check"]["valid"]
+                                                     is not False else "support does not separate rag from "
+                                                     "control on this source")
 
 
 def test_every_ideation_result_carries_a_caveat_list(capsys):
     assert harness._main(["ideation"]) == 0  # the demo outputs
     out = json.loads(capsys.readouterr().out)
-    assert isinstance(out["caveats"], list) and set(out["guard_probe"]) == {"probes", "passed", "pass_rate",
-                                                                          "source_chars"}
+    assert isinstance(out["caveats"], list)
+    assert set(out["support_check"]) == {"rag", "control", "gap", "min_gap", "valid", "probe_drop", "probes"}
 
 
 # --------------------------------------------------------------------------- the rag arm's passages
