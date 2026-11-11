@@ -336,3 +336,115 @@ need:
 
 The cost was also higher than estimated: about 65,000 tokens per judge, against the 6,000–7,000 planned.
 Most of it was a general-purpose subagent's own overhead.
+
+---
+
+# Option D, second pilot — evidence per claim and a positive control (pre-declared 2026-11-11)
+
+Written before any packet of this pilot was built or any judgment made. It revises the first pilot on the two
+points its judges' notes exposed, and it judges the same material: the fourth field run's ideas (2026-11-11T11:17Z,
+plugin 0.12.0). The arms' style marks remain ("59 aristas", candidate edges). A neutral-style rule needs a new
+run, and it is left for a later pilot if this one shows the coverage confound gone.
+
+**What changes from the first pilot.**
+- **Evidence per claim.** Each sentence of four or more words in an item gets its own evidence: the first two
+  passages BM25 (`harness rag-slices`) returns for that sentence alone. Duplicates are removed, sentences are taken
+  in order, and an item carries at most 6,000 characters of passages. An idea that combines facts from several
+  documents now carries passages from each.
+- **A positive control.** Each packet gains a seventh item. It is a plausible idea, written by the orchestrating
+  session, whose support is real and spread over at least two source documents, each fact checked against the
+  source before judging. It takes part in no arm comparison.
+- **Seven items, labelled A–G.** Their order is a seeded permutation (seed 7) rotated by one position per prompt,
+  so every item takes every position once or twice over the 12 prompts.
+
+**Revised before any judgment.** A check of the packets, made before any judge ran, found that per-sentence
+evidence left a fact of 4 of the 12 positive controls out of their evidence. In each case the sentence chained two
+or three facts from different places, and the two passages it got covered only one. Graph ideas are built the same
+way. So, once and only once, evidence became per **clause**:
+- sentences are split at commas, semicolons and colons, and every clause of four or more words is kept;
+- retrieval runs in two rounds: each clause's best BM25 passage first, then each clause's second;
+- duplicates are removed, and an item carries at most 8,000 characters.
+
+With that rule all 12 controls carried every fact they cite.
+
+**Unchanged.** The decoys (the first pilot's twelve), the judge's instructions and rubric (grounded, novel,
+useful, 1–5, a strict ranking), one fresh judge per prompt, the pairs and the sign test (10 of 12).
+
+**Validity checks.** If any fails, every verdict reads "not measured".
+- **V1:** the decoy's grounded score is the lowest of the seven (ties allowed) in at least 10 of 12 prompts.
+- **V2:** the five arm ideas' mean grounded score exceeds the decoys' mean by at least 1.0.
+- **V3:** the positive control's grounded score is 4 or 5 in at least 10 of 12 prompts. It shows the judge credits
+  real support that lies far apart in the source.
+
+**Reading the notes.** Before the results are interpreted, each judge's notes are read for two things, and both
+are counted:
+- facts called unsupported that the source does contain;
+- statements about the writer's materials (graph, edges, candidates).
+
+Nothing is re-scored. The counts say whether the coverage confound is gone and how much the style leak still
+weighs.
+
+No parameter above changes after the verdicts are read.
+
+## Second pilot results (2026-11-11, run 4 judged again, 12 blind judges)
+
+**Validity: passed.**
+- **V1:** the decoy had the lowest grounded score in 12 of 12 prompts.
+- **V2:** the arm ideas' mean grounded score exceeded the decoys' by 2.90 (3.98 against 1.08).
+- **V3:** the positive control scored 4 or 5 on grounded in 10 of 12 prompts, exactly the threshold.
+
+**Verdicts by the declared rule** (wins out of 12, 10 needed): none decided.
+
+| pair | wins | losses | first pilot |
+|---|---|---|---|
+| graph vs rag | 5 | 7 | 3 of 12 |
+| graph vs control | 8 | 4 | 5 of 12 |
+| graph+generate vs graph | 1 | 11 | 4 of 12 |
+| graph+generate+dpp vs graph+generate | 5 | 7 | 7 of 12 |
+
+| item | grounded | novel | useful | mean rank of 7 |
+|---|---|---|---|---|
+| control | 4.17 | 2.83 | 2.92 | 3.92 |
+| graph | 4.25 | 3.00 | 3.17 | 2.58 |
+| graph+generate | 3.33 | 3.00 | 2.92 | 4.33 |
+| graph+generate+dpp | 3.58 | 2.92 | 2.92 | 4.17 |
+| rag | 4.58 | 2.83 | 3.75 | 2.17 |
+| positive control | 4.58 | 2.50 | 2.75 | 3.83 |
+| decoy | 1.08 | 3.08 | 2.92 | 7.00 |
+
+First place by position, A–G: 1, 1, 0, 4, 2, 3, 1.
+
+**The notes, as declared.**
+- **Facts called unsupported that the source contains:** 16 misses (one fact in one idea) in 5 of 12 packets (2, 5,
+  7, 11 and 12): graph+generate 7, graph+generate+dpp 4, graph 3, rag 2, control none. The facts were the advice not
+  to resample against an LLM judge as sole verifier, Sonar's 32 %, Time Warp's 11 %, RADAR as Meta's review system,
+  Faros not isolating low risk, METR's noisy baseline, the N4 autonomy level (one judge took it for a graph label),
+  uReview on all of Uber's PRs, the change of definition behind Uber's 70 %, and "caso longitudinal sin control".
+  Several were stated through the graph ("el grafo registra que…", "candidatos sin verificar acercan…"), but the
+  source holds them.
+- **Statements about the writer's materials:** marked down in 7 of 12 packets (2, 3, 4, 6, 8, 9 and 10), in
+  graph+generate's and graph+generate+dpp's ideas in all 7 and in graph's in 3. Examples are "el grafo guarda 59
+  aristas fallidas o rechazadas", RADAR as "the highest-degree node", `reconciles_with` edges, compression and
+  regrouping candidates, and "unverified seed candidate". No source passage can support them. In packet 12 the judge
+  named such statements but did not mark them down, since the ideas flagged them as unverified.
+
+On grounded, graph+generate scored below graph in 9 prompts. In 6 of them the notes cite statements about the graph
+in its idea, and in the other 3 real facts its evidence lacked.
+
+**The misses, rebuilt afterwards.** The missed items' evidence was rebuilt from the same inputs; nothing was
+re-scored. In 11 of the 16 misses the supporting passage ranked third to eighth for one of the idea's clauses. In 4
+it ranked below tenth for all of them, and in 1 it ranked second but the 8,000-character cap cut it. Two passages
+per clause were the main limit.
+
+**Reading.** The judge passes every declared check: it rejects invented support (V1), and in 10 of 12 prompts it
+credits real support spread across documents (V3). The two positive controls that scored 3 (prompts 4 and 6) lost
+points for the relation they drew, not for a cited fact. Between the two pilots, whose main difference is the
+evidence, graph's mean grounded score rose from 3.33 to 4.25, second among the arms to rag's 4.58. The coverage
+confound is smaller but not gone. Against the graph-based arms the notes now cite mostly the style leak, which only
+a run written under a neutral-style rule can remove.
+
+**Where this leaves the judge.** This protocol left the neutral-style pilot for when the coverage confound was gone.
+It is smaller, not gone, so this pilot does not decide whether the judge ships. A third pilot would need a fresh run
+written under a neutral-style rule and more evidence per clause. The alternative is to stop here.
+
+The twelve judges used 80,526 to 98,575 tokens each, 1.03 million in all.
