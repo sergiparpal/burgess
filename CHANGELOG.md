@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.11.10 — 2026-11-11
+
+Found in the first Windows session after the 0.11.9 update. Its Burgess server connected after 29.5 s, against
+Claude Code's 30 s default. Half a second more and the session would have started without the Burgess tools
+until a reconnect.
+
+### Fixed
+
+- **Every release rebuilt the engine's Python environment.**
+  - The environment's stamp hashed `pyproject.toml` whole, so the version line that every release bumps made
+    every environment stale.
+  - The first session after an update rebuilt it: a `uv sync` with nothing to install, then the import checks.
+    The MCP launcher waited for that inside its connect window, 18 s on the field machine, and the engine took
+    11 s more.
+  - On the Windows environment, `bootstrap.py --check` passed with the 0.11.9 copy and failed with the 0.11.8
+    one. Nothing the environment installs had changed.
+  - The stamp now leaves out `[project]`'s version line. Every other line of the file still counts, a `version`
+    in any other table included, and so does the interpreter's identity. Line endings no longer count, since the
+    Windows marketplace clone checks the file out with CRLF.
+  - `SCHEMA` is now "2", so a stamp written through 0.11.9 cannot match. The first session after this update
+    rebuilds once more, as before. From then on, a release that changes no dependency starts without a rebuild.
+
+### Tests
+
+- `tests/test_fix_stamp_ignores_version.py` (14 tests):
+  - **what leaves the stamp alone:** a version bump, and `bump_version.py`'s own edit of the repo's
+    `pyproject.toml`;
+  - **what still moves it:** a dependency, a pin, `requires-python`, an extra, the build system, a `version`
+    under another table or an array of tables, and the interpreter;
+  - **line endings:** CRLF and LF give one stamp;
+  - **the old stamp:** a stamp written the old way does not match;
+  - **what is dropped:** only the `[project]` version line.
+  - **Against 0.11.9:** 5 fail. The other 9 check what already moved the stamp.
+- 1911 → 1925 passed, 3 skipped.
+
 ## 0.11.9 — 2026-11-11
 
 Found by the kg-evaluator itself, in the second field `/kg-experiment` (0.11.8, Windows). That run needed no
