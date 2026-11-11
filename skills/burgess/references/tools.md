@@ -1237,6 +1237,16 @@ characters is cut at line, then word boundaries.
 Through 0.11.7 the kg-evaluator subagent retrieved this context itself. On the Windows corpus it wrote a
 retrieval script and ran it through a shell, and no later run could reproduce what it picked.
 
+#### `evaluator-order <outputs>` (0.13.1)
+
+Checks that the kg-evaluator wrote its two drafts in order, beside `outputs`:
+- `<outputs>.control.json`, holding the control answers, before its first graph call;
+- `<outputs>.graph.json`, holding control and the three graph-based arms, before it read any rag passage.
+
+`verified` is true when each file predates the next and `outputs` carries both drafts' answers unchanged.
+Otherwise `problems` names what failed: a missing or unreadable draft, an answer that changed, or the files
+out of order. It prints JSON and always exits 0; `/kg-experiment` logs a failure as a caveat.
+
 #### `judge-packets <outputs> <prompts> <source> <controls> <out_dir>` and `judge-aggregate <judge_dir> [outputs]` (0.13.0)
 
 The deterministic half of `/kg-experiment --judge`, in `scripts/kg_engine/judge.py`.

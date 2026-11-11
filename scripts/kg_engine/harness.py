@@ -754,6 +754,55 @@ def write_rag_contexts(prompts: list[str], source: str, out_dir: str,
     return index
 
 
+# --------------------------------------------------------------------------- the evaluator's order (0.13.1)
+
+# The kg-evaluator answers every arm in one context, so its blindness is procedural: control first, from the
+# prompt alone, then the graph-based arms, then rag. The first judged field run (0.13.0) could not show that
+# order. The evaluator's reasoning is not in its transcript, and its answers reached disk only at the end.
+# Since 0.13.1 it writes two drafts on the way:
+# - `<outputs>.control.json`, before its first graph call;
+# - `<outputs>.graph.json`, before it reads the rag folder.
+# This check reads them. Each file must predate the next, and the final outputs must carry the drafted
+# answers unchanged. It gates nothing (§4); the command logs a failure as a caveat.
+_DRAFTS = (("control", ("control",)),
+           ("graph", ("control", "graph", "graph+generate", "graph+generate+dpp")))
+
+
+def evaluator_order(outputs_path: str) -> dict:
+    """Whether the evaluator's drafts show its order. Returns `{"verified", "drafts", "problems"}`."""
+    final_path = Path(outputs_path)
+    stem = final_path.with_suffix("")
+    drafts = {name: Path(f"{stem}.{name}.json") for name, _ in _DRAFTS}
+    problems: list[str] = []
+
+    def load(path: Path):
+        try:
+            blob = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            problems.append(f"{path.name}: not readable ({e.__class__.__name__})")
+            return None
+        if not isinstance(blob, dict) or not isinstance(blob.get("outputs"), dict):
+            problems.append(f"{path.name}: no outputs object")
+            return None
+        return blob["outputs"]
+
+    final = load(final_path)
+    for name, arms in _DRAFTS:
+        draft = load(drafts[name])
+        if draft is None or final is None:
+            continue
+        for arm in arms:
+            # an arm the run did not have is not drafted either (a run without the dpp arm, say)
+            if arm in final and draft.get(arm) != final[arm]:
+                problems.append(f"{drafts[name].name}: {arm} differs from the final outputs")
+    files = [drafts["control"], drafts["graph"], final_path]
+    if all(p.exists() for p in files):
+        times = [p.stat().st_mtime for p in files]
+        if not times[0] <= times[1] <= times[2]:
+            problems.append("the files were not written in order: control draft, graph draft, final outputs")
+    return {"verified": not problems, "drafts": {name: str(p) for name, p in drafts.items()}, "problems": problems}
+
+
 # --------------------------------------------------------------------------- who wrote a labeled edge (0.11.7)
 
 # The canon keeps every edge it has accepted since the first build, and an edge does not record which plugin
@@ -901,10 +950,11 @@ def _main(argv: list[str]) -> int:
     if not argv:
         print("usage: python -m kg_engine.harness "
               "{agreement|specificity|ideation|convergence|writers|legacy-log|rag-slices|"
-              "judge-packets|judge-aggregate} [path...]\n"
+              "evaluator-order|judge-packets|judge-aggregate} [path...]\n"
               "  specificity GRAPH [SOURCE]   ideation OUTPUTS [SOURCE]\n"
               "  writers LABELS.csv PROJECT   legacy-log PROJECT SOURCE\n"
               "  rag-slices PROMPTS SOURCE OUT_DIR [BUDGET_TOKENS]\n"
+              "  evaluator-order OUTPUTS\n"
               "  judge-packets OUTPUTS PROMPTS SOURCE CONTROLS OUT_DIR   judge-aggregate JUDGE_DIR [OUTPUTS]\n"
               "  SOURCE is a file, or a folder of .md/.txt documents, read as the projector reads it",
               file=sys.stderr)
@@ -1090,6 +1140,14 @@ def _cmd_rag_slices(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_evaluator_order(argv: list[str]) -> int:
+    outputs_path = _positional_path(argv, 1)
+    if not outputs_path:
+        raise ValueError("usage: evaluator-order OUTPUTS")
+    print(json.dumps(evaluator_order(outputs_path), ensure_ascii=False, indent=1))
+    return 0
+
+
 def _cmd_judge_packets(argv: list[str]) -> int:
     # the blind judge (0.13.0) lives in its own module, which imports this one; import it lazily
     from .judge import cmd_packets
@@ -1111,6 +1169,7 @@ _COMMANDS = {
     "writers": _cmd_writers,
     "legacy-log": _cmd_legacy_log,
     "rag-slices": _cmd_rag_slices,
+    "evaluator-order": _cmd_evaluator_order,
     "judge-packets": _cmd_judge_packets,
     "judge-aggregate": _cmd_judge_aggregate,
 }

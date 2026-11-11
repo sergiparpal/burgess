@@ -218,6 +218,11 @@ output path `${CLAUDE_PROJECT_DIR}/.kg/experiment/ideation_outputs.json`. The ev
 with Read, writes its one file with Write, and reaches the graph through its three MCP tools. Instruct it to:
 
 1. Write all **control** answers first, from the prompts alone, before any tool call.
+   - Save them to the control draft (`ideation_outputs.control.json`, beside the output path) as that first
+     call.
+   - Save control and the three graph-based arms to the graph draft (`ideation_outputs.graph.json`) before
+     reading any rag file.
+   - The final file copies both drafts unchanged, and Step 3 checks that (`harness evaluator-order`).
 2. For **each** prompt, answer once per remaining arm, each from that arm's context only:
    - **graph** → the result of `mcp__plugin_burgess_burgess__kg_context(query=<prompt>, budget=2000)`, rendered as
      opaque text — the **grounded** `items[]` only. Carry through the pack's `advisory` (e.g.
@@ -358,6 +363,23 @@ when each judged sentence's first key term is replaced by an invented one.
 
 The verdict strings do not change with them, so a verdict must always be read with its caveats.
 
+**The evaluator's order (0.13.1).** Check that the drafts show the order Step 2 asked for:
+
+```bash
+PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
+export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"
+"$PY" -m kg_engine.harness evaluator-order "$EXP/ideation_outputs.json"
+```
+
+It prints `{"verified": true|false, "drafts": {...}, "problems": [...]}`. `verified` is true when:
+- the control draft predates the graph draft, which predates the final outputs;
+- the final outputs carry both drafts' answers unchanged.
+
+When it is false, this run cannot show that control was written blind to the graph, or the graph arms blind to
+the rag passages. Log and report that, with the `problems`. It gates nothing (§4). If you rerun the evaluator
+(Step 2) for any reason, rerun this check on the new files.
+
 ---
 
 ## Step 3b — the blind judge (only with `--judge`)
@@ -464,6 +486,8 @@ PROGRESS="${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md"; mkdir -p "${CLAUDE_PROJECT_DIR
   printf '\n**Support check:** rag %s, control %s, gap %s (needs 0.10); probe drop %s\n' "$S_RAG" "$S_CONTROL" "$S_GAP" "$S_DROP"
   # one line per entry of the harness's "caveats", verbatim; none when the list is empty:
   printf '\n**Caveat:** %s\n' "$CAVEAT_1"
+  # the evaluator-order check of Step 3: "verified", or "not verified: <problems>"
+  printf '\n**Evaluator order:** %s\n' "$ORDER"
   # OPTIONAL — only when Step 3b ran: the judge's checks, means and verdicts, from judge_score-<RUN>.json
   if [ -n "$J_RAN" ]; then
     printf '\n**Judge (blind; grounded and useful, not novelty):** %s prompts judged; V1 %s of %s, V2 gap %s, V3 %s of %s; valid: %s\n' \
@@ -490,6 +514,8 @@ Then print a one-paragraph summary to the user:
   judge ran, say why it is not measured.
 - The lexical `verdict`, verbatim, with its wins and losses out of the prompts, and the arms' grounded
   novelty, novelty and support.
+- When the evaluator-order check was not verified, say so, with its `problems`: the arms' blinding is not
+  shown for this run.
 - Every entry of `caveats`, verbatim, right after the verdict: each names something whose values in this run
   are not a result.
 - The `control_verdict`, `generate_verdict` and `dpp_verdict`, verbatim.
