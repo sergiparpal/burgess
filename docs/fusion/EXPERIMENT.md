@@ -672,3 +672,49 @@ the headline, and the lexical verdicts follow as a second reading.
 - V1 12/12, V2 3.60 and V3 12/12;
 - the four pairs: 2, 3, 7 and 3 of 12;
 - the means for grounded and useful.
+
+---
+
+# What the blind agents could see (recorded 2026-11-11, fixed in 0.13.2)
+
+Found while reviewing the first field run on 0.13.1. Two channels reached the agents that must work blind.
+Neither told a judge which label was which arm: the mapping stayed in `private/` throughout.
+
+**Claude Code's instruction files and memory index.** By default Claude Code hands every subagent the
+CLAUDE.md files and its auto-memory index.
+
+| who | started from | what reached them |
+|---|---|---|
+| pilots 1 and 2: the judges | the development session | the repository's CLAUDE.md, and a memory index describing the earlier field runs ("novelty vs source favors control") |
+| pilot 3: the judges | the development session | the same, plus the first pilot's line: "decoy caught 12/12" |
+| run 6 (0.13.0, judged): the 12 judges and both evaluator passes | the field session | "5 runs of the 5-arm ideation on the Spanish prompts…: graph never beat control; the support check fails here" |
+| run 7 (0.13.1): the evaluator | the field session | "valid judge: graph loses to rag 3/9, beats control 11/1" |
+
+**The judge's prompt.** 0.13.0's said "some were written with help, some without, and two are controls planted
+to check you". The pilots told their judges only "You do not know who wrote the ideas or how, and you should
+not try to guess."
+
+**What the record shows.**
+- No run-6 judge's notes mention arms, the study, controls or earlier results; their "control" is the domain's
+  control group. The judges' reasoning is redacted, so an influence cannot be ruled out.
+- A judge told about planted controls could pass V1 and V3 by looking for them. So run 6's V1 and V3 show
+  less than the protocol meant them to, and so do pilot 3's, whose index named the decoy. Pilots 1 and 2 had no
+  hint that a decoy existed, and their judges still gave it the lowest grounded score in 12 of 12 prompts.
+- Run 6's graph vs control (11 of 12) runs against its index line ("graph never beat control"). Neither
+  channel said anything about rag. Graph vs rag read 3 of 12.
+- The evaluator writes every idea. One that has read an earlier verdict might write an arm differently, and
+  nothing in the outputs could show it.
+
+**Standing.** Run 6's verdicts stay as recorded, with these caveats. No run so far had blind agents that saw
+nothing beyond their task.
+
+**Fixed in 0.13.2.** The three measurement agents declare `omitClaudeMd: true`. Checked headless on Claude Code
+2.1.316 and 2.1.321 (`DECISIONS.md`). The judge's prompt is back to the pilots' sentence.
+
+**A clean replication, declared before it runs.** The next `--judge` run on 0.13.2 repeats run 6's method:
+- the same twelve prompts, hence the same rag passages;
+- the same evidence rule, seed, checks, pairs and thresholds.
+
+It counts as clean when the evaluator's and the judges' transcripts carry no `instructions` attachment. Its
+verdicts are reported as they come, whether or not they agree with run 6, and nothing is tuned after seeing
+them.

@@ -224,7 +224,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 | `/kg-diverge <brief> [domain-template] [reach]` | Explore a brief as a varied idea slate; optionally materialize selected pins as hypotheses | **Required:** your brief. *Optional:* domain axes and `conservative\|balanced\|wild` reach |
 | `/kg-perturb [second_source_or_graph_json]` | Build or load a second construction and cross-generate against it | *Optional:* a second text source or pre-built `graph.json`; omission degrades to regrouping the current graph |
 | `/kg-eval [graph.json]` | Measure extractor precision (Stage 4) and grounding reliability (Stage 7) | *Optional:* which `graph.json` to grade (defaults to the current derived graph) |
-| `/kg-experiment [prompts_path]` | Blind multi-arm ideation experiment (control / graph / graph+generate / graph+generate+dpp / rag) | *Optional:* a file of test prompts (defaults to prompts drafted from your graph; the built-in set is for the demo corpus only) |
+| `/kg-experiment [--judge] [prompts_path]` | Blind multi-arm ideation experiment (control / graph / graph+generate / graph+generate+dpp / rag); `--judge` adds blind judges, about 1.5 million tokens for 12 prompts | *Optional:* a file of test prompts (defaults to prompts drafted from your graph; the built-in set is for the demo corpus only) |
 
 Remember: the status check (`kg_ping`) and the other behind-the-scenes MCP tools have **no** slash — just ask Claude for them in plain words.
 
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **1991 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **1994 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:
