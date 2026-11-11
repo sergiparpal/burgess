@@ -448,3 +448,70 @@ It is smaller, not gone, so this pilot does not decide whether the judge ships. 
 written under a neutral-style rule and more evidence per clause. The alternative is to stop here.
 
 The twelve judges used 80,526 to 98,575 tokens each, 1.03 million in all.
+
+---
+
+# Option D, third pilot — a run written in neutral style (pre-declared 2026-11-11)
+
+Written before the run it judges exists. That run is the first `/kg-experiment` made with plugin 0.12.1, whose
+evaluator writes every idea about the domain and never about its materials. The second pilot left both
+confounds smaller but not gone. This pilot removes the style leak at its source and widens the evidence where
+the coverage misses came from.
+
+**Material.** The fifth field run: `/kg-experiment` with plugin 0.12.1, given run 4's prompt file as its
+argument, so the twelve prompts, the decoys and the positive controls stay matched. If its prompts differ, no
+judge runs.
+
+**Neutrality check, before any packet is built.**
+- **Scan.** Every arm idea is scanned for the graph's vocabulary:
+  - "grafo", "arista", "nodo", "candidato", "sin verificar", "puente", "fundamentado" and their English forms;
+  - the relation names (`confounded_by`, `reconciles_with`, `defends_against`, `collapses_into`) and `kg_`.
+- **Reading.** Each match is read and classed as the domain's word, like control's "concepto puente" in run 4, or
+  the apparatus's.
+- **Threshold.** The run passes when at most 3 of the 60 arm ideas use the apparatus's.
+- **Failure.** If it fails, no judge runs; the rule is revised and a new run made first.
+
+On run 4, 38 ideas match, the 36 graph-based ones among them.
+
+**Evidence per clause, wider.** Calibrated on run 4, whose misses are known, before this run exists:
+- sentences are split at commas, semicolons and colons, and also before "y", "o", "pero", "mientras",
+  "porque", "aunque" and "sino"; every clause of four or more words is kept;
+- four rounds of BM25 passages: each clause's best, then each clause's second, third and fourth;
+- then, for each figure or name of the item that the source holds and the evidence still lacks, the
+  best-ranked passage containing it among its clauses' first twenty;
+- duplicates are removed, and an item carries at most 20,000 characters.
+
+On run 4, this rule carries:
+- 15 of the 16 facts the second pilot's judges missed;
+- 0.974 of the arm ideas' figures and names, against 0.819 under the second pilot's rule;
+- every figure and name of the twelve positive controls.
+
+A packet grows from about 43,000 characters to about 103,000.
+
+**Positive controls.** The second pilot's twelve, two of them rephrased. The two that scored 3 (prompts 4 and
+6) lost points for the relation they drew. Each now states it as a hypothesis to measure, and the sixth drops
+the closing claim its judge found unsupported.
+
+**Unchanged:**
+- the decoys (the first pilot's twelve);
+- seven items in the seed-7 order rotated per prompt;
+- the judge's instructions and rubric, and one fresh judge per prompt;
+- the pairs and the sign test (10 of 12);
+- V1–V3, and the two counts read from the notes.
+
+**What this pilot decides.** The judge is ready to ship in `/kg-experiment` when all of these hold:
+- the neutrality check, V1, V2 and V3 pass;
+- the notes name statements about the writer's materials in at most 1 packet;
+- they name real facts called unsupported in at most 2 packets.
+
+Otherwise it is not ready, and the record says which condition failed. Shipping stays a separate decision. With
+packets this size, the twelve judges should cost about 1.5–2 million tokens, against 1.03 million in the second
+pilot.
+
+**Known limits.**
+- Prompts 3, 4 and 5 ask what kind of relation would join two concepts; under the rule, the arms answer in
+  plain words.
+- The judge is still the model that wrote the ideas.
+- One run is one sample.
+
+No parameter above changes after the neutrality check is read, nor after the verdicts are.
