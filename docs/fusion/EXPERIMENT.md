@@ -223,3 +223,116 @@ blinded pairwise judge (option D of the 2026-11-11 proposal), or a source whose 
 writer does not already share. A local-co-occurrence variant of support was rejected before any scoring (see
 the revision above). Testing it now would mean a new protocol, declared before new runs, not a re-scoring of
 these.
+
+---
+
+# Option D — a blind judge per prompt (pilot protocol, pre-declared 2026-11-11)
+
+Written before any packet was built or any judgment made. It is applied first to the ideas already saved from
+the fourth field run (2026-11-11T11:17Z, plugin 0.12.0, clean blinding), as a pilot. Whether the judge ships
+in `/kg-experiment` depends on the pilot passing the validity checks below.
+
+**Why.** On the Windows corpus the 0.12.0 lexical method cannot carry a verdict. Its support check failed on all
+four runs (gaps 0.022–0.049 against 0.10 required), because an uninformed writer already uses the corpus's
+vocabulary. What the experiment asks, whether an idea is new, supported and useful, needs a reader.
+
+**Material per prompt** (12 prompts; one packet each):
+- the prompt;
+- six items labelled A–F: the five arms' ideas (control, graph, graph+generate, graph+generate+dpp, rag) and
+  one **decoy**;
+- for each item, its **evidence**: the source passages that `harness rag-slices`' BM25 returns for the
+  item's own text, within 600 tokens. Every item gets the same treatment, whichever arm wrote it.
+
+**The decoy.** For each prompt it is a plausible idea of two to four sentences, in the corpus's language and in
+the arms' register. Its central support is invented: it cites a study, an organisation or a figure that the
+source does not contain. In the pilot the orchestrating session writes the decoys, and checks that every
+invented name is absent from the source. Decoys take part in no arm comparison.
+
+**Order.** The six items follow a seeded permutation (seed 7, as in D1), rotated by one position per prompt.
+Over the 12 prompts every item therefore takes every position exactly twice. The labels follow position. The
+mapping from labels to arms stays outside the judges' reach.
+
+**The judge.** Each prompt gets a fresh subagent that knows nothing of the arms, the graph or the experiment's
+hypothesis. It reads only its packet and writes one JSON verdict:
+- for every item, three integer scores from 1 to 5:
+  - **grounded**: its factual claims hold in its evidence. Claims the evidence lacks or contradicts lower it;
+    a claim stated as a hypothesis does not.
+  - **novel**: it proposes something its evidence does not already say, such as a new connection, mechanism or
+    test. A restatement scores low.
+  - **useful**: it is specific enough to test or apply. Vague ideas score low.
+- a strict **ranking** of all six items, best first. An item whose support is invented may not rank above one
+  whose support holds.
+
+**Aggregation**, deterministic, from the recorded verdicts:
+- the decoy is removed from each ranking;
+- for each pre-declared pair (graph vs rag, graph vs control, graph+generate vs graph, graph+generate+dpp vs
+  graph+generate), a prompt is a win for X when the judge ranked X above Y;
+- X beats Y at 10 of 12 prompts, the one-sided sign test at 5 % as in 0.12.0.
+
+**Validity checks.** If either fails, every verdict reads "not measured".
+- **V1:** the decoy's grounded score is the lowest of the six (ties allowed) in at least 10 of the 12 prompts.
+- **V2:** the five arm ideas' mean grounded score exceeds the decoys' mean by at least 1.0.
+
+**Reported, deciding nothing:**
+- the mean scores per arm and criterion, and the mean rank;
+- the win rate by position, for position bias;
+- the mean length of each arm's ideas, since length can sway a judge.
+
+**Known limits.**
+- The judge is the model that wrote the ideas. It favours no arm by itself, but it may reward a rigorous tone.
+- The run-4 ideas still carry style marks of their arm ("la arista …", "candidato sin verificar"), so the pilot
+  is less blind than a run written under a neutral-style rule.
+- One run is one sample.
+
+No parameter above changes after the verdicts are read.
+
+## Pilot results (2026-11-11, run 4 judged by 12 blind judges)
+
+**Validity: passed.**
+- **V1:** the decoy had the lowest grounded score in 12 of 12 prompts.
+- **V2:** the arm ideas' mean grounded score exceeded the decoys' by 2.57: 3.57 against 1.00.
+- The judges caught every invented study.
+
+**Verdicts by the declared rule** (wins out of 12, 10 needed): none decided.
+
+| pair | wins | losses | verdict |
+|---|---|---|---|
+| graph vs rag | 3 | 9 | did NOT clearly beat |
+| graph vs control | 5 | 7 | did NOT clearly beat |
+| graph+generate vs graph | 4 | 8 | did NOT clearly beat |
+| graph+generate+dpp vs graph+generate | 7 | 5 | did NOT clearly beat |
+
+| arm | grounded | novel | useful | mean rank of 6 | words |
+|---|---|---|---|---|---|
+| control | 4.33 | 2.83 | 3.08 | 2.58 | 58 |
+| graph | 3.33 | 2.75 | 3.00 | 3.17 | 100 |
+| graph+generate | 3.08 | 3.08 | 2.92 | 3.58 | 109 |
+| graph+generate+dpp | 3.25 | 3.00 | 2.92 | 3.08 | 102 |
+| rag | 3.83 | 2.92 | 3.67 | 2.58 | 94 |
+| decoy | 1.00 | 3.00 | 3.00 | 6.00 | 63 |
+
+Position balance: first place went to labels A–F 2, 2, 4, 2, 1 and 1 times.
+
+**A confound the validity checks did not cover.** The judges' notes name what lowered the graph-based ideas'
+grounded scores, and it splits in two:
+- **Real facts outside the evidence window.** The notes cite "AUROC de 0,65", Sonar's 32 %, 19,8 %, HAL,
+  Faros's +154 %, Czerwonka and Uber's 70 % as absent from an idea's evidence. Every one of them is in the
+  source. They were outside the 600 tokens of passages that BM25 returned for the idea's own text. An idea
+  that combines facts from several documents, which is what the graph context invites, gets credit for few of
+  them.
+- **Statements about the graph itself,** such as "59 aristas" or candidate edges. No source passage can support
+  them. This is the style leak the protocol anticipated, and a neutral-style rule for the evaluator would
+  remove it.
+
+V1 checks that the judge rejects invented support. Nothing checks that it credits real support drawn from far
+in the source. So the pilot's verdicts measure "claims supported by the idea's nearest passages", which
+penalizes fact-dense, cross-document ideas.
+
+**Decision, per this protocol.** The judge does not ship as specified. A revised protocol, piloted anew, would
+need:
+- evidence retrieved per claim or per sentence, not per idea;
+- a positive control: an item whose real support is spread across documents, which the judge must credit;
+- the neutral-style rule in the evaluator.
+
+The cost was also higher than estimated: about 65,000 tokens per judge, against the 6,000–7,000 planned.
+Most of it was a general-purpose subagent's own overhead.
