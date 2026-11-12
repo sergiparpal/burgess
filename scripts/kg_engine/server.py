@@ -2398,7 +2398,8 @@ class KGEngine:
                 # redaction — so route it through _scrub_error to strip an absolute path (§1.9).
                 note = f"second_graph could not be loaded ({self._scrub_error(e)}); ensemble degraded to regroup"
         if not note and G2 is None and mechanism in ("ensemble", "all"):
-            note = "no second construction supplied; ensemble degraded to regroup (run /kg-perturb to supply one)"
+            note = ("no second construction supplied; ensemble degraded to regroup "
+                    "(run /burgess:kg-perturb to supply one)")
         cands = run_generators(G, mechanism, pack=self.pack, corpus=corpus, failures=failures,
                                k=k, second_graph=G2)
         payload = {"mechanism": mechanism, "k": int(k), "gate_on": gate_on,
@@ -2500,7 +2501,7 @@ class KGEngine:
                    for s in ("fertile", "absorbed", "isolated")}
         return self._with_degraded({"tracked": len(result), "summary": summary, "nodes": result,
                 "note": ("" if history else
-                         "no generations.json yet — run /kg-generate to start tracking the absorption window")})
+                         "no generations.json yet — run /burgess:kg-generate to start tracking the absorption window")})
 
     def kg_operate(self, op: str, *, target: str | None = None, label: str = "", body: str = "",
                    members=None, k: int | None = None) -> dict:
@@ -3085,7 +3086,7 @@ def _register(mcp, engine: KGEngine) -> None:
 
         `construction` (optional) routes this SAME key-free, span-verified write to a separately-named
         second construction's alternate canon under `<project>/.kg/constructions/<slug>/` instead of the
-        primary canon — the in-session "second construction" `/kg-perturb` cross-generates against
+        primary canon — the in-session "second construction" `/burgess:kg-perturb` cross-generates against
         (§9/§15). `source` names the second source document so spans verify against IT. Omit both for the
         normal primary-canon write.
 
@@ -3119,7 +3120,7 @@ def _register(mcp, engine: KGEngine) -> None:
         `hypothesis-needs-support`. `note` is appended to the edge's `notes` and is **edge-only** — it is
         ignored for kind='node' (a Node has no notes field). `lead`, with verdict='rejected' only: the edge
         the span does state instead, as '<head-id> <relation> <tail-id>' (a pack relation; a new node gets a
-        new slug id), which `/kg-build --leads` writes; a bad lead is refused before any state change. A
+        new slug id), which `/burgess:kg-build --leads` writes; a bad lead is refused before any state change. A
         verdict that changes an edge's state without a lead withdraws the lead its notes held (`lead: none`,
         returned as `lead_withdrawn`). A verdict that keeps an edge's state re-confirms it: the edge keeps
         the time it entered that state, and its lead."""
@@ -3158,7 +3159,7 @@ def _register(mcp, engine: KGEngine) -> None:
         build after any transport hiccup without grepping the filesystem. Reads ONLY the canon (+ source
         text for coverage); never triggers/refreshes the derived layer. Returns node/edge counts, edges
         by epistemic state, the still-`unverified` grounding-queue size, the engine-resolved `source`
-        (`{path, exists, files}` — /kg-build reads the source path from HERE, not a shell env var, so a
+        (`{path, exists, files}` — /burgess:kg-build reads the source path from HERE, not a shell env var, so a
         configured source_path is never silently ignored), and which source files/`##` sections already
         have an anchored edge. Unlike kg_metrics it never opens the derived db."""
         return engine.kg_status()
@@ -3166,7 +3167,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_build_plan(arguments: str = "", configured_wave_size: str | int | None = "") -> dict:
-        """Plan a /kg-build: the configured source files to build, each file's sections (numbered, with
+        """Plan a /burgess:kg-build: the configured source files to build, each file's sections (numbered, with
         title, size and whether a span-present edge already covers them), and the wave size. Pass the
         command's typed `$ARGUMENTS` VERBATIM as `arguments` — the engine splits it: an optional subset
         (a file, folder or glob inside the configured source_path) and an optional trailing wave size —
@@ -3180,7 +3181,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def kg_ground_plan(focus: str = "", configured_wave_size: str | int | None = "",
                        batch_size: int | None = None) -> dict:
-        """Plan a /kg-ground: the grounding queue (every unverified edge, and every unverified
+        """Plan a /burgess:kg-ground: the grounding queue (every unverified edge, and every unverified
         HYPOTHESIZED node) as compact `{id, kind}` items in batches of `batch_size` (1-20, default 12), one
         batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` for the adversarial grounder
         (the nodes with the most live claims, leaving out the `attacked_hubs` an earlier pass attacked, with a
@@ -3188,7 +3189,7 @@ def _register(mcp, engine: KGEngine) -> None:
         hypotheses, edges marked weak, the rest. Pass
         the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node it names) and the
         `extract_wave_size` option as the command text carries it. `queue.leads_pending` counts the leads
-        rejected claims carry that `/kg-build --leads` has yet to write. Read-only."""
+        rejected claims carry that `/burgess:kg-build --leads` has yet to write. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size)
 
     @mcp.tool()
@@ -3217,7 +3218,7 @@ def _register(mcp, engine: KGEngine) -> None:
         engine: `source_file` and `section` come from kg_build_plan. Returns `text` (the section's heading
         line and body, verbatim but for ⟦CAT:N⟧ placeholders), its `title`, and `known_nodes`, the canon
         nodes the section names. Copy spans from `text` exactly, placeholders included — kg_write restores
-        them to the original. `leads=true` (for `/kg-build --leads`) adds `leads`: the edges grounders found
+        them to the original. `leads=true` (for `/burgess:kg-build --leads`) adds `leads`: the edges grounders found
         stated by spans of this section under claims they rejected, each with that span."""
         return engine.kg_section(source_file, section, leads)
 
@@ -3246,7 +3247,7 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_absorption() -> dict:
         """Absorption window (§14): for each grounded-from-hypothesized node, how long it stayed
         perturbing before the graph renormalised — {half_life, status ∈ fertile|absorbed|isolated}.
-        Reads derived/generations.json (written by /kg-generate). Prefer the fertile middle."""
+        Reads derived/generations.json (written by /burgess:kg-generate). Prefer the fertile middle."""
         return engine.kg_absorption()
 
     @mcp.tool()
@@ -3468,7 +3469,7 @@ def _register(mcp, engine: KGEngine) -> None:
         hypothesized lane via the propose door (kg_propose -> kg_write -> boundary): it lands
         `provenance=hypothesized, epistemic_state=unverified`, carrying its full lineage
         ([diverge] pinned / brief / session / mechanism / operator) in the node body. No
-        source present? It simply WAITS in the lane — /kg-ground later promotes it only with
+        source present? It simply WAITS in the lane — /burgess:kg-ground later promotes it only with
         support (span or citation) and may fail it into permanent negative memory.
         `candidate_ids` defaults to every pin with a live session record; a pin from an
         ENDED session has no record left (I10) — re-ingest it first (reported as skipped).

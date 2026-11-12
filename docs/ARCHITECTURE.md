@@ -52,8 +52,8 @@ verdict path.
 | `operations.py` | The four endo operations (collapse/explode/regroup/open), writing via the propose lane |
 | `advisory_geometry.py` | Advisory hybrid-descriptor DPP ordering over `kg_generate` candidates (behind `divergence.dpp`, default off) |
 | `pathing.py` | The grounded-only path algorithm behind `kg_explain_path` |
-| `waves.py` | Deterministic resolver for `/kg-build`'s extraction wave size |
-| `buildplan.py` | `/kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), and the canon nodes a section names, for `kg_section` |
+| `waves.py` | Deterministic resolver for `/burgess:kg-build`'s extraction wave size |
+| `buildplan.py` | `/burgess:kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), and the canon nodes a section names, for `kg_section` |
 | `export.py` (+ `templates/graph_html.py`) | Render `graph.html` + `GRAPH_REPORT.md` from the derived layer |
 | `harness.py` | Deterministic measurement: agreement, specificity, ideation, convergence |
 | `backend.py` | Headless API-key extraction for CI (same boundary as the interactive flow) |
@@ -168,8 +168,8 @@ states. `verdict ∈ {grounded, rejected, failed, obsolete}`. Promoting a `hypot
 → `span-present`, or `support_note` (external citation) → `inferred`; neither →
 `hypothesis-needs-support`. A `rejected` edge may carry a `lead` (0.9.0): the edge its span does state
 instead, checked against the pack and appended to the notes as `lead: <head> <relation> <tail>`. It sets
-no state: `/kg-build --leads` has an extractor write it as an ordinary `unverified` claim, whose notes open
-with `lead (from <rejected-edge-id>)`, and the next `/kg-ground` judges it. A lead belongs to the rejection
+no state: `/burgess:kg-build --leads` has an extractor write it as an ordinary `unverified` claim, whose notes open
+with `lead (from <rejected-edge-id>)`, and the next `/burgess:kg-ground` judges it. A lead belongs to the rejection
 that recorded it (0.11.1): a verdict that changes the edge's state and records no lead of its own appends
 `lead: none`, which withdraws it, so a lead whose rejection was overturned is never offered again. Every legitimate transition appends one record to the append-only audit
 ledger `<project>/.kg-ground-audit.jsonl` (with a `.ckpt` sidecar for O(1) recovery).
@@ -228,7 +228,7 @@ first; a reprojection failure degrades gracefully (`projection_degraded` flag, e
 fallback) — writes never pass through that seam.
 
 **Searching the index (0.11.5).** `kg_context(query=…)` and `query_graph(text=…)` match **search words**,
-not substrings. A search word is a content word as `/kg-build` counts them (`buildplan._words`: casefolded,
+not substrings. A search word is a content word as `/burgess:kg-build` counts them (`buildplan._words`: casefolded,
 accents dropped, the Spanish and English function words gone, at least three characters unless a number),
 plus a two-character letter-digit code such as `N4`. Only the first 12 count (`_QUERY_TERM_CAP`, which bounds
 the per-row work), and `query_terms` shows which. A word matches across a plural ending
@@ -261,7 +261,7 @@ the prose) is not a redaction. The high-entropy fallbacks over-redact on purpose
 such as `practical_mutation_testing_tse_2021` can come back as a `SECRET`, which costs nothing because
 `kg_write` restores it, while a URL can carry a real token.
 
-Under `/kg-build` the egress point is `kg_section` (0.5.0): it serves each extractor its one section
+Under `/burgess:kg-build` the egress point is `kg_section` (0.5.0): it serves each extractor its one section
 through the same session scrub, so no section text reaches the orchestrator at all. Through 0.4.6 the
 orchestrator read the whole document to copy sections out of it, which sent the unscrubbed text to
 the model before any scrub ran. The session scrub is serialized by a lock, so a wave of extractors
@@ -283,7 +283,7 @@ asking at once keeps one placeholder per value.
 5. **transplant** — import a hub's dominant relation pattern into the community with the highest
    absorption capacity.
 6. **ensemble** — bridges present in one construction's structure but not a second's (from
-   `/kg-perturb`); degrades to `regroup` without a second graph, and says so. The second construction
+   `/burgess:kg-perturb`); degrades to `regroup` without a second graph, and says so. The second construction
    is built **key-free, in-session**: `kg_write(..., construction=<name>, source=<second source>)`
    routes the same span-verified boundary to a separately-named alternate canon under
    `<project>/.kg/constructions/<slug>/`, and `kg_generate(second_construction=<name>)` (or a pre-built
@@ -306,13 +306,13 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
 - **Read/query (16):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
   status + section coverage, where a span counts toward the file its edge's `source_file` names, as
-  span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/kg-build` plan:
+  span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/burgess:kg-build` plan:
   files, sections at each file's heading level, per-section coverage, the wave size; it reads the
   typed arguments and the option text it is handed, so the command needs no shell; with `--leads`,
   the sections holding the leads rejected claims carry), `kg_section`
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
   nodes the section names, so the extractor can reuse their ids, and on request its pending leads
-  with their spans), `kg_ground_plan` (the `/kg-ground`
+  with their spans), `kg_ground_plan` (the `/burgess:kg-ground`
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
   grounders, plus the wave size and the hubs no adversarial pass has attacked since their last grounded
   claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge and from the
@@ -420,10 +420,10 @@ stays recoverable and is never auto-discarded. Grounding **falsifications** and 
 one negative memory, and neither generation path re-proposes from it. The fold keys on a
 deliberately narrower `server.MATERIALIZED_DISCARD_STATES` = {`failed`} — distinct from the global
 `FAILURE_STATES` = {`rejected`, `failed`} (which still governs projector no-prune and the
-write-boundary durability quarantine that backs `/kg-generate` negative memory). The sync only
+write-boundary durability quarantine that backs `/burgess:kg-generate` negative memory). The sync only
 reads verdicts; issuing them stays `kg_ground`'s monopoly.
 
-**Advisory DPP over `/kg-generate`** (`advisory_geometry.py`, behind `divergence.dpp`, default
+**Advisory DPP over `/burgess:kg-generate`** (`advisory_geometry.py`, behind `divergence.dpp`, default
 off): the same candidate set is reordered by a hybrid-descriptor DPP — one semantic axis (batch
 k-NN novelty) plus community/graph-distance/grounded-mix structural axes — and labelled with
 niche bins, semantic novelty, and distance to the graph's "center" (the top-6 grounded-degree
@@ -447,16 +447,16 @@ divergence templates ship as pack fragments under `pack/domains/`.
 
 ## 8. Language layer
 
-- **Commands** (9): `/kg-build` (wave-parallel extraction), `/kg-ground` (the grounding loop),
-  `/kg-generate`, `/kg-perturb`, `/kg-query`, `/kg-eval`, `/kg-experiment`, `/kg-view`,
-  `/kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
+- **Commands** (9): `/burgess:kg-build` (wave-parallel extraction), `/burgess:kg-ground` (the grounding loop),
+  `/burgess:kg-generate`, `/burgess:kg-perturb`, `/burgess:kg-query`, `/burgess:kg-eval`, `/burgess:kg-experiment`, `/burgess:kg-view`,
+  `/burgess:kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
 - **Subagents** (7): `kg-extractor` (one per planned section, whose text it fetches with
   `kg_section`; emits `kg_write` payloads),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
   `attacked_by` edges + `failed` verdicts), `kg-generator` (phrases structural candidates —
   language only, never structure), `kg-annotator` (label passes for precision/agreement),
   `kg-evaluator` (the blind multi-arm ideation experiment), `kg-judge` (one blind verdict per
-  prompt for `/kg-experiment --judge`).
+  prompt for `/burgess:kg-experiment --judge`).
   - The three measurement subagents (`kg-annotator`, `kg-evaluator` and `kg-judge`) declare
     `omitClaudeMd: true` (0.13.2). Claude Code starts them without the user, project and local
     CLAUDE.md files and without its auto-memory index, which it hands a subagent by default. A session
@@ -558,16 +558,16 @@ divergence templates ship as pack fragments under `pack/domains/`.
 | `KG_DIVERGE_EMBEDDER` / `KG_DIVERGE_HOME` / `KG_DIVERGE_DEBUG` | Divergence embedder provider / state-dir override / tracebacks |
 | `KG_LIGHTRAG` (+ `KG_LIGHTRAG_QUERY_MODE`, `OPENAI_API_KEY`) | Opt-in LightRAG experiment arm |
 | `KG_BACKEND_MODEL` / `KG_BACKEND_MAX_TOKENS` | Headless backend knobs |
-| `CLAUDE_PLUGIN_OPTION_*` | userConfig reads: `SOURCE_PATH`, `SENSITIVITY` (default `medium`), `METRICS_MODE` (default `structure_only`); `EXTRACT_WAVE_SIZE` (default 6) only through `python -m kg_engine.waves` — `/kg-build` hands it to `kg_build_plan` from its own text instead |
+| `CLAUDE_PLUGIN_OPTION_*` | userConfig reads: `SOURCE_PATH`, `SENSITIVITY` (default `medium`), `METRICS_MODE` (default `structure_only`); `EXTRACT_WAVE_SIZE` (default 6) only through `python -m kg_engine.waves` — `/burgess:kg-build` hands it to `kg_build_plan` from its own text instead |
 
 All env reads pass through one cleaner that drops empty values, unsubstituted `${…}` placeholders,
 and bare `/.venv` sentinels.
 
 Claude Code sets the `CLAUDE_PLUGIN_OPTION_*` variables for hooks and MCP servers only. A command's
-Bash shell never has them, so `/kg-build` takes `extract_wave_size` from its own text: Claude Code
+Bash shell never has them, so `/burgess:kg-build` takes `extract_wave_size` from its own text: Claude Code
 fills the `${user_config.…}` placeholder there when the command loads, and leaves it unfilled when
 the option is unset. Since 0.5.0 the command passes that text to `kg_build_plan`, so the engine
-resolves the wave size without holding a setting for it, and `/kg-build` runs no shell at all: in
+resolves the wave size without holding a setting for it, and `/burgess:kg-build` runs no shell at all: in
 auto mode Claude Code ignores a command's `Bash` permission (and its `Task` one), so a shell step
 there goes to the classifier and can stop the build on a prompt, while the MCP tools a command
 declares keep their grant. Commands read their arguments from `$ARGUMENTS`, the raw typed text, and never
@@ -588,7 +588,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-reconcile-state.json      reconciler cache (gitignored)
   .kg-hub-attacks.jsonl         attacks that wrote no counter-edge (gitignored engine state, 0.10.0)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
-  .kg/constructions/<slug>/     /kg-perturb second construction (alt canon/ + derived/; ephemeral)
+  .kg/constructions/<slug>/     /burgess:kg-perturb second construction (alt canon/ + derived/; ephemeral)
 <data dir>/                     $KG_DATA (or <project>/.kg-data)
   derived/                      graph.json, index.sqlite, generations.json, graph.html, GRAPH_REPORT.md
   .venv/                        provisioned engine venv
@@ -600,12 +600,12 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
 
 Every metric measures; none gates the pipeline — verdicts run on their own advisory thresholds.
 
-The commands that drive these CLIs (`/kg-eval`, `/kg-experiment` and their subagents) run them with the
+The commands that drive these CLIs (`/burgess:kg-eval`, `/burgess:kg-experiment` and their subagents) run them with the
 engine's own interpreter, which `scripts/engine_python.mjs` prints by the launcher's own rule
 (`_engine_resolve.mjs`: `KG_ENGINE_VENV`, else `<plugin data>/.venv`, else `<plugin root>/.venv`; the
 bootstrap pointer, else the platform's conventional path). A source argument may be one file or a folder of
 `.md`/`.txt` documents; the CLIs read it as `SourceSet(path).concat`, the projector's own input, so the
-specificity gate's IDF corpus is the projector's. In an installed copy (under `plugins/cache`) `/kg-eval`
+specificity gate's IDF corpus is the projector's. In an installed copy (under `plugins/cache`) `/burgess:kg-eval`
 below target records the pack/extractor refinements it would make; only a development checkout edits them
 and re-extracts (0.11.4).
 
@@ -635,7 +635,7 @@ and re-extracts (0.11.4).
 
   The command logs a failure as a caveat; it gates nothing.
 - `python -m kg_engine.harness judge-packets` and `judge-aggregate` (0.13.0, `scripts/kg_engine/judge.py`) — the
-  deterministic half of the blind judge, run by `/kg-experiment --judge`:
+  deterministic half of the blind judge, run by `/burgess:kg-experiment --judge`:
   - one packet per prompt, holding every arm's idea, a decoy and a positive control, each with its own BM25
     evidence, in a seeded order that rotates per prompt. The label mapping stays in `private/`.
   - Both controls are checked before any judge runs: the decoy must cite something the source lacks, and the
@@ -655,7 +655,7 @@ and re-extracts (0.11.4).
   the astrology rate (fabricated+vague) and confidence calibration.
 - `python -m kg_engine.harness writers` — splits a labeled sample by who wrote each edge (an extraction,
   a lead pass, an adversarial pass) and by the verdict it holds now. The canon keeps edges from every
-  build, so `/kg-eval` checks a refinement against the current contract before it recommends one.
+  build, so `/burgess:kg-eval` checks a refinement against the current contract before it recommends one.
   `harness legacy-log` notes a pre-0.11.7 `PROGRESS.md` that the source still reads; the measurement log
   now lives in `<project>/.kg/`.
 - `python -m kg_engine.divergence selftest` — the divergence engine's offline correctness

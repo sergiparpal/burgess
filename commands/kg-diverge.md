@@ -4,7 +4,7 @@ argument-hint: "<brief> [domain-template] [reach: conservative|balanced|wild]"
 allowed-tools: Read, mcp__plugin_burgess_burgess__kg_diverge_init, mcp__plugin_burgess_burgess__kg_diverge_ingest, mcp__plugin_burgess_burgess__kg_diverge_remember, mcp__plugin_burgess_burgess__kg_diverge_parents, mcp__plugin_burgess_burgess__kg_diverge_metrics, mcp__plugin_burgess_burgess__kg_diverge_recall, mcp__plugin_burgess_burgess__kg_diverge_materialize
 ---
 
-# /kg-diverge — standalone divergence (FUSION Stage 3)
+# /burgess:kg-diverge — standalone divergence (FUSION Stage 3)
 
 Brief: $ARGUMENTS
 
@@ -128,7 +128,7 @@ reach — `wild` means further-out, never incoherent.
    - ask only the returned `ask_pairs` as short A-vs-B questions;
    - **explicitly invite pinning any idea** — "pin any of these to keep exploring from? any
      of them, not just A/B" (pins are the strongest, durable signal: always parents, recalled
-     across sessions, and later materializable into the graph via /kg-generate's propose lane);
+     across sessions, and later materializable into the graph via /burgess:kg-generate's propose lane);
    - **offer the discard lever** — "drop any of these so we stop building on them?" (a discard
      is durable negative memory: never re-slated, never bred from; re-pinning un-discards).
      Discarding is the user's call, never yours.
@@ -174,7 +174,7 @@ reach — `wild` means further-out, never incoherent.
   is materialized as a **node**, and that node is grounded on its own via `kg_ground(kind="node")`.
   A pin with **no wired edge is still fully groundable** — "no edge → can't be grounded" is false;
   grounding operates on nodes, not just edges. Materialized pins may be ground FIRST by
-  /kg-ground (priority is ordering only — verdict-neutral by test). Grounding a materialized
+  /burgess:kg-ground (priority is ordering only — verdict-neutral by test). Grounding a materialized
   pin against an existing source will (correctly) leave it `unverified` — a novel idea has no
   in-source span yet — so it WAITS in the lane, recoverable, until you add supporting sources;
   a merely-unsupported (`rejected`) pin is **never** auto-discarded. Only when a pin is actively
@@ -185,7 +185,7 @@ reach — `wild` means further-out, never incoherent.
   on purpose — but evidence changes. When the **source set changes** after a pin was falsified,
   `kg_diverge_init`/`kg_diverge_recall` surface those `failed`-fated candidates under a
   `reexaminable_discards` list (`{candidate, fate:"failed", reason:"source-set-changed-since-judged"}`)
-  — the divergence mirror of /kg-ground's re-examinable advisory. This is **surface-only**: it does
+  — the divergence mirror of /burgess:kg-ground's re-examinable advisory. This is **surface-only**: it does
   NOT auto-un-seal anything. If the user decides a discarded idea deserves a second chance against the
   new source, call `kg_diverge_recall(project, reexamine=[candidate_ids])` — the **explicit** un-seal
   lever: it drops those candidates from the discards and clears their failure fate so they return to the

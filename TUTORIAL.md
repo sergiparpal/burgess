@@ -55,7 +55,7 @@ Burgess builds a **knowledge graph**. That's just a fancy word for a web of note
   that", "this *bridges* those two", and so on.
 
 Every relationship carries a **status** that tells you how much to trust it. When you later look at
-your graph (with `/kg-view`), you'll see these as colors and line styles:
+your graph (with `/burgess:kg-view`), you'll see these as colors and line styles:
 
 | What you see | What it means |
 |---|---|
@@ -86,15 +86,15 @@ map. In each phase you just type a slash command in Claude Code and follow along
 
 ```text
   BRAINSTORM        CAPTURE           BUILD            VERIFY           EXPAND           USE
- /kg-diverge  →  materialize pins  →  /kg-build   →  /kg-ground   →  /kg-generate  →  /kg-query
- (wide, free)     (keepers →           (document →     (check vs        (new ideas       /kg-view
+ /burgess:kg-diverge  →  materialize pins  →  /burgess:kg-build   →  /burgess:kg-ground   →  /burgess:kg-generate  →  /burgess:kg-query
+ (wide, free)     (keepers →           (document →     (check vs        (new ideas       /burgess:kg-view
                    graph as             graph)          source)          from the         (read &
                    hypotheses)                                           graph)            see it)
 ```
 
 ---
 
-#### Phase 1 — Brainstorm without the clichés (`/kg-diverge`)
+#### Phase 1 — Brainstorm without the clichés (`/burgess:kg-diverge`)
 
 Start here when you have a *question or brief*, not yet a document. No graph is needed — this phase
 is completely standalone.
@@ -102,7 +102,7 @@ is completely standalone.
 Type a command with your brief:
 
 ```text
-/kg-diverge names and angles for a calm, screen-free bedtime routine for toddlers
+/burgess:kg-diverge names and angles for a calm, screen-free bedtime routine for toddlers
 ```
 
 Burgess runs at **balanced** reach unless you say otherwise — novel ideas that still hold together.
@@ -158,20 +158,20 @@ note in its body recording that it came from this brainstorm. Two things to expe
 
 ---
 
-#### Phase 3 — Turn a document into a graph (`/kg-build`)
+#### Phase 3 — Turn a document into a graph (`/burgess:kg-build`)
 
 Now the convergence side. Burgess builds from the source you gave it at install, `source_path`: one
 document, a **whole folder**, or a **pattern**. On its own, the command builds all of it:
 
 ```text
-/kg-build
+/burgess:kg-build
 ```
 
 To build only part of it, name a file, folder or pattern **inside** that source:
 
 ```text
-/kg-build research/chapter-1.md     (one document of a source folder)
-/kg-build research/*.md             (a matching set of its files)
+/burgess:kg-build research/chapter-1.md     (one document of a source folder)
+/burgess:kg-build research/*.md             (a matching set of its files)
 ```
 
 That source is also what every snippet is checked against, so a path outside it cannot work: every
@@ -185,21 +185,21 @@ from your text that it's based on. If a snippet doesn't actually appear in your 
 rejects it — this is the anti-fabrication guarantee. At this stage everything is written as
 **unverified** (dashed lines): extracted, but not yet checked.
 
-**You can build incrementally.** The graph is additive: run `/kg-build` again later and it *adds* to the
+**You can build incrementally.** The graph is additive: run `/burgess:kg-build` again later and it *adds* to the
 same graph rather than wiping it. Shared concepts across documents naturally merge into one node. The easy
 way to grow it is to make `source_path` a **folder**: drop a new document into it (Burgess notices new
-files without a restart) and build just that one with `/kg-build <folder>/<new-document>.md`. So a
+files without a restart) and build just that one with `/burgess:kg-build <folder>/<new-document>.md`. So a
 perfectly normal pattern is: build one document, then another, then another, growing one graph over time.
 
 ---
 
-#### Phase 4 — Fact-check against your source (`/kg-ground`)
+#### Phase 4 — Fact-check against your source (`/burgess:kg-ground`)
 
 This is the heart of the "converge" side, and the **only** command that can mark something as
 trustworthy:
 
 ```text
-/kg-ground
+/burgess:kg-ground
 ```
 
 Burgess goes through the unverified relationships and, for each one, tries to confirm it against your
@@ -213,7 +213,7 @@ actual source:
 - Vague, over-connected "hub" concepts get deliberately challenged, so a fuzzy idea can't look
   important just by touching everything.
 
-You can also focus it on one area — `/kg-ground betweenness` — instead of the whole backlog.
+You can also focus it on one area — `/burgess:kg-ground betweenness` — instead of the whole backlog.
 
 > **The honest limit, stated plainly:** *grounded* means "a sentence in **your** document supports
 > this." It does **not** mean the claim is true about the world. Burgess guarantees faithfulness to
@@ -222,13 +222,13 @@ You can also focus it on one area — `/kg-ground betweenness` — instead of th
 
 ---
 
-#### Phase 5 — Let the graph suggest new ideas (`/kg-generate`)
+#### Phase 5 — Let the graph suggest new ideas (`/burgess:kg-generate`)
 
 Once you have a grounded graph, it can become a source of *fresh* ideas — not from a blank page, but
 from the structure of what you already know:
 
 ```text
-/kg-generate
+/burgess:kg-generate
 ```
 
 Burgess looks at the shape of your graph and proposes new candidate connections using several
@@ -238,19 +238,19 @@ checkable sentence and added to your graph as a **hypothesis** (dotted line, no 
 
 The philosophy here is deliberate: **generate freely, judge afterward.** Nothing is filtered out for
 being "low quality" at this stage — everything is offered. To find out which proposals actually hold
-up, you simply run `/kg-ground` again over the new hypotheses. Grounding is always the filter, and it
+up, you simply run `/burgess:kg-ground` again over the new hypotheses. Grounding is always the filter, and it
 always comes last.
 
 ---
 
-#### Phase 6 — Challenge your blind spots (`/kg-perturb`) *(optional)*
+#### Phase 6 — Challenge your blind spots (`/burgess:kg-perturb`) *(optional)*
 
 Every idea in Phase 5 comes from *your* graph's own way of seeing things — so it can only ever find
-what your current view already implies. `/kg-perturb` is the one command that pushes against that.
+what your current view already implies. `/burgess:kg-perturb` is the one command that pushes against that.
 You give it a **second document** (a different source, or the same territory seen a different way):
 
 ```text
-/kg-perturb path/to/a-different-source.md
+/burgess:kg-perturb path/to/a-different-source.md
 ```
 
 Burgess builds a second, independent picture of the topic and looks for connections that exist in
@@ -260,12 +260,12 @@ different ones. The connections that survive **both** views are the ones worth g
 
 ---
 
-#### Phase 7 — Ask your graph questions (`/kg-query`)
+#### Phase 7 — Ask your graph questions (`/burgess:kg-query`)
 
 Now put the graph to work. Ask a question in plain language:
 
 ```text
-/kg-query what defeats the generality confound, and how well-supported is that?
+/burgess:kg-query what defeats the generality confound, and how well-supported is that?
 ```
 
 Burgess answers **from your grounded graph, not from its own general knowledge** — and it's scrupulous
@@ -276,12 +276,12 @@ relevant "here's what failed before" memory, it surfaces that too.
 
 ---
 
-#### Phase 8 — See your graph (`/kg-view`)
+#### Phase 8 — See your graph (`/burgess:kg-view`)
 
 To actually look at what you've built:
 
 ```text
-/kg-view
+/burgess:kg-view
 ```
 
 This produces two things you can open right away, both fully offline:
@@ -294,20 +294,20 @@ This produces two things you can open right away, both fully offline:
   breakdown by trust level, the list of remembered failures, and a per-document tally if you built
   from several sources.
 
-`/kg-view` is strictly a window — it never changes anything. To change the graph, you go back through
+`/burgess:kg-view` is strictly a window — it never changes anything. To change the graph, you go back through
 build and ground.
 
 ---
 
-#### Phase 9 — Measure and prove it (`/kg-eval`, `/kg-experiment`) *(advanced, optional)*
+#### Phase 9 — Measure and prove it (`/burgess:kg-eval`, `/burgess:kg-experiment`) *(advanced, optional)*
 
 If you want hard numbers rather than a vibe, Burgess ships its own honesty checks:
 
-- **`/kg-eval`** measures how *precise* the extraction was (does each relationship really have
+- **`/burgess:kg-eval`** measures how *precise* the extraction was (does each relationship really have
   support?) and how *reliable* the grounding is (would two independent passes agree?). It reports the
   numbers and, if a stage falls short, tells you what it would refine. It never edits your installed
   plugin or rebuilds your graph to chase a better number.
-- **`/kg-experiment`** runs a genuine blind test of the whole premise: given the same document and the same
+- **`/burgess:kg-experiment`** runs a genuine blind test of the whole premise: given the same document and the same
   budget, does the graph help you generate ideas that go further beyond the text than flat retrieval does,
   while staying anchored in it? It drafts its test prompts from your own graph, compares several conditions
   prompt by prompt and records the verdict, or says when your source does not let it measure. This is how
@@ -325,16 +325,16 @@ believed.
 
 | Command | When you reach for it |
 |---|---|
-| `/kg-diverge <brief> [domain-template] [reach]` | Brainstorm wide, fight clichés, pin the keepers. No graph needed. Add `wild` or `conservative` to change how far out it goes (default `balanced`), and name a domain template (e.g. `marketing`) to pick the axes it spreads across. |
+| `/burgess:kg-diverge <brief> [domain-template] [reach]` | Brainstorm wide, fight clichés, pin the keepers. No graph needed. Add `wild` or `conservative` to change how far out it goes (default `balanced`), and name a domain template (e.g. `marketing`) to pick the axes it spreads across. |
 | *materialize* (just ask) | Promote your pinned ideas into the graph as hypotheses. |
-| `/kg-build <file/folder>` | Turn a document (or many) into a graph. Adds to what's there. |
-| `/kg-ground` | Fact-check against your source. The **only** way to mark something trusted. |
-| `/kg-generate` | Let the graph's structure suggest new candidate ideas. |
-| `/kg-perturb [2nd source]` | Bring in an outside viewpoint to expose blind spots. Give it another document, or a prior construction's `graph.json`. |
-| `/kg-query <question>` | Ask your graph, with trust levels attached to every answer. |
-| `/kg-view` | Render an offline interactive map + a written report. |
-| `/kg-eval` | Measure extraction precision and grounding reliability. |
-| `/kg-experiment` | Blind-test whether the graph really improves ideation. |
+| `/burgess:kg-build <file/folder>` | Turn a document (or many) into a graph. Adds to what's there. |
+| `/burgess:kg-ground` | Fact-check against your source. The **only** way to mark something trusted. |
+| `/burgess:kg-generate` | Let the graph's structure suggest new candidate ideas. |
+| `/burgess:kg-perturb [2nd source]` | Bring in an outside viewpoint to expose blind spots. Give it another document, or a prior construction's `graph.json`. |
+| `/burgess:kg-query <question>` | Ask your graph, with trust levels attached to every answer. |
+| `/burgess:kg-view` | Render an offline interactive map + a written report. |
+| `/burgess:kg-eval` | Measure extraction precision and grounding reliability. |
+| `/burgess:kg-experiment` | Blind-test whether the graph really improves ideation. |
 
 Most commands take optional arguments this table leaves out — every one of them, with worked examples,
 is in the [command manual](docs/COMMANDS.md).

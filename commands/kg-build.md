@@ -4,7 +4,7 @@ argument-hint: "[--leads] [subset] [wave_size]"
 allowed-tools: Task, mcp__plugin_burgess_burgess__kg_build_plan, mcp__plugin_burgess_burgess__kg_status, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph
 ---
 
-# /kg-build — orchestrate the BUILD
+# /burgess:kg-build — orchestrate the BUILD
 
 You are the **build orchestrator**. You turn a non-self-grounding conceptual document into a grounded,
 queryable graph by driving the `kg-extractor` subagent over the source **section by section**, then forcing the
@@ -28,13 +28,13 @@ Do not split that line yourself: pass it to `kg_build_plan` exactly as it appear
 
 - **Empty** → the whole configured `source_path`, at the configured wave size.
 - **A trailing whole number after a space** is the **wave size**, and the rest is the **subset**. So an
-  unquoted name with spaces works: `/kg-build Fábricas de software.md 4`.
-- **A line that is only a whole number** is the wave size: `/kg-build 4`.
+  unquoted name with spaces works: `/burgess:kg-build Fábricas de software.md 4`.
+- **A line that is only a whole number** is the wave size: `/burgess:kg-build 4`.
 - **Quotes** around the subset are dropped. Quote a name that itself ends in a number (`"capítulo 3"`), or
   that number is read as the wave size. Two separately quoted paths are refused: one subset is one file,
   folder or glob.
-- **`--leads` as the first word** (0.9.0) writes the leads `/kg-ground` recorded instead of building: see
-  **Leads mode**, below. The rest of the line still reads as a subset and a wave size: `/kg-build --leads 4`.
+- **`--leads` as the first word** (0.9.0) writes the leads `/burgess:kg-ground` recorded instead of building: see
+  **Leads mode**, below. The rest of the line still reads as a subset and a wave size: `/burgess:kg-build --leads 4`.
 
 The two arguments:
 
@@ -240,19 +240,19 @@ Summarize the build back to the user:
 - **Falsification counters** — from `kg_context`: `falsification_counters.failed_or_rejected_edges` (expected 0 at
   build; non-zero only after grounding).
 
-## Leads mode (`/kg-build --leads`, 0.9.0)
+## Leads mode (`/burgess:kg-build --leads`, 0.9.0)
 
 A grounder that rejects a claim because its span states another relation (`wrong-relation`) or relates a
 narrower or broader concept than one of its nodes (`wrong-node`) records the edge the span does state, the
 **lead**, on the rejected edge. A build skips every section that already has edges, so this mode is the one
 path a lead takes into the canon. It writes each lead once, as an `unverified` claim with the same span, and
-the next `/kg-ground` judges it like any other.
+the next `/burgess:kg-ground` judges it like any other.
 
 1. **The plan** (`kg_build_plan` with the arguments as typed) is `mode: "leads"`:
    - `leads[]`, one entry per section, in source order: `source_file`, `section`, `title`, and its `leads[]`,
      each `{from_edge, lead}`: the rejected edge's id and the lead as `<head> <relation> <tail>`;
    - `leads_total`, `wave_size`, `wave_size_from` and `waves`;
-   - `leads_unlocated`, when a rejected edge's span is no longer in the source. Report those ids: `/kg-ground`
+   - `leads_unlocated`, when a rejected edge's span is no longer in the source. Report those ids: `/burgess:kg-ground`
      has to judge the claim again against the changed source before its lead can be written.
 
    `leads_total` 0 → report "no pending leads" and stop. Otherwise tell the user in a line how many leads, in
@@ -286,7 +286,7 @@ the next `/kg-ground` judges it like any other.
    its extractor declined stays in the plan: re-launch its section at most once, then report the lead with the
    extractor's reason instead of looping.
 4. **Report:** the leads written (the new edge ids) and the ones declined, with why; the summed dispositions, as
-   for a build; and `kg_metrics()`'s counts. End by telling the user to run `/kg-ground`: the new edges wait in
+   for a build; and `kg_metrics()`'s counts. End by telling the user to run `/burgess:kg-ground`: the new edges wait in
    its queue as `unverified`.
 
 ## Worked example (against `examples/source.md`)
@@ -313,8 +313,8 @@ The plan lists five `## ` sections in `source.md`, so five extractor launches ru
 All emitted with `provenance: span-present`, `authored_by: agent`, `epistemic_state: unverified`. Edge IDs are
 derived deterministically as `e_{source}__{relation}__{target}`, where `slug()` collapses underscores **and**
 spaces to hyphens — e.g. `e_generality-confound__attacked-by__specificity` (the `attacked_by` relation slugs to
-`attacked-by` in the id). After the build, `/kg-ground` (adversarial grounding) and
-`/kg-query` (read) take over; **nothing here sets a verdict.**
+`attacked-by` in the id). After the build, `/burgess:kg-ground` (adversarial grounding) and
+`/burgess:kg-query` (read) take over; **nothing here sets a verdict.**
 
 ## Failure modes to watch (and how you, the orchestrator, respond)
 
@@ -327,7 +327,7 @@ spaces to hyphens — e.g. `e_generality-confound__attacked-by__specificity` (th
   claim. Report it with the other rejections.
 - **`placeholders` in a kg_write result** → the extractor named a node without declaring it, and the node landed
   untyped. Its contract has it re-send the payload with the node declared. If one is still untyped at the end,
-  list it in the report: a later section that defines it can declare it, and `/kg-ground` can judge it.
+  list it in the report: a later section that defines it can declare it, and `/burgess:kg-ground` can judge it.
 - **A refused `kg_write` call** (`ok: false`, "`source` is only valid together with `construction`") → the
   extractor passed `source` to kg_write. Nothing was written; it should re-send the payload alone.
 - **REJECTED `write-lane-hypothesis`** → the extractor marked an item `hypothesized`, the proposal lane that

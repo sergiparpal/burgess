@@ -13,17 +13,17 @@ Burgess **is** Sproutgraph at baseline parity, plus the divergence side. Nothing
 you know changes:
 
 - **Commands:** all eight `/kg-*` commands keep their names and semantics
-  (`/kg-build`, `/kg-ground`, `/kg-query`, `/kg-eval`, `/kg-experiment`,
-  `/kg-generate`, `/kg-perturb`, `/kg-view`). New: `/kg-diverge`.
+  (`/burgess:kg-build`, `/burgess:kg-ground`, `/burgess:kg-query`, `/burgess:kg-eval`, `/burgess:kg-experiment`,
+  `/burgess:kg-generate`, `/burgess:kg-perturb`, `/burgess:kg-view`). New: `/burgess:kg-diverge`.
 - **Data:** the canon (`canon/*.md`), derived layer, audit ledger, reconcile
   state, and pack format are unchanged — an existing Sproutgraph project
   directory works as-is. The plugin/server identity is `burgess` (tool
   namespace `mcp__plugin_burgess_burgess__*`), and the plugin data dir is
   Burgess's own (a fresh venv provisions on first load).
 - **pack.yaml:** unchanged schema, plus an OPTIONAL `divergence:` section
-  (behavior axes for /kg-diverge + the `dpp` flag). Packs without it work
+  (behavior axes for /burgess:kg-diverge + the `dpp` flag). Packs without it work
   untouched.
-- **/kg-experiment:** the four donor arms are unchanged; a fifth
+- **/burgess:kg-experiment:** the four donor arms are unchanged; a fifth
   `graph+generate+dpp` arm measures the advisory-DPP presentation.
 - **New, opt-in:** `divergence.dpp: true` in the pack (or `dpp: true` per
   `kg_generate` call) presents generate slates in advisory-DPP order with
@@ -40,7 +40,7 @@ into the graph plugin's trust boundary:
 
 | Cambrian | Burgess |
 |---|---|
-| `/cambrian:ideate <brief>` | `/kg-diverge <brief>` |
+| `/cambrian:ideate <brief>` | `/burgess:kg-diverge <brief>` |
 | Skill drives a local CLI (`python -m cambrian_engine …` + tmp-file hand-offs) | Command drives MCP tools (`kg_diverge_init/ingest/remember/parents/metrics/recall/materialize`) — JSON in, JSON out |
 | State in `~/.cambrian/<project>/` | Project-local `.kg/diverge/<brief-slug>/` (git-friendly) |
 | MAP-Elites archive persists across sessions | **Session-ephemeral** (I10): a new session wipes the geometry archive; pins, discards and comparisons persist. The knowledge graph is the durable archive — pin what matters, materialize it. |

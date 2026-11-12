@@ -72,7 +72,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   </ul>
   <div class="ax">size = degree · <span id="bridgelegend"></span></div>
 </div>
-<div id="empty" style="display:none">graph is empty — build it with /kg-build</div>
+<div id="empty" style="display:none">graph is empty — build it with /burgess:kg-build</div>
 <script>
 "use strict";
 window.__KG_DATA__ = __KG_DATA_JSON__;

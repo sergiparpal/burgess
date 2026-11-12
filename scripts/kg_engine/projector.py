@@ -1704,7 +1704,7 @@ def _agenda_from_rows(nodes: list, edges: list, *, limit: int = 5) -> dict:
         elif live and all(e.get("provenance") == "hypothesized" for e in live):
             item = {"detector": "hypothesized-only", "lane": "blocked_on_grounding", "focus": [nid],
                     "question": f"Every relation on '{label}' is a hypothesis — its role is unverified. "
-                                f"Ground them (/kg-ground) before treating it as established."}
+                                f"Ground them (/burgess:kg-ground) before treating it as established."}
         elif deg >= _HUB_DEGREE and decided and grounded / decided >= _GROUNDED_RATIO:
             nbrs = _neighbor_labels(nid, live, by_id)
             item = {"detector": "well-grounded", "lane": "answerable_now", "focus": [nid],
@@ -1713,7 +1713,8 @@ def _agenda_from_rows(nodes: list, edges: list, *, limit: int = 5) -> dict:
         elif deg >= _HUB_DEGREE and decided and grounded / decided < _GROUNDED_RATIO:
             item = {"detector": "under-grounded-hub", "lane": "blocked_on_grounding", "focus": [nid],
                     "question": f"Hub '{label}' (degree {deg}) is under-grounded — only {grounded}/{decided} "
-                                f"of its edges are grounded. Drain its unverified queue (/kg-ground) to trust it."}
+                                f"of its edges are grounded. Drain its unverified queue "
+                                f"(/burgess:kg-ground) to trust it."}
         else:
             continue
         item["signals"] = _agenda_signals(n)

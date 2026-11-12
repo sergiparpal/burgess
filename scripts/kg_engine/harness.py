@@ -867,8 +867,9 @@ def sample_writers(rows: list[dict], edges: dict) -> dict:
             "absent": absent}
 
 
-_WRITER_LEGEND = ("writer: extractor = a /kg-build extraction; lead = written by /kg-build --leads from a "
-                  "grounder's lead; counter-edge = an adversarial pass of /kg-ground; proposal = /kg-generate")
+_WRITER_LEGEND = ("writer: extractor = a /burgess:kg-build extraction; lead = written by /burgess:kg-build --leads "
+                  "from a grounder's lead; counter-edge = an adversarial pass of /burgess:kg-ground; "
+                  "proposal = /burgess:kg-generate")
 
 
 def _print_writers(res: dict) -> None:
@@ -1100,11 +1101,11 @@ def _cmd_legacy_log(argv: list[str]) -> int:
     old = legacy_log(project, source)
     if old is not None:
         new = Path(project) / ".kg" / LOG_NAME
-        print(f"NOTE: {old} is one of the source documents. Through Burgess 0.11.6, /kg-eval and "
-              f"/kg-experiment kept their log there; they now write {new}. While it stays in the source "
-              f"folder, /kg-build extracts it like any other document and /kg-experiment reads it as source. "
-              f"Ask the user to move it out of that folder, for instance into {new.parent}. Burgess never "
-              f"moves or deletes it.")
+        print(f"NOTE: {old} is one of the source documents. Through Burgess 0.11.6, /burgess:kg-eval and "
+              f"/burgess:kg-experiment kept their log there; they now write {new}. While it stays in the "
+              f"source folder, /burgess:kg-build extracts it like any other document and "
+              f"/burgess:kg-experiment reads it as source. Ask the user to move it out of that folder, for "
+              f"instance into {new.parent}. Burgess never moves or deletes it.")
     return 0
 
 

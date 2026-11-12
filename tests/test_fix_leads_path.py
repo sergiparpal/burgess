@@ -254,8 +254,8 @@ def test_the_grounder_passes_the_lead_to_kg_ground():
 
 def test_kg_ground_points_at_kg_build_leads():
     flat = _flat("commands/kg-ground.md")
-    assert "`queue.leads_pending`" in flat and "`/kg-build --leads`" in flat
-    assert "this command writes no edge, and `/kg-build` skips every section that already has one" not in flat
+    assert "`queue.leads_pending`" in flat and "`/burgess:kg-build --leads`" in flat
+    assert "this command writes no edge, and `/burgess:kg-build` skips every section that already has one" not in flat
 
 
 def test_kg_build_documents_the_leads_mode_and_its_mark():

@@ -7,7 +7,7 @@ description: >-
   extracted from prose — anything touching grounding, provenance, spans, falsification,
   bridges/betweenness, the canon-vs-derived split, or "is this claim actually supported by
   the source?" — or wants to brainstorm/ideate/explore an idea space with diversity
-  guarantees (/kg-diverge). Triggers: knowledge graph, grounding, provenance, conceptual
+  guarantees (/burgess:kg-diverge). Triggers: knowledge graph, grounding, provenance, conceptual
   document, build the graph, ground the graph, query the graph, falsification, span-present,
   brainstorm, ideate, diverse ideas, cliché.
 ---
@@ -48,36 +48,36 @@ Generation is **offensive**; grounding is the **defensive filter** (the inversio
 always emits candidates into a separate `hypothesized` lane, and the *same* grounding loop filters them
 afterward. The portico moved from the door of imagination to after generation.
 
-1. **`/kg-build [subset] [wave_size]`** — extract candidate nodes/edges from prose and write them
+1. **`/burgess:kg-build [subset] [wave_size]`** — extract candidate nodes/edges from prose and write them
    through the boundary. `kg_build_plan` plans it (files, sections, coverage, wave size); it orchestrates
    **kg-extractor** (one per section, Sonnet by default, launched in bounded parallel waves of
    `wave_size`), and each extractor fetches its own section with `kg_section` and emits one `kg_write`
    payload. No shell and no file reads, so auto mode never stops it on a prompt. Output edges land
    `unverified`.
-2. **`/kg-ground [node_or_query]`** — adjudicate `unverified` **edges AND nodes** (a materialized
-   `/kg-diverge` pin is a hypothesized node — often with no incident edge — groundable via
+2. **`/burgess:kg-ground [node_or_query]`** — adjudicate `unverified` **edges AND nodes** (a materialized
+   `/burgess:kg-diverge` pin is a hypothesized node — often with no incident edge — groundable via
    `kg_ground(kind="node")`; "no edge → can't ground" is false). **kg-grounder** confirms or
    rejects on the merits and stamps verdicts via `kg_ground`; **kg-adversarial-grounder** tries to
    *falsify* surviving edges, recording `attacked_by` edges + `kg_ground(verdict="failed")`. A claim
    rejected as `wrong-relation` or `wrong-node` carries a **lead**, the edge its span does state
-   (`kg_ground(..., lead=...)`); **`/kg-build --leads`** has an extractor write the leads, and the next
-   `/kg-ground` judges them (0.9.0).
-3. **`/kg-generate [mechanism] [k]`** — turn the graph into an idea generator. `kg_generate` runs the
+   (`kg_ground(..., lead=...)`); **`/burgess:kg-build --leads`** has an extractor write the leads, and the next
+   `/burgess:kg-ground` judges them (0.9.0).
+3. **`/burgess:kg-generate [mechanism] [k]`** — turn the graph into an idea generator. `kg_generate` runs the
    deterministic discovery mechanisms (bridge §2/§4, seed §3, compression §7, regroup §8, transplant §5,
    ensemble §9, periphery §5 — low-degree sources) over the derived graph and emits ranked structural
    candidates, each with an advisory `convergence` count (distinct mechanisms agreeing — a grounding-queue
    ranking prior, never a verdict); **kg-generator** phrases &
    names them; they are written `hypothesized`/`unverified` via the propose lane (`kg_propose`/`kg_operate`).
-   **`/kg-perturb [second]`** imports external structure and cross-generates against it (§9/§15).
-   **Generation never gates on a metric** — the next `/kg-ground` is the filter.
-4. **`/kg-query [question]`** — read the grounded graph: `query_graph`, `get_node`,
+   **`/burgess:kg-perturb [second]`** imports external structure and cross-generates against it (§9/§15).
+   **Generation never gates on a metric** — the next `/burgess:kg-ground` is the filter.
+4. **`/burgess:kg-query [question]`** — read the grounded graph: `query_graph`, `get_node`,
    `get_neighbors`, `shortest_path`, `kg_explain_path` (the grounded-only associative chain + advisory `leap`),
    and `kg_context` (budgeted, falsification-aware) for grounded answers with provenance. Hypothesized
    candidates appear in a SEPARATE `hypotheses[]` block, never in the grounded `items[]`.
-5. **`/kg-eval`** — run the deterministic gates: extraction precision (`f4_probe.py score`, gate
+5. **`/burgess:kg-eval`** — run the deterministic gates: extraction precision (`f4_probe.py score`, gate
    ≥ 0.70), inter-coder agreement (`harness agreement`, Krippendorff α ≥ 0.67), and the
    bridge-metric gate (`harness specificity`). **kg-annotator** drives these and reports verdicts.
-6. **`/kg-experiment`** — control \| graph \| graph+generate \| graph+generate+dpp \| rag ideation
+6. **`/burgess:kg-experiment`** — control \| graph \| graph+generate \| graph+generate+dpp \| rag ideation
    comparison via `harness ideation`. With `--judge`, blind **kg-judge** subagents also score each idea for
    grounded and useful, never novelty (`harness judge-packets` / `judge-aggregate`).
 
@@ -85,19 +85,19 @@ afterward. The portico moved from the door of imagination to after generation.
 
 | command | subagent(s) | engine surface |
 | --- | --- | --- |
-| `/kg-build` | `kg-extractor` | `kg_build_plan`, `kg_section`, `kg_write` |
-| `/kg-ground` | `kg-grounder`, `kg-adversarial-grounder` | `kg_ground_plan`, `kg_ground_item`, `kg_ground`, `kg_write`, `kg_record_attack` |
-| `/kg-generate` | `kg-generator` | `kg_generate`, `kg_propose`, `kg_operate`, `kg_absorption`, `kg_context` |
-| `/kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`), `kg_propose` |
-| `/kg-query` | (none; direct reads) | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `kg_context` |
-| `/kg-view` | (none; direct render) | `kg_export` |
-| `/kg-eval` | `kg-annotator` | `f4_probe.py`, `kg_engine.harness`, `query_graph` |
-| `/kg-experiment` | `kg-evaluator`; `kg-judge` with `--judge` | `kg_engine.harness rag-slices`, `kg_engine.harness ideation`, `kg_engine.harness judge-packets` / `judge-aggregate`, `kg_context`, `kg_generate` |
-| `/kg-diverge` | (none; main agent generates/judges) | `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`, `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` |
+| `/burgess:kg-build` | `kg-extractor` | `kg_build_plan`, `kg_section`, `kg_write` |
+| `/burgess:kg-ground` | `kg-grounder`, `kg-adversarial-grounder` | `kg_ground_plan`, `kg_ground_item`, `kg_ground`, `kg_write`, `kg_record_attack` |
+| `/burgess:kg-generate` | `kg-generator` | `kg_generate`, `kg_propose`, `kg_operate`, `kg_absorption`, `kg_context` |
+| `/burgess:kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`), `kg_propose` |
+| `/burgess:kg-query` | (none; direct reads) | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `kg_context` |
+| `/burgess:kg-view` | (none; direct render) | `kg_export` |
+| `/burgess:kg-eval` | `kg-annotator` | `f4_probe.py`, `kg_engine.harness`, `query_graph` |
+| `/burgess:kg-experiment` | `kg-evaluator`; `kg-judge` with `--judge` | `kg_engine.harness rag-slices`, `kg_engine.harness ideation`, `kg_engine.harness judge-packets` / `judge-aggregate`, `kg_context`, `kg_generate` |
+| `/burgess:kg-diverge` | (none; main agent generates/judges) | `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`, `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` |
 
 The MCP server is named `burgess`; tools are namespaced `mcp__plugin_burgess_burgess__<tool>`.
-The twenty-one read/write/ground tools (`kg_ping`, `kg_scrub`, `kg_build_plan` — the /kg-build plan,
-`kg_section` — one section, cut and egress-scrubbed for an extractor, `kg_ground_plan` — the /kg-ground
+The twenty-one read/write/ground tools (`kg_ping`, `kg_scrub`, `kg_build_plan` — the /burgess:kg-build plan,
+`kg_section` — one section, cut and egress-scrubbed for an extractor, `kg_ground_plan` — the /burgess:kg-ground
 queue in batches, `kg_ground_item` — one queued item's evidence for a grounder, `kg_record_attack` — the mark an
 adversarial attack leaves when it writes no counter-edge, `kg_write`, `kg_ground`, `kg_rename`,
 `kg_merge`, `kg_metrics`, `kg_status`, `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` — the
@@ -107,7 +107,7 @@ hypothesized write lane; `kg_generate` — the discovery mechanisms; `kg_operate
 `kg_absorption` — the §14 absorption window) make **twenty-five** graph tools, and the seven
 **divergence-surface** tools (`kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
 `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` — the
-/kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse monitor over project-local,
+/burgess:kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse monitor over project-local,
 session-ephemeral state under `.kg/diverge/`, plus the EXPLICIT pin-materialization door into the
 hypothesized lane; advisory ordering only, below the grounding boundary, never a verdict path) make
 **thirty-two** tools in total. These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`,
@@ -139,7 +139,7 @@ etc. are slash commands.
 5. **egress scrub (§1.9).** `mcp__plugin_burgess_burgess__kg_scrub(text)` redacts secrets (always) plus
    PII (per `sensitivity`) with CONSISTENT placeholders (`⟦SECRET:1⟧` etc.) *before* text is handed
    to a subagent; `kg_write` then RESTORES placeholder spans to the ORIGINAL text so the canon
-   stores the restored original span. Under `/kg-build`, `kg_section` applies the same session scrub to
+   stores the restored original span. Under `/burgess:kg-build`, `kg_section` applies the same session scrub to
    the section it serves, so the extractor only sees the scrubbed form. On the no-PII demo source it is
    a no-op (0 redactions).
 
@@ -174,7 +174,7 @@ Keep this guide tight; full detail lives in `references/` and is read only when 
   specificity seeds,
 - `operators.md`, `judge_rubric.md`, `axis_inference.md` — the divergence-side language work:
   variation operators, the validity-only judge rubric, and how to infer descriptor axes from
-  a brief (`/kg-diverge`). `/kg-diverge` also takes a **reach** dial
+  a brief (`/burgess:kg-diverge`). `/burgess:kg-diverge` also takes a **reach** dial
   (`conservative|balanced|wild`, default `balanced`) that tempers divergence in *degree* —
   `boldness` band, `feasibility` lean, operator mix — while leaving divergence in *kind* (the
   `mechanism` axis) maximal; coherence is enforced at every reach.

@@ -30,7 +30,7 @@ If you want to suggest *where to look* (e.g. the question is open-ended, or you'
 you **may** call `mcp__plugin_burgess_burgess__kg_agenda(limit=5)` first. It reads only
 precomputed structural signals and returns `answerable_now[]` (well-grounded neighbourhoods you can answer
 from now) vs `blocked_on_grounding[]` (orphans, hypothesized-only neighbourhoods, under-grounded hubs,
-disconnected clusters that need `/kg-ground` or extraction first). It is a **heuristic, not a guarantee** and
+disconnected clusters that need `/burgess:kg-ground` or extraction first). It is a **heuristic, not a guarantee** and
 suggests questions — it never answers them. This step is optional: skip it to keep the query token budget
 predictable, and never present a `blocked_on_grounding` gap as if it were answered.
 
@@ -43,10 +43,10 @@ Call `mcp__plugin_burgess_burgess__kg_context(query=$ARGUMENTS)`. This is the pr
   first: the more of its words an edge holds, and the rarer they are in the graph, the earlier it comes. Case,
   accents, plural endings and function words («del», "the") don't count. A search uses **at most 12 words**,
   the first ones in the question, and `query_terms` lists the words it searched on.
-- `hypotheses[]` — the **SEPARATE** hypothesized lane: machine proposals from `/kg-generate`
+- `hypotheses[]` — the **SEPARATE** hypothesized lane: machine proposals from `/burgess:kg-generate`
   (`provenance: hypothesized`, `epistemic_state: unverified`, **no span**). These are NOT facts and NOT
   grounded content — present them only under an explicit "Hypotheses (unverified proposals)" heading, never
-  mixed into the grounded answer. A hypothesis becomes a fact only after `/kg-ground` promotes it with
+  mixed into the grounded answer. A hypothesis becomes a fact only after `/burgess:kg-ground` promotes it with
   support (which upgrades its provenance to `span-present`/`inferred`).
 - `items_total`, `hypotheses_total` — every edge that matched each lane. When `items_total` is larger than the
   `items[]` you got, the budget (`budget`, default 2000 tokens; `approx_tokens` is what was used) left the
@@ -105,7 +105,7 @@ Rules:
 - Lead with `grounded` edges. Flag `unverified` edges as **candidates, not facts**. Flag `inferred` /
   `hypothesized` provenance explicitly.
 - `epistemic_state` is the verdict; `authored_by` only says who wrote the claim. An extractor's edge stays
-  `authored_by: agent` for life. Once `/kg-ground` grounds it, a grounder has judged it against the source,
+  `authored_by: agent` for life. Once `/burgess:kg-ground` grounds it, a grounder has judged it against the source,
   and it is a grounded fact like any other. Don't hedge a grounded edge for its author, and don't look for a
   second verdict elsewhere: the read tools carry none, and the answer needs none.
 

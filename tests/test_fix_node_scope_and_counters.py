@@ -124,4 +124,4 @@ def test_the_report_lists_the_leads():
     assert "an `enables` edge from the same span" in report
     # 0.8.1 said nothing could write them, since `/kg-build` skips every section that has edges; 0.9.0 records
     # each lead on its rejected edge and `/kg-build --leads` writes it (tests/test_fix_leads_path.py)
-    assert "`/kg-build --leads` writes them" in report
+    assert "`/burgess:kg-build --leads` writes them" in report

@@ -13,11 +13,11 @@ Before extraction, the §1.9 **egress scrub** `mcp__plugin_burgess_burgess__kg_s
 **consistent** placeholders (`⟦SECRET:1⟧` etc.) so relational structure survives, then hands the scrubbed
 text to the subagent. `kg_write` **restores** the placeholder spans to the ORIGINAL text before writing, so
 the boundary stores the restored original span in the canon (the span still verifies against the unscrubbed
-source, §5). For a no-PII source the scrub is a no-op (`redactions=0`). Under `/kg-build` the scrub runs
+source, §5). For a no-PII source the scrub is a no-op (`redactions=0`). Under `/burgess:kg-build` the scrub runs
 inside `mcp__plugin_burgess_burgess__kg_section(source_file, section)`, which serves an extractor its one
 section already cut and scrubbed (0.5.0). The graph tool surface adds the generative layer's tools on top of
-the twenty-one core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (the /kg-build plan),
-`kg_section`, `kg_ground_plan` and `kg_ground_item` (the /kg-ground queue and evidence), `kg_record_attack`
+the twenty-one core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (the /burgess:kg-build plan),
+`kg_section`, `kg_ground_plan` and `kg_ground_item` (the /burgess:kg-ground queue and evidence), `kg_record_attack`
 (the mark an attack with no counter-edge leaves), `kg_write`, `kg_ground`, `kg_rename`, `kg_merge` (deliberate node-merge with edge dedup), `kg_metrics`, `kg_status`,
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
@@ -130,7 +130,7 @@ Reasons:
   re-extraction (§1.7).
 - `collapses-into-known-verdict` — a text-claim re-emit of an edge already `grounded`/`obsolete`; held so
   the canon's incoming-wins merge can't reset the verdict to a fresh `unverified` edge on an idempotent
-  `/kg-build` re-run (§1.8).
+  `/burgess:kg-build` re-run (§1.8).
 
 **Nodes have no `collapses-into-*` quarantine** — a re-emitted node id is deduped and ACCEPTED. But a node
 that already carries a verdict (`grounded`/`rejected`/`failed`/`obsolete`) keeps its **body** on that merge:
@@ -270,7 +270,7 @@ Both `kg_write` and `kg_propose` take an optional `construction=<name>` (with a 
 It routes the SAME payload through the SAME `validate_payload` — same dispositions, same span verification,
 only now against the `source` document you name — and stores the result in a **separately-named alternate
 canon** under `<project>/.kg/constructions/<slug>/` instead of the primary canon. This is the in-session
-**second construction** `/kg-perturb` cross-generates against (§9/§15): a `kg-extractor` subagent builds it
+**second construction** `/burgess:kg-perturb` cross-generates against (§9/§15): a `kg-extractor` subagent builds it
 with no API key and no `backend` extra, because the session does the language work and the engine only
 validates and stores. The store is session-ephemeral (git commits disabled; wiped fresh on the first
 materialization of a session), and `kg_generate(second_construction=<name>)` projects it to cross-generate.
