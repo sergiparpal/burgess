@@ -385,6 +385,12 @@ of its nodes, the grounder records the claim the text does state on the rejected
 writes those claims, and the next `/burgess:kg-ground` judges them. Through 0.8.1 nothing could write them:
 `/burgess:kg-build` skips every section that already has claims.
 
+**The grounders start without your notes.** Since 0.13.4 both grounders start without your CLAUDE.md files
+and without Claude Code's memory index, which a subagent gets by default. A verdict rests on the claim's
+source text and the grounder's contract, which carries the rules you have settled. A session that saves
+its findings in memory would otherwise hand the next verdict what earlier passes or an eval thought of
+the same claim.
+
 Run it after every `/burgess:kg-build`, `/burgess:kg-generate` and `/burgess:kg-perturb`.
 
 ### Arguments

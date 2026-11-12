@@ -462,6 +462,9 @@ divergence templates ship as pack fragments under `pack/domains/`.
     CLAUDE.md files and without its auto-memory index, which it hands a subagent by default. A session
     that saves a run's results in its memory would otherwise tell the next run's blind agents what the
     last one found. Managed policy files still reach them.
+  - The two grounders (`kg-grounder`, `kg-adversarial-grounder`) declare it too (0.13.4), so a verdict
+    rests on the source and the contract, never on what a session's memory says about the claim. The
+    extractor and the generator still get the project's instructions.
 - **Skill**: `skills/burgess/SKILL.md` is the operating guide; `references/` holds the
   load-on-demand contracts (write contract, tool shapes, pack schema, divergence operators, judge
   rubric, axis inference).

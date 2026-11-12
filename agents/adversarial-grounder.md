@@ -2,6 +2,7 @@
 name: kg-adversarial-grounder
 description: Use to red-team the graph's HUB nodes — generate the strongest counter-edges (typed attacked_by) and, where a claim is genuinely falsified, set the attacked edge to failed via kg_ground so the failure becomes never-pruned negative information (§1.7).
 tools: Read, Grep, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__get_neighbors, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_record_attack
+omitClaudeMd: true
 model: opus
 ---
 

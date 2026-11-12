@@ -902,3 +902,37 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     record keeps its words.
 - **Pinned in:** `tests/test_fix_command_names_and_judge_cost.py`. Against 0.13.2, 6 of its 7 tests fail. The
   seventh pins that only the log header keeps the short form.
+
+## Grounders start without the project's instructions and memory (2026-11-12)
+
+- **Decision:** `kg-grounder` and `kg-adversarial-grounder` declare `omitClaudeMd: true`, as the measurement
+  agents have since 0.13.2. Claude Code starts them without the user, project and local CLAUDE.md files and
+  without its auto-memory index; managed policy files still reach them.
+- **What it fixes:** the 0.13.2 entry left the grounders as a separate decision. Found on 2026-11-12 (Windows,
+  0.13.3):
+  - `/burgess:kg-ground tasas-radar` asked a grounder for a fresh verdict on a grounded edge that the
+    2026-11-10 eval had flagged. The session's brief gave the edge's id only. The project has no CLAUDE.md, so
+    the grounder's `instructions` attachment held the memory index alone, and its line on that eval read
+    "tasas-radar edge flagged as confounded_by by all 3 coders". The verdict agreed with them.
+  - The same day, attacking `radar-meta`, the adversarial grounder justified writing `confounded_by` with that
+    note.
+  - On 2026-11-08 a grounder opened the user's memory note on grounder rules by itself and applied a cue no
+    contract had (the entry on connectives, 2026-11-08).
+- **Why it takes nothing a verdict needs:** the rules the user settled live in the grounder's contract:
+  `enables` versus `grounds`, the 0.11.0 confound rule, a table row read under its header, and each end being
+  what its span names. The command has sent ids, not rules, since 0.8.1. What the memory adds is what earlier
+  passes and evals concluded, which a fresh verdict must not lean on.
+- **Why not the extractor and the generator:** they write candidates that only a grounder can promote, and a
+  project's CLAUDE.md may say how its sources are to be read.
+- **What it does not stop:** a grounder with Read could still open a memory note whose path it knew, as one did
+  on 2026-11-08. Without the index it is not given the path, and the `/burgess:kg-ground` brief tells
+  `kg-grounder` not to read files.
+- **Rejected alternatives:**
+  - (a) *Tell the grounder to ignore its context:* it cannot unsee it (0.11.9's (b), 0.13.2's (b)).
+  - (b) *Ask the session to keep verdicts out of its memory:* the memory belongs to the user's session, and its
+    index already holds them.
+- **What it leaves on record:** the re-judged edge's verdict (`rejected`, `wrong-relation`, with a
+  `confounded_by` lead) stands on its own reasoning, which follows the 0.11.0 rule. It does not confirm the
+  coders independently.
+- **Pinned in:** `tests/test_fix_grounders_without_memory.py`. Against 0.13.3, 2 of its 3 tests fail. The third
+  pins the premise that the contract carries the settled rules.
