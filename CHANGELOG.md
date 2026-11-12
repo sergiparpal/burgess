@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.13.5 — 2026-11-12
+
+Found in the field on 0.13.3 and 0.13.4, in two attacks on the same hub.
+
+### Fixed
+
+- **The attack brief names the weapons the adversarial grounder's contract names.**
+  - `/burgess:kg-ground` told the adversarial grounder "Write attacked_by counter-edges (relation:
+    attacked_by)". Its contract lets the pack vocabulary name the weapon: `attacked_by` (a more specific claim
+    defeats a vaguer one), `confounded_by` (a confound biases a figure) or `collapses_into` (the claim reduces
+    to a known failure).
+  - On 2026-11-12 the grounder twice attacked `radar-meta` with a `confounded_by` counter-edge, a bias in
+    RADAR's figures, and each time explained why it had departed from the brief. Both edges were grounded. The
+    same day an `attacked_by` edge of that shape had been rejected as `wrong-relation`.
+  - The brief, the command's account of the attack stage and its report line, the agent's description and
+    opening, `ARCHITECTURE.md` and the skill now name the three weapons. The mark that records an attack lives
+    in the counter-edge's notes, so the plan's hub accounting is unchanged.
+
+### Tests
+
+- `tests/test_fix_attack_brief_weapons.py` (6 tests):
+  - the contract names three weapons, and the pack declares them;
+  - the brief names the weapons its contract names;
+  - the command and the agent describe the same weapons;
+  - a counter-edge of any weapon marks its hub, and grounding it keeps the hub attacked (3 cases).
+- 2004 → 2010 passed, 3 skipped.
+
+### Docs
+
+- `DECISIONS.md` records the decision.
+
 ## 0.13.4 — 2026-11-12
 
 Found in the field on 0.13.3, when a grounder re-judged an edge that an eval had flagged.
