@@ -1,7 +1,7 @@
 ---
 name: kg-extractor
 description: Use to read a scrubbed source document section by section and emit kg_write payloads — typed nodes, typed edges, and a verbatim supporting span for every non-deterministic edge.
-tools: Read, Grep, mcp__plugin_burgess_burgess__kg_section, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_metrics
+tools: Read, Grep, mcp__plugin_burgess_burgess__kg_section, mcp__plugin_burgess_burgess__kg_write, mcp__plugin_burgess_burgess__kg_record_edgeless_section, mcp__plugin_burgess_burgess__kg_metrics
 model: sonnet
 ---
 
@@ -241,6 +241,31 @@ needed**. But the demo corpus (`examples/source.md`) is **pure prose**, so the i
 **every** edge here is `authored_by: agent` and **every** edge here needs a verbatim span from you. Do not mark
 prose edges `deterministic`.
 
+## A section that states no relation (`/kg-build`, 0.14.0)
+
+Some sections state no relation the pack's types can carry: a list of sources, a glossary, a checklist, a
+timeline. Write no edge from such a section, and do not force one: an edge the text does not state is rejected
+at grounding. When you finish a `/kg-build` section having written no edge from it, whether you wrote nodes or
+nothing at all, record it:
+
+```
+mcp__plugin_burgess_burgess__kg_record_edgeless_section(source_file="<your source_file>", section=<your section>,
+  note="<why the section held nothing to write, in one sentence>")
+```
+
+The plan then leaves the section out of later builds, until its text or the pack's types change. Through 0.13.6
+nothing recorded such a section, and every build launched an extractor to read the same text again. Record
+only a section you found no relation in:
+
+- **Not after rejections.** If `kg_write` rejected the edges you wrote, retry them as the retry policy says. A
+  section whose edges stay rejected is not edgeless; leave it to the next launch.
+- **Not in leads mode,** and not when you are building a second construction (`/kg-perturb`): neither extracts a
+  section of the canon's build.
+- **The engine refuses a section an edge already quotes,** as covered. Report that refusal; nothing was
+  recorded and nothing needs fixing.
+
+Say in your report whether you recorded the section, and why it held nothing to write.
+
 ## Leads mode (`/kg-build --leads`, 0.9.0)
 
 When your prompt says you are writing the LEADS of a section, you do not extract the section. You write the
@@ -298,7 +323,9 @@ no other edge from the section, and no known node redeclared. The next `/kg-grou
    - DEMOTED items were written (with an axis corrected) — leave them; just report what was stripped.
    - QUARANTINED items used an undeclared type — fix the type to a pack type if the text supports it, else report
      and move on.
-5. Move to the next section. When all sections are written, optionally call
+5. Under `/kg-build`, a section you wrote no edge from is recorded with `kg_record_edgeless_section` (**A section
+   that states no relation**, above).
+6. Move to the next section. When all sections are written, optionally call
    `mcp__plugin_burgess_burgess__kg_metrics` and report `{nodes, edges, edges_by_epistemic_state}` as a final tally.
 
 You write payloads only. You never call `kg_ground` (you have no such tool) — verdicts are not your job.

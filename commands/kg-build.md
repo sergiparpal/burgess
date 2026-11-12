@@ -87,18 +87,24 @@ never fall back to the demo corpus:
 mode**, below.)
 
 - `files[]`, one per file to build, in source order. Each has its `sections[]` (`section` number, `title`,
-  `chars`, `covered`), its `heading_level` and any `note`.
+  `chars`, `covered`, and `edgeless` on a section recorded as holding no edge), its `heading_level` and any
+  `note`.
   - `heading_level` is 2 for `## ` sections. It is 3 when the file's only `## ` heading is its title and its
     `### ` subsections carry the content (FALLO 4).
   - A file with no heading at that level is one section holding the whole file.
   - The text before a file's first heading (usually a title and a byline) is not a section.
 - `wave_size`, and `wave_size_from`: `argument`, `option` or `default`.
-- `sections_total`, `sections_uncovered`, and `waves`, the number of waves the uncovered sections need.
+- `sections_total`; `sections_uncovered`, the sections to extract; `sections_edgeless`, the ones recorded as
+  holding no edge; and `waves`, the number of waves the sections to extract need.
 - `skipped`, when a file of the folder could not be read as UTF-8 text.
 
 Tell the user in a line or two what you are about to build: the files, the number of sections, and the wave
 size and where it came from. A section whose `covered` is `true` already has span-present edges, from an
-earlier or interrupted build: skip it.
+earlier or interrupted build: skip it. A section with `edgeless` (0.14.0) was extracted before, and its
+extractor wrote no edge from it and recorded that (`edgeless.note` says why). Its text and the pack's types
+are the ones that extraction read, so a new one would read the same text: skip it too, and say how many the
+plan holds. A section is to extract when it is neither covered nor edgeless. When no section is, say so,
+launch nothing, and go on to step 2.
 
 **Changing `source_path`.** Give the user the value the engine reported, then the fix. From a terminal,
 pipe a JSON object to `claude plugin configure burgess@<marketplace> --values-stdin` (Claude Code 2.1.285
@@ -119,14 +125,16 @@ documented to pick up a new value.
 
 ### 1. Launch the `kg-extractor` subagent per section, in BOUNDED PARALLEL WAVES (Task)
 
-For **each uncovered section of each file in the plan**, launch one extractor and tell it only where its
-section is: the file's basename as `source_file`, and the plan's `section` number and `title`. **Never paste
-section text into a prompt.** The extractor fetches its own with `kg_section`: the engine cuts it from the
-source by the same rule the plan numbered by, and scrubs it on the way out. What the extractor reads is
-therefore the source's own text, which is what lets its spans verify. With a multi-file build the boundary
-verifies each span against **that file specifically** (R4 — a span attributed to the wrong file is REJECTED
-`span-not-in-named-source`). The extractor reads its section, emits a single complete `kg_write` payload, and
-reports its dispositions back to you.
+For **each section to extract in each file of the plan** (`covered` false and no `edgeless`), launch one
+extractor and tell it only where its section is: the file's basename as `source_file`, and the plan's
+`section` number and `title`. **Never paste section text into a prompt.** The extractor fetches its own with
+`kg_section`: the engine cuts it from the source by the same rule the plan numbered by, and scrubs it on the
+way out. What the extractor reads is therefore the source's own text, which is what lets its spans verify. With
+a multi-file build the boundary verifies each span against **that file specifically** (R4 — a span attributed
+to the wrong file is REJECTED `span-not-in-named-source`). The extractor reads its section, emits a single
+complete `kg_write` payload, and reports its dispositions back to you. When its section states no relation the
+pack's types can carry, it writes no edge and records the section with `kg_record_edgeless_section` (0.14.0),
+which takes it out of later plans.
 
 `kg_section` also lists the nodes already in the canon that the section names (`known_nodes`, 0.6.0), so an
 extractor in a later wave reuses an id another section wrote instead of coining a near-duplicate. Extractors
@@ -134,7 +142,7 @@ in the same wave cannot see each other's nodes; that is the price of running the
 `kg_merge` joins what slips through.
 
 **Launch the per-section subagents CONCURRENTLY in waves of `wave_size` (from the plan).** Collect the plan's
-uncovered `(file, section)` pairs in plan order, then process them in batches: issue `wave_size` `Task(...)`
+`(file, section)` pairs to extract in plan order, then process them in batches: issue `wave_size` `Task(...)`
 calls **in a single message** (so they run in parallel), wait for that whole wave to finish, then launch the
 next wave, until every section is done. With the default of 6, a 19-section document is four waves (6 + 6 + 6
 + 1) instead of 19 serial launches. The extractors' (slow) token generation overlaps across the wave, while the
@@ -173,6 +181,11 @@ REJECTED. Do NOT set epistemic_state to a verdict and do NOT set authored_by=hum
 ("forged-verdict-stripped" / "human-claim-stripped"). Emit exactly one payload with "complete": true, call
 kg_write with that payload only (never `source` or `construction`), and return the kg_write result
 (dispositions, details[], written_nodes[], rolled_back).
+
+If nothing in the section states a relation the pack's types can carry, write no edge, and record that with
+mcp__plugin_burgess_burgess__kg_record_edgeless_section(source_file: "source.md", section: 1, note: "<why, in
+one sentence>"), so later builds do not extract it again. Do not record a section whose edges kg_write
+rejected. Say in your report whether you recorded it.
 """
 )
 ```
@@ -194,12 +207,13 @@ scrub or to post-process: do not paraphrase, "clean up" or re-quote spans; the b
 extractor copied them.
 
 **Resume / progress probe (projection-free).** Between waves — or to recover after a transport hiccup or a
-cancelled request — call `kg_build_plan` again with the same two arguments. It reads the **canon only** (it
-never projects), and its `covered` flags show which sections already carry a span-present edge. Re-launch only
-the sections still uncovered (re-writes are idempotent anyway). A section can stay uncovered after its launch
-when its extractor wrote no span-present edge (nothing to extract, or every edge REJECTED): re-launch such a
-section at most once, then report it instead of looping. `kg_status()` stays available for node and edge
-counts and the grounding queue.
+cancelled request — call `kg_build_plan` again with the same two arguments. It reads the **canon** and the
+ledger of edgeless sections only (it never projects): its `covered` flags show which sections already carry a
+span-present edge, and `edgeless` which ones an extractor recorded as holding none. Re-launch only the sections
+still to extract (re-writes are idempotent anyway). A section stays to extract after its launch when its
+extractor wrote no span-present edge and recorded nothing (every edge REJECTED, or the record left out):
+re-launch such a section at most once, then report it instead of looping. `kg_status()` stays available for
+node and edge counts and the grounding queue.
 
 Collect each launch's returned `kg_write` result: the `dispositions` counts
 (**ACCEPTED / DEMOTED / QUARANTINED / REJECTED**), `details[]`, `written_nodes[]`, and `rolled_back`.
@@ -228,7 +242,9 @@ Optionally spot-check structure with `mcp__plugin_burgess_burgess__query_graph(n
 Summarize the build back to the user:
 
 - **What was built** — the files and sections from the plan, the wave size and where it came from, and any
-  section still uncovered at the end (with its extractor's reason).
+  section still to extract at the end (with its extractor's reason).
+- **Edgeless sections** — `sections_edgeless` from the last plan: the sections this build or an earlier one
+  recorded as holding no edge, which no build extracts again until their text or the pack's types change.
 - **Dispositions** — summed across all section launches: ACCEPTED / DEMOTED / QUARANTINED / REJECTED, and for any
   REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `write-lane-hypothesis`,
   `self-loop`, `truncated-payload`, `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are

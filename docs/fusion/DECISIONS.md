@@ -969,3 +969,68 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Some of them also read as if the counter-edge itself were stamped `failed`, against the contract's item 4.
     The references and item 3 now put `failed` only on a claim a counter-edge genuinely refutes.
   - The same test file pins the rest of the text: it has 9 tests, and against 0.13.5 the 3 new ones fail.
+
+## A section an extraction wrote no edge from is recorded, so later builds skip it (2026-11-12)
+
+- **Decision:** a new tool, `kg_record_edgeless_section(source_file, section, note)`.
+  - **Who calls it.** The extractor, when it finishes a `/burgess:kg-build` section without writing an edge from
+    it, whether it wrote nodes or nothing at all. Its note says in a sentence why.
+  - **What the engine does.** It refuses a section that a span-present edge already quotes. Otherwise it appends
+    one fsync'd JSON line, `{file, section, title, text_sha256, vocabulary_sha256, at, note}`, to
+    `<project>/.kg-edgeless-sections.jsonl` (`canon.EDGELESS_SECTIONS`) under the writer lease.
+  - **What the plan does.** `kg_build_plan` reads the ledger fail-open (`buildplan.edgeless_records`). It marks
+    an uncovered section `edgeless` while a record matches three things: its file, the digest of its normalized
+    text, and the digest of the pack's node and edge type names.
+  - **The counts.** `sections_uncovered` and `waves` count only the sections to extract, and `sections_edgeless`
+    the others.
+- **Bug it fixes:** every build extracted again the sections that hold nothing (field report on 0.13.6).
+  - **The first build.** The build that made the field canon, on 2026-11-07, extracted all 84 sections of eight
+    documents, and 19 of its extractors wrote no edge. They were the six «Fuentes» lists, a vocabulary, a
+    checklist and eleven others. Six of the extractors sent a `kg_write` with no node and no edge, two sent none,
+    and eleven wrote nodes alone (the vocabulary wrote ten).
+  - **Coverage is the build's only memory,** and a section with no edge never gets covered. So on 2026-11-12 a
+    plain build planned 18 of those sections again, three waves of extractors to read the same text. The 19th
+    had gained an edge since.
+  - **Only the session's memory note stopped it.** The session asked the user, who chose to launch none. A
+    session without that note would have launched all 18.
+- **Why a ledger beside the canon:** as with the attack ledger (0.10.0), the record says what the engine did, not
+  what the source says.
+  - A marker node or edge would enter the graph as a claim about the source.
+  - A mark in the source document would edit the user's text.
+- **Why the extractor records it:** the extractor knows whether it found nothing, or had its edges rejected.
+  Only the first deserves a record. That is 0.10.0's reason for rejecting its alternative (b). The engine's check
+  catches the one mistake it can see: a section already covered.
+- **Why two digests:** a record has to stop applying when what the extraction read changes.
+  - **The text.** A new paragraph can state a relation. The digest is taken over the normalized text that
+    coverage reads, so a section that only moved to another number keeps its record.
+  - **The pack's types.** A type added later can make a relation in the section writable. Until 0.8.0 added
+    `enables`, a span saying what makes something possible had no relation to go under. Only the type names
+    count, in any order, so a change to the glossary or to the divergence settings brings no section back.
+- **Rejected alternatives:**
+  - (a) *Infer it from `kg_section` calls:* a section that was served but is still uncovered may be one whose
+    extractor failed, stopped, or had every edge rejected. Recording it would hide a section that holds edges.
+  - (b) *Have the orchestrator record it from the extractor's report:* the orchestrator would read the reason out
+    of a report, as 0.10.0 found for attacks. It would also be the orchestrator's first write tool.
+  - (c) *A skip list the user keeps:* the user would have to name the sections and keep the list in step with the
+    source. And it is not what happened: the extraction ran and found nothing.
+  - (d) *A flag to extract the recorded sections again:* nothing in the field asks for it. Deleting the ledger
+    does it, and a changed text or pack does it by itself.
+- **Accepted trade-offs:**
+  - The record depends on the extractor calling the tool. A section whose extractor skips it is offered again,
+    as in 0.13.6, and re-launched at most once in a run.
+  - A record vouches for nothing. Another extraction might find an edge the recorded one missed. The first of the
+    three field builds of 2026-11-07 had `kg_write` accept edges from at least eight of these sections, two
+    «Fuentes» lists among them. That canon was emptied before the second build, and no grounder judged those
+    edges.
+    Neither a new extractor contract nor a new model ends a record. Deleting the ledger does.
+  - The ledger is per machine, like the attack ledger: a clone without it extracts those sections once more.
+  - Sections extracted before 0.14.0 have no record. On the field canon, the first plain build after the update
+    extracts the 18 sections once more, and each extractor records its own.
+  - The headless backend (`kg_engine.backend`) extracts every section on every run. It neither reads nor writes
+    the ledger.
+- **Pinned in:** `tests/test_fix_edgeless_sections.py` (29 tests). Against 0.13.6 the file cannot be imported:
+  the tool, the ledger and the digests are all new.
+  - **Checked end to end:** one headless `/burgess:kg-build`, in auto mode with Claude Code 2.1.316, on a
+    scratch document of three sections: an argued paragraph, a glossary and a list of sources. The argued
+    section's extractor wrote one `enables` edge. The other two wrote nothing and recorded their sections. The
+    next plan had nothing left to extract. No permission was denied and no shell command ran.

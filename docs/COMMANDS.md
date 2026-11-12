@@ -216,6 +216,13 @@ boundary rejects it as fabrication.
 **Everything it writes lands `unverified`.** `/burgess:kg-build` never asserts a verdict. It is **additive**:
 run it again on another document of your source and the same graph grows.
 
+**A section with nothing to extract is extracted once.** A list of sources, a glossary or a checklist states
+no relation the pack's types can carry, so its extractor writes no claim from it. Since 0.14.0 the extractor
+records that, and later builds skip the section until its text or the pack's types change; the plan counts
+these sections apart (`sections_edgeless`). Through 0.13.6 every build launched an extractor for each of them
+again, to read the same text and find nothing. To have the recorded sections extracted once more, delete
+`.kg-edgeless-sections.jsonl` from the project folder.
+
 **It runs no shell commands.** The engine plans the build (`kg_build_plan`) and hands each extractor
 its own section, already cut and scrubbed (`kg_section`). So the only thing `/burgess:kg-build` asks Claude Code
 for is to launch its subagents, and in auto mode it no longer stops to ask your permission for shell
@@ -226,7 +233,7 @@ permission, so those commands could stop the build on a prompt.)
 
 | Argument | Required | Accepted values | Default |
 | --- | --- | --- | --- |
-| `--leads` | No | The literal word, first on the line | build the sections no claim covers yet |
+| `--leads` | No | The literal word, first on the line | build the sections no claim covers yet, except the ones an extraction found nothing in |
 | `subset` | No | A file, a directory, or a glob of `.md` / `.txt` files **inside your configured `source_path`** | the whole configured source |
 | `wave_size` | No | Integer `1`–`10` | the `extract_wave_size` option, else `6` |
 
@@ -1037,7 +1044,7 @@ measured on two field runs. That cost is why the judge is opt-in.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **32 MCP tools** exposed by the `burgess`
+The nine slash commands are a thin language layer over **33 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 

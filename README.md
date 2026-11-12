@@ -237,7 +237,7 @@ Remember: the status check (`kg_ping`) and the other behind-the-scenes MCP tools
 5. **Session-ephemeral archives** — MAP-Elites archives never persist across sessions; only pins, discards, comparisons and session metadata do (project-local, git-friendly, under `.kg/diverge/`). The knowledge graph is the durable archive.
 6. **Unified negative memory** — human discards and grounding failures live in one semantic store; neither generation path ever re-proposes from it.
 
-The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 32 tools) is the trust boundary; seven subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator, judge) do the language work; the engine stays deterministic.
+The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 33 tools) is the trust boundary; seven subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator, judge) do the language work; the engine stays deterministic.
 
 Those six are the load-bearing ones; the suite enforces eleven (`I1`–`I11`). The full, self-contained architecture reference — module map, data model, write-boundary contract, tool surface, divergence internals and constants, runtime and environment, and the invariants in full — is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **2013 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **2042 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

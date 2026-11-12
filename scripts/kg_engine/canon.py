@@ -118,6 +118,10 @@ RECONCILE_STATE_NAME = ".kg-reconcile-state.json"
 # `kg_record_attack` and read by `kg_ground_plan` (`groundplan.attack_records`). Engine state, not canon:
 # named here for the git-exclude patterns below, like the two files above.
 HUB_ATTACKS = ".kg-hub-attacks.jsonl"
+# The /kg-build sections an extraction wrote no edge from (0.14.0), one JSON line each, appended by
+# `kg_record_edgeless_section` and read by `kg_build_plan` (`buildplan.edgeless_records`). Engine state, not
+# canon, like the attack ledger above.
+EDGELESS_SECTIONS = ".kg-edgeless-sections.jsonl"
 
 
 # --------------------------------------------------------------------------- git helpers
@@ -713,9 +717,10 @@ class Canon:
         # The lease's ticket queue is per-session runtime state exactly like the lease itself, and it is
         # a DIRECTORY, so it needs its own trailing-slash pattern (LOCK_NAME matches the lock file only).
         # The attack ledger (0.10.0) is per-machine engine state like the reconcile cache: a clone without
-        # it only offers its hubs to one more attack.
+        # it only offers its hubs to one more attack. The edgeless-section ledger (0.14.0) likewise: a clone
+        # without it only offers those sections to one more extraction.
         patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
-                    f"{GROUND_AUDIT}*", HUB_ATTACKS]
+                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""

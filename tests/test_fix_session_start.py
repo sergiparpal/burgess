@@ -30,6 +30,7 @@ import pytest
 
 from kg_engine.canon import (
     CANON_SUBDIR,
+    EDGELESS_SECTIONS,
     GROUND_AUDIT,
     HUB_ATTACKS,
     LOCK_NAME,
@@ -47,7 +48,7 @@ PACK = REPO / "pack" / "pack.yaml"
 CKPT_NAME = f"{GROUND_AUDIT}.ckpt"
 # Every pattern Canon._ensure_git_excludes promises a git-backed vault.
 EXCLUDE_PATTERNS = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME, f"{GROUND_AUDIT}*",
-                    HUB_ATTACKS]
+                    HUB_ATTACKS, EDGELESS_SECTIONS]
 
 
 def _load_bootstrap():
