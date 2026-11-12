@@ -66,10 +66,11 @@ def test_every_blind_agent_starts_without_instructions_or_memory():
 
 
 def test_the_working_agents_keep_the_project_instructions():
-    # Only the measurements must be blind. The agents that build, ground and phrase the graph may follow a
-    # project's CLAUDE.md, so the flag stays off them until a decision says otherwise.
+    # Only the measurements must be blind. The agents that build and phrase the graph may follow a project's
+    # CLAUDE.md, so the flag stays off them until a decision says otherwise. The grounders took it in 0.13.4
+    # (tests/test_fix_grounders_without_memory.py).
     for name, (head, _) in _agents().items():
-        if name not in _blind_agents():
+        if name not in _blind_agents() | {"kg-grounder", "kg-adversarial-grounder"}:
             assert "omitClaudeMd" not in head, f"{name} sets omitClaudeMd without a decision"
 
 

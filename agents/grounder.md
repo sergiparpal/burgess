@@ -2,6 +2,7 @@
 name: kg-grounder
 description: Use to verify the queue of unverified edges against the real source — re-read each cited span, reject vague/unfalsifiable relations (the generality confound §1.6), and stamp grounded/rejected verdicts via kg_ground.
 tools: Read, Grep, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_write
+omitClaudeMd: true
 model: opus
 ---
 

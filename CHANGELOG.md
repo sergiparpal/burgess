@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.13.4 — 2026-11-12
+
+Found in the field on 0.13.3, when a grounder re-judged an edge that an eval had flagged.
+
+### Fixed
+
+- **The grounders start without the project's instructions and memory.**
+  - 0.13.2 took Claude Code's CLAUDE.md files and memory index away from the three measurement agents, and left
+    the grounders as a separate decision. The field session keeps notes on each grounding pass in its memory,
+    so the index reached the verdicts:
+    - asked for a fresh verdict on the grounded edge `radar-meta attacked_by tasas-radar-sobre-todo-lo-revisado`,
+      a grounder read in the index that all three coders of an earlier eval had labelled it `confounded_by`. The
+      session's brief had left that out, but the project has no CLAUDE.md, so the index was all the grounder
+      got. Its verdict agreed with the coders;
+    - attacking `radar-meta` the same day, the adversarial grounder justified a counter-edge's relation with the
+      same note.
+  - `kg-grounder` and `kg-adversarial-grounder` now declare `omitClaudeMd: true`. A verdict rests on the
+    claim's source text and the grounder's contract, which carries the rules the user settled. The extractor
+    and the generator keep the project's instructions.
+
+### Tests
+
+- `tests/test_fix_grounders_without_memory.py` (3 tests):
+  - both grounders declare `omitClaudeMd: true`;
+  - only the measurement agents and the grounders carry the key;
+  - the grounder's contract carries the rules the memory held.
+- `test_fix_blind_memory.py` lets the grounders carry the key.
+- 2001 → 2004 passed, 3 skipped.
+
+### Docs
+
+- `ARCHITECTURE.md` and `COMMANDS.md` say the grounders start without the project's notes, and `DECISIONS.md`
+  records the decision.
+
 ## 0.13.3 — 2026-11-12
 
 Found around the clean `--judge` replication on 0.13.2. Two things the plugin told its user were wrong.
