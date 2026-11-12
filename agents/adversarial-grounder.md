@@ -74,9 +74,10 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
    counted with the refuted claims.
 3. **never-forge-a-verdict (§1.4/§1.8).** Your `kg_write` payload may NOT set `epistemic_state` to
    `failed`/`rejected`/`grounded`, and may NOT set `authored_by="human"`. The boundary DEMOTES those
-   (`forged-verdict-stripped`, `human-claim-stripped`). Write the attacked_by edge as
-   `epistemic_state: "unverified"`, `authored_by: "agent"`. **THEN** set the verdict with a SEPARATE
-   `kg_ground` call. `kg_ground` is the ONLY path that sets a verdict.
+   (`forged-verdict-stripped`, `human-claim-stripped`). Write the counter-edge, whatever its weapon, as
+   `epistemic_state: "unverified"`, `authored_by: "agent"`. **THEN** set any verdict with a SEPARATE
+   `kg_ground` call, on the claim the counter-edge refutes (item 4). `kg_ground` is the ONLY path that sets a
+   verdict.
 4. **two steps, never one.** (a) `kg_write` the counter-edge → it lands `unverified`, and stays so: the next
    `/kg-ground` pass's grounders judge it like any other claim. (b) Only if its span *genuinely* falsifies one
    of the hub's existing claims, call

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.13.6 — 2026-11-12
+
+Found after the first attack on 0.13.5, which followed the new brief.
+
+### Fixed
+
+- **The rest of the text names the three weapons too.**
+  - 0.13.5 aligned the attack brief and the texts around it. A sweep after its first field attack found six
+    places it had missed, all still describing counter-edges as `attacked_by` alone:
+    - `/burgess:kg-ground`'s invariants ("edge type `attacked_by`");
+    - item 3 of the adversarial grounder's contract ("Write the attacked_by edge");
+    - the skill's `contract.md` and `tools.md` references;
+    - `/burgess:kg-query`, which offered `relation="attacked_by"` to "enumerate adversarial edges";
+    - a comment in `projector.py`.
+  - Some of these also read as if the adversarial grounder stamped its own counter-edge `failed`, which its
+    contract forbids. The two references and item 3 now say where `failed` goes: only on a claim a counter-edge
+    genuinely refutes. The counter-edge itself stays `unverified` for the next pass's grounders.
+  - `/burgess:kg-query` now says that the adversarial pass also writes `confounded_by` and `collapses_into`
+    counter-edges. A question about what challenges a claim therefore needs all three relations.
+  - Nothing behaves differently: the field attack already followed the brief and its contract.
+
+### Tests
+
+- `tests/test_fix_attack_brief_weapons.py` gains 3 tests, 9 in all:
+  - no text a user or the model reads says the counter-edges are `attacked_by` alone;
+  - the attack's own texts name `attacked_by` alone only where it is the subject: a source span, its
+    direction, a span-less counter-example;
+  - the skill references put `failed` on the refuted claim, never on the counter-edge.
+- 2010 → 2013 passed, 3 skipped.
+
+### Docs
+
+- `DECISIONS.md`: the 0.13.5 entry records the follow-up.
+
 ## 0.13.5 — 2026-11-12
 
 Found in the field on 0.13.3 and 0.13.4, in two attacks on the same hub.

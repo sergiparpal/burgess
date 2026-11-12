@@ -273,8 +273,9 @@ deliberate node-merge tool: it rewrites + dedups the colliding edges (negative i
   only from the two grounder subagents via `kg_ground`.
 - It gives each grounder its item ids and nothing else: the rules are in the grounders' contracts, which every
   batch reads alike (0.8.1).
-- It uses only the declared vocabulary: edge type `attacked_by`, `epistemic_state` values
-  `unverified|grounded|rejected|failed`, verdict reason `vague` for generality-confound rejections (§1.6).
+- It uses only the declared vocabulary: the counter-edges' weapons `attacked_by`, `confounded_by` and
+  `collapses_into`, `epistemic_state` values `unverified|grounded|rejected|failed`, verdict reason `vague` for
+  generality-confound rejections (§1.6).
 - An unfocused pass attacks each hub once until the hub gains a grounded claim: the counter-edges carry the
   hub's mark, and the plan leaves an attacked hub out of `hubs[]` (0.8.0). So the passes end; through 0.7.0
   every pass attacked the same hubs again and left new unverified counter-edges behind.

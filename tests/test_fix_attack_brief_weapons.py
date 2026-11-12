@@ -11,6 +11,13 @@ and each edge was grounded. The same day an `attacked_by` edge of that shape had
 Since 0.13.5 the brief, the command's account of the attack stage and its report line, the agent's description
 and opening, ARCHITECTURE.md and the skill all name the three weapons. The mark that records an attack lives in
 the counter-edge's notes, so it never depended on the relation; the engine tests below pin that.
+
+0.13.6 — the rest of the text says the same. The first attack on 0.13.5 (2026-11-12) followed the new brief: one
+`confounded_by` counter-edge on `radar-meta`, no departure to explain. A sweep after it found what 0.13.5 had
+missed. The command's invariants still said "edge type `attacked_by`", the contract's item 3 "Write the
+attacked_by edge", the skill's contract and tools references "`attacked_by` edges", and `/burgess:kg-query`
+offered `relation="attacked_by"` to "enumerate adversarial edges". The two references also read as if the
+adversarial grounder stamped its own counter-edges `failed`, which its contract forbids.
 """
 from __future__ import annotations
 
@@ -106,3 +113,43 @@ def test_a_counter_edge_of_any_weapon_marks_its_hub(eng, weapon):
     assert eng.kg_ground(edge_id("centro", weapon, "critica"), "grounded", note="t")["ok"]
     plan = eng.kg_ground_plan("", "")
     assert (plan["hubs"], plan["attacked_hubs"]) == ([], ["centro"])
+
+
+# ---- 0.13.6: the rest of the text says the same ---------------------------------------------------------
+
+WEAPONS = ("attacked_by", "confounded_by", "collapses_into")
+MODEL_READ = sorted({*REPO.glob("commands/*.md"), *REPO.glob("agents/*.md"), *REPO.glob("skills/**/*.md"),
+                     REPO / "docs" / "ARCHITECTURE.md", REPO / "docs" / "COMMANDS.md", REPO / "README.md"})
+
+
+def _sentences(text: str) -> list[str]:
+    """The prose's sentences, without the fenced code blocks (the payload examples)."""
+    prose = _flat(re.sub(r"```.*?```", " ", text, flags=re.S))
+    return re.split(r"(?<=[.!?])\s+(?=[A-Z`*(\[>-])", prose)
+
+
+def test_no_text_says_the_counter_edges_are_attacked_by_alone():
+    stale = [f"{p.relative_to(REPO)}: {s[:120]}" for p in MODEL_READ for s in _sentences(p.read_text(encoding="utf-8"))
+             if "attacked_by" in s and re.search(r"counter-edge|adversarial", s, re.I)
+             and not all(w in s for w in WEAPONS)]
+    assert stale == []
+
+
+# The sentences of the attack's own texts that are about `attacked_by` itself.
+ABOUT_ATTACKED_BY = ("Generality is therefore *attacked_by* specificity",  # the source's own attack span
+                     "`attacked_by` reads `HEAD attacked_by TAIL`",         # its direction
+                     "Counter-example you must NOT write")                   # a span-less edge
+
+
+def test_the_attack_texts_name_attacked_by_alone_only_when_it_is_the_subject():
+    for name, text in (("commands/kg-ground.md", CMD), ("agents/adversarial-grounder.md", AGENT)):
+        alone = [s[:120] for s in _sentences(text) if "attacked_by" in s and not all(w in s for w in WEAPONS)
+                 and not any(a in s for a in ABOUT_ATTACKED_BY)]
+        assert alone == [], name
+    assert "Write the counter-edge, whatever its weapon, as" in _flat(AGENT)
+
+
+def test_the_references_put_failed_on_the_refuted_claim_never_on_the_counter_edge():
+    for rel in ("skills/burgess/references/contract.md", "skills/burgess/references/tools.md"):
+        flat = _flat(re.sub(r"(?m)^> ?", "", (REPO / rel).read_text(encoding="utf-8")))  # tools.md: a blockquote
+        assert "only on a claim one of them genuinely refutes, never on its own counter-edge" in flat, rel

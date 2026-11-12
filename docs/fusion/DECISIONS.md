@@ -960,3 +960,12 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   hub attacked.
 - **Pinned in:** `tests/test_fix_attack_brief_weapons.py`. Against 0.13.4, 2 of its 6 tests fail. The other 4 pin
   what already held: the contract's weapons, the pack's declarations, and the mark for each weapon.
+- **Finished in 0.13.6 (2026-11-12):** the first attack on 0.13.5 followed the new brief. It wrote one
+  `confounded_by` counter-edge on `radar-meta` and had no departure to explain.
+  - A sweep after it found six places 0.13.5 had missed, all describing counter-edges as `attacked_by` alone:
+    the command's invariants, the contract's item 3, the skill's `contract.md` and `tools.md` references,
+    `/burgess:kg-query`'s "enumerate adversarial edges", and a comment in `projector.py`. They now name the three
+    weapons or say "counter-edge".
+  - Some of them also read as if the counter-edge itself were stamped `failed`, against the contract's item 4.
+    The references and item 3 now put `failed` only on a claim a counter-edge genuinely refutes.
+  - The same test file pins the rest of the text: it has 9 tests, and against 0.13.5 the 3 new ones fail.

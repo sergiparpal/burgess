@@ -218,9 +218,11 @@ to bypass, so a deterministic *discovery mechanism* keeps `deterministic`, §5a.
 
 The grounders apply a further semantic test the boundary cannot: an edge whose span is technically present
 but is "true" only because it is generic/unfalsifiable (the **generality confound**, §1.6) should be
-rejected via `kg_ground(verdict="rejected")` with reason `vague`. The adversarial grounder records refuted
-claims with `attacked_by` edges + `kg_ground(verdict="failed")`; failed/rejected edges are **negative
-information** (§1.7), never pruned, surfaced by `kg_context` as `falsification_counters`.
+rejected via `kg_ground(verdict="rejected")` with reason `vague`. The adversarial grounder attacks the hubs
+with counter-edges typed `attacked_by`, `confounded_by` or `collapses_into`, which stay `unverified` for the
+next pass's grounders, and calls `kg_ground(verdict="failed")` only on a claim one of them genuinely refutes,
+never on its own counter-edge. Failed/rejected edges are **negative information** (§1.7), never pruned,
+surfaced by `kg_context` as `falsification_counters`.
 
 ---
 
