@@ -936,3 +936,27 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   coders independently.
 - **Pinned in:** `tests/test_fix_grounders_without_memory.py`. Against 0.13.3, 2 of its 3 tests fail. The third
   pins the premise that the contract carries the settled rules.
+
+## The attack brief names the weapons the adversarial contract names (2026-11-12)
+
+- **Decision:** `/burgess:kg-ground`'s brief asks the adversarial grounder for counter-edges typed by the weapon
+  their span states: `attacked_by`, `confounded_by` or `collapses_into`, as its contract defines them. The
+  command's account of the attack stage, its report line, the agent's description and opening, ARCHITECTURE.md
+  and the skill say the same.
+- **What it fixes:** the brief said "Write attacked_by counter-edges (relation: attacked_by)", while the contract
+  (its step 2b) lets the pack vocabulary name the weapon. On 2026-11-12 the grounder attacked `radar-meta` on 0.13.3
+  and again on 0.13.4.
+  - Both times it wrote a `confounded_by` counter-edge: Meta grading its own system, then RADAR's low and medium
+    complexity making the compared populations unlike.
+  - It explained the departure each time, and both edges were grounded.
+  - That morning an `attacked_by` edge stating such a bias had been rejected as `wrong-relation`, and its lead
+    re-wrote it as `confounded_by`.
+- **Why the contract wins:** a grounder judges a counter-edge by the relation its span states, and rejects it as
+  `wrong-relation` otherwise. The user's 0.11.0 rule files any bias of a figure under `confounded_by`. A brief that
+  asks for `attacked_by` alone invites counter-edges the next pass rejects, or a departure every report must
+  explain.
+- **What does not change:** a hub's attack mark is the `counter-edge (adversarial pass, hub <id>)` opening of the
+  notes, read whatever the relation (`groundplan.attacked_hub`). A grounded counter-edge of any weapon keeps its
+  hub attacked.
+- **Pinned in:** `tests/test_fix_attack_brief_weapons.py`. Against 0.13.4, 2 of its 6 tests fail. The other 4 pin
+  what already held: the contract's weapons, the pack's declarations, and the mark for each weapon.

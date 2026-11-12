@@ -58,7 +58,8 @@ afterward. The portico moved from the door of imagination to after generation.
    `/burgess:kg-diverge` pin is a hypothesized node — often with no incident edge — groundable via
    `kg_ground(kind="node")`; "no edge → can't ground" is false). **kg-grounder** confirms or
    rejects on the merits and stamps verdicts via `kg_ground`; **kg-adversarial-grounder** tries to
-   *falsify* surviving edges, recording `attacked_by` edges + `kg_ground(verdict="failed")`. A claim
+   *falsify* surviving edges, recording counter-edges (`attacked_by`, `confounded_by`,
+   `collapses_into`) + `kg_ground(verdict="failed")`. A claim
    rejected as `wrong-relation` or `wrong-node` carries a **lead**, the edge its span does state
    (`kg_ground(..., lead=...)`); **`/burgess:kg-build --leads`** has an extractor write the leads, and the next
    `/burgess:kg-ground` judges them (0.9.0).
@@ -134,7 +135,7 @@ etc. are slash commands.
    are "true" only because they are generic or unfalsifiable (verdict reason: `vague`).
 4. **memory of failures (§1.7).** `rejected`/`failed` edges are NEGATIVE INFORMATION — never
    pruned, surfaced in `kg_context.falsification_counters.failed_or_rejected_edges`. The
-   adversarial grounder *creates* this signal via `attacked_by` edges plus
+   adversarial grounder *creates* this signal via its counter-edges plus
    `kg_ground(verdict="failed")`. A graph that forgets its mistakes drifts into nonsense.
 5. **egress scrub (§1.9).** `mcp__plugin_burgess_burgess__kg_scrub(text)` redacts secrets (always) plus
    PII (per `sensitivity`) with CONSISTENT placeholders (`⟦SECRET:1⟧` etc.) *before* text is handed

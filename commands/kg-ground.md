@@ -179,8 +179,10 @@ once the claims are verdicted, so a rejected claim no longer counts) plus any St
 its `attacked_hubs`. If there are none, skip this stage and say why: no node has 3 live claims, or every one
 that has was attacked with nothing grounded since (it is in `attacked_hubs`). Otherwise launch the
 `kg-adversarial-grounder` over them. For each hub it
-constructs the strongest counter-edges and falsifying questions, emits them as typed `attacked_by` edges (the
-declared edge type — see `pack/pack.yaml`), and marks any existing claim it genuinely falsifies as `failed`.
+constructs the strongest counter-edges and falsifying questions, types each counter-edge by the weapon its
+span states (`attacked_by`: a more specific claim defeats a vaguer one; `confounded_by`: a confound biases a
+figure; `collapses_into`: the claim reduces to a known failure; all declared in `pack/pack.yaml`), and marks
+any existing claim it genuinely falsifies as `failed`.
 This is bounded by a per-run cap so a vague hub cannot spawn unbounded attacks, and the mark on each
 counter-edge keeps a later pass from attacking the same hub again before it gains a new grounded claim. A hub
 it attacks without writing a counter-edge gets the same mark from `kg_record_attack` (0.10.0); through 0.9.0
@@ -195,9 +197,10 @@ Task(
     Source files to search for counter-spans: <the plan's source.files>, in <source.path>.
     For each hub, inspect its incident edges (get_neighbors, then kg_ground_item for one edge's span and
     excerpt) and generate the strongest falsifying counter-edges:
-      1. Write attacked_by counter-edges (relation: attacked_by) via the extraction/kg_write path, each
-         carrying a VERBATIM span from those source files (§1.5 — no span => REJECTED), with its file's
-         basename as source_file, and notes opening with `counter-edge (adversarial pass, hub <hub-id>)`.
+      1. Write counter-edges via the extraction/kg_write path, each typed by the weapon its span states
+         (attacked_by, confounded_by or collapses_into, as your contract defines them) and carrying a
+         VERBATIM span from those source files (§1.5 — no span => REJECTED), with its file's basename as
+         source_file, and notes opening with `counter-edge (adversarial pass, hub <hub-id>)`.
       2. For any existing edge your counter genuinely refutes, call
          kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>) on THAT edge, never on
          your own counter-edge, which stays unverified for the next pass's grounders.
@@ -234,7 +237,7 @@ Grounding pass complete.
   queue drained : unverified  N → M
   verdicts      : grounded +g, rejected +r, failed +f
   memory        : falsification_counters.failed_or_rejected_edges = K  (never pruned, §1.7)
-  hubs attacked : <hub list> → C attacked_by counter-edges, R recorded with none
+  hubs attacked : <hub list> → C counter-edges, R recorded with none
 ```
 
 For each hub attacked without a counter-edge, give its falsifying question: it is for a human, and its

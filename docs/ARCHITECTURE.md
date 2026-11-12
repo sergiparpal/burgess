@@ -453,8 +453,9 @@ divergence templates ship as pack fragments under `pack/domains/`.
 - **Subagents** (7): `kg-extractor` (one per planned section, whose text it fetches with
   `kg_section`; emits `kg_write` payloads),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
-  `attacked_by` edges + `failed` verdicts), `kg-generator` (phrases structural candidates —
-  language only, never structure), `kg-annotator` (label passes for precision/agreement),
+  counter-edges typed `attacked_by`, `confounded_by` or `collapses_into`, plus `failed` verdicts),
+  `kg-generator` (phrases structural candidates — language only, never structure),
+  `kg-annotator` (label passes for precision/agreement),
   `kg-evaluator` (the blind multi-arm ideation experiment), `kg-judge` (one blind verdict per
   prompt for `/burgess:kg-experiment --judge`).
   - The three measurement subagents (`kg-annotator`, `kg-evaluator` and `kg-judge`) declare
