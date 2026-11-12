@@ -718,3 +718,75 @@ nothing beyond their task.
 It counts as clean when the evaluator's and the judges' transcripts carry no `instructions` attachment. Its
 verdicts are reported as they come, whether or not they agree with run 6, and nothing is tuned after seeing
 them.
+
+## Clean replication results (2026-11-11, run 8 judged by 12 blind judges)
+
+Run `20261111T222651Z`, on 0.13.2 and Claude Code 2.1.322.
+
+**Clean, by the declared test.** None of the 13 measurement transcripts, the evaluator's and the twelve
+judges', carries an `instructions` attachment. None of these agents received hook context or opened a memory
+file. The judges ran on 0.13.2's prompt. Each read its whole packet and wrote its verdict, with Read and Write
+only.
+
+**The same method as run 6.**
+- The same twelve prompts, and rag passages identical to run 6's byte for byte.
+- `judge.py` has not changed since 0.13.0, so the evidence rule, seed, checks, pairs and thresholds are run 6's.
+- The field session reused run 6's decoys and positive controls unchanged, where the command asks it to write
+  them. `judge-packets` checked them again and passed them.
+
+**Rebuilt from the run's files.** The repository's engine at 0.13.2 rebuilt the packets byte for byte (1,635,961
+bytes), the label mapping, the lexical scores and the judges' aggregate.
+
+**Evaluator order:** verified, on disk and in the evaluator's transcript.
+
+**Validity: passed.**
+- **V1:** the decoy had the lowest grounded score in 12 of 12 prompts.
+- **V2:** the arm ideas' mean grounded score exceeded the decoys' by 3.37 (4.37 against 1.00).
+- **V3:** the positive control scored 4 or 5 on grounded in 12 of 12 prompts.
+
+**Verdicts by the declared rule** (wins out of 12, 10 needed):
+
+| pair | wins | losses | run 6 |
+|---|---|---|---|
+| graph vs rag | 3 | 9 | 3 of 12 |
+| graph vs control | 12 | 0 | 11 of 12 |
+| graph+generate vs graph | 4 | 8 | 9 of 12 |
+| graph+generate+dpp vs graph+generate | 2 | 10 | 2 of 12 |
+
+- **Decided:** graph beat control, in 12 of 12 prompts. Run 6 decided the same pair in 11.
+- **Graph vs rag:** 3 of 12 in both runs. Rag ranked above graph in 9 of 12, and the method declares no verdict
+  in that direction.
+- **Graph+generate vs graph:** run 6's 9 of 12, one short of a verdict, fell to 4.
+
+| item | grounded | useful | mean rank of 7 | words |
+|---|---|---|---|---|
+| control | 3.58 | 3.08 | 5.33 | 77.2 |
+| graph | 4.58 | 3.92 | 2.67 | 104.8 |
+| graph+generate | 4.58 | 3.42 | 3.42 | 110.5 |
+| graph+generate+dpp | 4.33 | 3.42 | 4.58 | 105.8 |
+| rag | 4.75 | 4.08 | 2.00 | 102.3 |
+| positive control | 4.92 | 3.75 | 3.00 | |
+| decoy | 1.00 | 2.58 | 7.00 | |
+
+First place by position, A–G: 1, 2, 1, 1, 2, 3, 2.
+
+**Lexical reading: not measured**, as on every run of this corpus. Support does not separate rag from control:
+0.959 against 0.907, a gap of 0.052 where the method needs 0.10.
+
+**What the replication shows.**
+- With blind agents that saw nothing beyond their task, the judge reads this corpus as run 6 did. The
+  graph-based arm does not beat flat retrieval, and it does beat no context.
+- Run 6's judges were told that controls were planted. Here judges told nothing about them still gave the same
+  decoys the lowest grounded score, and the same positive controls 4 or more, in 12 of 12 prompts. So run 6's
+  V1 and V3 did not rest on that hint.
+- Run 6's lead for graph+generate does not replicate.
+- Length is not controlled. Control's ideas are the shortest in both runs (77 and 71 words, against 100 to 115
+  for the arms). Whether that moves the judges is not measured.
+
+**Standing.** Run 8 is the first judged run whose blind agents saw nothing beyond their task. Its verdicts carry
+none of the blinding caveats recorded above for run 6.
+
+**Cost.** The twelve judges used 62,248 to 75,833 tokens each, 815,072 in all, counted as the pilots' were: each
+judge's context at its last call, as Claude Code reports it. Run 6's judges used 827,891. The third pilot's
+judges, general-purpose agents started from the development session, used 1.51 million. The cost the command
+and the README state, about 1.5 million for 12 prompts, comes from them.
