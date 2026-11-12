@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-five graph tools (§1), then the seven divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-six graph tools (§1), then the seven divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,20 +17,22 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-five** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-six** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
 the `/burgess:kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), the `/burgess:kg-ground` pair
-`kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22), and `kg_record_attack` (§1.23), the mark an
-adversarial attack leaves when it writes no counter-edge.
-The seven **divergence-surface** tools (§1B) complete the server's **thirty-two**.
+`kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22), `kg_record_attack` (§1.23), the mark an
+adversarial attack leaves when it writes no counter-edge, and `kg_record_edgeless_section` (§1.24), the mark an
+extraction leaves on a section it wrote no edge from.
+The seven **divergence-surface** tools (§1B) complete the server's **thirty-three**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
 Mutation tools (`kg_write`, `kg_propose`, `kg_ground`, `kg_rename`, `kg_merge`) write the **canon** (human-editable Markdown,
 the single source of truth) — `kg_propose` (§1.12) is the hypothesized write lane and `kg_operate` (§1.14) writes
-through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, never the canon. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
+`kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -653,8 +655,8 @@ section.
 The `/burgess:kg-build` plan (0.5.0): which files and sections to build, which are already covered, and the wave
 size. It is the build's Step 0, which through 0.4.6 ran as a Bash block; in auto mode Claude Code ignores a
 command's `Bash` permission, so that block could stop a build on a permission prompt, while an MCP tool the
-command declares runs without one. **Read-only and projection-free**: it reads the canon spans and the
-source only.
+command declares runs without one. **Read-only and projection-free**: it reads the canon spans, the
+source and the edgeless-section ledger (§1.24) only.
 
 - `arguments` — the command's typed `$ARGUMENTS`, **verbatim**; the engine splits it
   (`buildplan.parse_arguments`). Empty → the whole configured source. A trailing whole number after a space
@@ -683,7 +685,8 @@ source only.
      "sections": [{"section": 1, "title": "Resumen", "chars": 2778, "covered": false}]}
   ],
   "sections_total": 16,
-  "sections_uncovered": 16,
+  "sections_uncovered": 15,
+  "sections_edgeless": 1,
   "waves": 4
 }
 ```
@@ -695,13 +698,17 @@ source only.
   heading at that level is one section titled `(whole file)`. Headings inside fenced code never count.
 - `covered` — a span-present edge quotes the section (heading included), counted the way the boundary
   verified the span: toward the file its edge's `source_file` names, or toward any file when it names none
-  or an unknown one. `sections_uncovered` and `waves` (uncovered sections ÷ `wave_size`, rounded up) are the
-  work left: the resume signal.
+  or an unknown one.
+- `edgeless` (0.14.0, `{at, note}`) — on an uncovered section the ledger records an extraction of that wrote
+  no edge (§1.24), while the section's text and the pack's types are the ones that extraction read. A build
+  does not extract it again.
+- `sections_uncovered` counts the sections to extract, neither covered nor edgeless, and `waves` is theirs
+  (÷ `wave_size`, rounded up): the work left, the resume signal. `sections_edgeless` counts the edgeless ones.
 - `wave_size_from` — `argument`, `option`, or `default` (nothing usable at the chosen level: unset, an
   unfilled placeholder, not a whole number, below 1). Validation and clamping (1–10, default 6) are
   `waves.explain_wave_size`'s.
 - `skipped` (+ `note`) — files of the configured folder that could not be read as UTF-8 text.
-- Titles leave through the egress scrub (§1.9); the plan never carries section text.
+- Titles and notes leave through the egress scrub (§1.9); the plan never carries section text.
 
 `ok: false` means **do not build**, with `error` (and `problems[]` for a subset) saying why: no
 `source_path` configured, nothing readable at it, two quoted parts, or a subset reaching past the
@@ -872,6 +879,36 @@ the plan offered that hub to every later pass, and each attack searched the sour
   unreadable ledger only offers those hubs again, and a damaged line is skipped.
 - `ok: false` for an empty or unknown hub, a reason outside the two, or an empty or overlong question; nothing
   is written then.
+
+### 1.24 `mcp__plugin_burgess_burgess__kg_record_edgeless_section(source_file, section, note)`
+
+The mark an extraction leaves on a `/burgess:kg-build` section it wrote no edge from (0.14.0), because nothing
+in the section states a relation the pack's types can carry: a list of sources, a glossary, a checklist. The
+extractor calls it once, when it finishes such a section, whether it wrote nodes or nothing at all.
+`kg_build_plan` (§1.19) then marks the section `edgeless` and leaves it out of the sections to extract. Through
+0.13.6 such a section left nothing behind, so every later build launched an extractor to read the same text
+and find nothing again.
+
+- `source_file`, `section` — the plan's, as for `kg_section` (§1.20).
+- `note` — why the section held nothing to write, in a sentence: up to 500 characters, whitespace collapsed.
+
+```json
+{"ok": true, "source_file": "Fábricas de software.md", "section": 16, "title": "Fuentes",
+ "at": "2026-11-13T10:30:00+00:00"}
+```
+
+- It appends one fsync'd JSON line, `{file, section, title, text_sha256, vocabulary_sha256, at, note}`, to
+  `<project>/.kg-edgeless-sections.jsonl`, under the writer lease.
+- **What a record applies to:** the file, and the digests of the section's normalized text and of the pack's
+  node and edge type names. A record follows its section to another number, and stops applying once the text
+  says something else or the pack's types change: a new type can make a relation in the section writable.
+- It sets no state: no node, edge or verdict changes, and the nodes the extraction wrote stay.
+- The ledger is engine state, not canon. It is git-excluded like the attack ledger, and read fail-open: a lost or
+  unreadable ledger only offers those sections again, and a damaged line is skipped. Deleting it re-offers
+  every recorded section.
+- `ok: false` for a file that is not a configured source file, a section number that is not one of the file's,
+  an empty or overlong note, or a section a span-present edge already quotes (it is covered); nothing is
+  written then.
 
 ---
 

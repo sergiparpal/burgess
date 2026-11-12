@@ -25,7 +25,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__, envconfig
-from .canon import HUB_ATTACKS, Canon
+from .canon import EDGELESS_SECTIONS, HUB_ATTACKS, Canon
 from .groundaudit import GroundAuditLog
 from .model import (
     AuthoredBy,
@@ -48,7 +48,8 @@ from .model import (
 )
 from .projector import Projector
 from .reconciler import GROUND_AUDIT, Reconciler
-from .buildplan import parse_arguments, related_nodes, resolve_subset
+from .buildplan import (edgeless_records, parse_arguments, related_nodes, resolve_subset, section_digest,
+                        vocabulary_digest)
 from .scrub import Scrubber, placeholders_in
 from .sources import SourceSet, plan_sections, split_sections
 from .waves import explain_wave_size
@@ -1873,8 +1874,12 @@ class KGEngine:
         Sections follow ``sources.plan_sections``, the rule ``kg_section`` serves them by, so section N
         here is the text an extractor asking for N receives. A section is ``covered`` when a span-present
         edge attributed to its file (or to no known file, as the lenient span check allows) quotes it,
-        heading included. Read-only and projection-free, like kg_status: it reads the canon spans and the
-        source only, and section titles leave through the egress scrub.
+        heading included. An uncovered section carries ``edgeless`` (0.14.0, ``{at, note}``) when the ledger
+        records an extraction of it that wrote no edge (``kg_record_edgeless_section``) and the section's
+        text and the pack's types are still the ones that extraction read. ``sections_uncovered`` counts the
+        sections to extract, uncovered and not edgeless, and ``waves`` is theirs; ``sections_edgeless``
+        counts the others. Read-only and projection-free, like kg_status: it reads the canon spans, the
+        source and the ledger only, and section titles and notes leave through the egress scrub.
 
         ``ok: false`` means do not build, with ``error`` (and ``problems`` for a subset that reaches past
         the configured source) saying why: nothing configured, nothing readable, or a subset naming files
@@ -1911,17 +1916,23 @@ class KGEngine:
         if args.leads:
             return self._scrub_egress(self._leads_plan(out, names, texts, wave))
         named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
-        files, total, uncovered = [], 0, 0
+        records, vocabulary = self._edgeless_sections(), vocabulary_digest(self.pack)
+        files, total, uncovered, edgeless = [], 0, 0, 0
         for name in names:
             level, secs = plan_sections(texts[name])
             spans = named.get(name, set()) | anywhere
             rows = []
             for s in secs:
                 norm = normalize_text(s.text)
-                rows.append({"section": s.index, "title": s.title or "(whole file)", "chars": len(s.text),
-                             "covered": any(sp in norm for sp in spans)})
+                row = {"section": s.index, "title": s.title or "(whole file)", "chars": len(s.text),
+                       "covered": any(sp in norm for sp in spans)}
+                record = None if row["covered"] else records.get((name, section_digest(s.text), vocabulary))
+                if record:
+                    row["edgeless"] = dict(record)
+                rows.append(row)
             total += len(rows)
-            uncovered += sum(1 for r in rows if not r["covered"])
+            uncovered += sum(1 for r in rows if not r["covered"] and "edgeless" not in r)
+            edgeless += sum(1 for r in rows if "edgeless" in r)
             entry = {"file": name, "heading_level": level, "sections": rows}
             if level == 3:
                 entry["note"] = "the sections are this file's ### subsections: its only ## heading is its title"
@@ -1929,7 +1940,7 @@ class KGEngine:
                 entry["note"] = "no heading to split at: the whole file is one section"
             files.append(entry)
         plan = {**out, "ok": True, "files": files, "sections_total": total,
-                "sections_uncovered": uncovered, "waves": -(-uncovered // wave)}
+                "sections_uncovered": uncovered, "sections_edgeless": edgeless, "waves": -(-uncovered // wave)}
         if skipped:
             plan["skipped"] = skipped
             plan["note"] = "skipped files could not be read as UTF-8 text"
@@ -1975,6 +1986,80 @@ class KGEngine:
         if leads:
             out["leads"] = self._section_leads(name, idx, texts)
         return out
+
+    def _edgeless_sections(self) -> "dict[tuple[str, str, str], dict]":
+        """The sections the ledger records an extraction of that wrote no edge (`buildplan.edgeless_records`).
+        Fail-open, like the attack ledger: a missing or unreadable ledger is no record, and a bad byte only
+        spoils its line. Never creates the ledger or the canon directory (the plan is read-only)."""
+        try:
+            with open(self.canon.root / EDGELESS_SECTIONS, encoding="utf-8", errors="replace") as f:
+                return edgeless_records(f)
+        except OSError:
+            return {}
+
+    def kg_record_edgeless_section(self, source_file: str, section: "int | str", note: str) -> dict:
+        """Record a `/kg-build` section whose extraction wrote no edge (0.14.0), so `kg_build_plan` stops
+        offering it while its text and the pack's types stay the ones that extraction read.
+
+        ``source_file`` and ``section`` are the plan's, as for ``kg_section``; ``note`` is the extractor's
+        sentence on why the section held nothing to write (a list of sources, a glossary, a checklist). A
+        section a span-present edge already quotes is refused: it is covered, and the plan never offers it.
+        The record goes to the ledger beside the canon (``canon.EDGELESS_SECTIONS``), one fsync'd JSON line
+        under the writer lease, keyed by the digests of the section's text and of the pack's types
+        (``buildplan.section_digest`` and ``vocabulary_digest``). It sets no state: no node, edge or verdict
+        changes, and the nodes the extraction wrote stay. Through 0.13.6 such a section left nothing behind,
+        and every later build launched an extractor for it again (field report on 0.13.6)."""
+        from .atomicio import fsync_dir
+        from .buildplan import MAX_EDGELESS_NOTE_CHARS, edgeless_record
+        texts = self.source_set().texts
+        name = SourceSet._key(source_file or "")
+        if name not in texts:
+            return {"ok": False, "error": "not a configured source file: use a file name kg_build_plan "
+                                          "listed", "source_file": name, "files": list(texts)}
+        try:
+            idx = int(section)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "section must be a section number kg_build_plan listed",
+                    "source_file": name}
+        _level, secs = plan_sections(texts[name])
+        if not 1 <= idx <= len(secs):
+            return {"ok": False, "error": f"{name} has {len(secs)} section(s), so there is no section {idx}",
+                    "source_file": name, "of": len(secs)}
+        note = " ".join((note or "").split())
+        if not note:
+            return {"ok": False, "error": "a record carries a note saying why the section held nothing to "
+                                          "write", "source_file": name, "section": idx}
+        if len(note) > MAX_EDGELESS_NOTE_CHARS:
+            return {"ok": False, "error": f"the note is over {MAX_EDGELESS_NOTE_CHARS} characters",
+                    "source_file": name, "section": idx}
+        s = secs[idx - 1]
+        title = s.title or "(whole file)"
+        if not self._try_writer_lease():
+            return {"ok": False, "error": self._LOCKED_ERROR, "source_file": name, "section": idx}
+        try:
+            # Read the spans fresh under the lease: an edge another extractor wrote a moment ago counts.
+            named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
+            norm = normalize_text(s.text)
+            if any(sp in norm for sp in named.get(name, set()) | anywhere):
+                return {"ok": False, "error": "a span-present edge already quotes this section, so it is "
+                                              "covered and the plan does not offer it: nothing recorded",
+                        "source_file": name, "section": idx}
+            at = utcnow()
+            path = self.canon.root / EDGELESS_SECTIONS
+            line = edgeless_record(name, idx, title, section_digest(s.text), vocabulary_digest(self.pack),
+                                   at, note)
+            try:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                fsync_dir(path.parent)
+            except OSError as e:
+                return {"ok": False, "error": self._scrub_error(f"section not recorded: {e}"),
+                        "source_file": name, "section": idx}
+        finally:
+            self.canon.release_lock()
+        return self._scrub_egress({"ok": True, "source_file": name, "section": idx, "title": title, "at": at})
 
     # ---- the /kg-ground plan (0.7.0) -------------------------------------------------------------------
     def kg_ground_plan(self, focus: "str | None" = "", configured_wave_size: "str | int | None" = None,
@@ -3172,6 +3257,9 @@ def _register(mcp, engine: KGEngine) -> None:
         command's typed `$ARGUMENTS` VERBATIM as `arguments` — the engine splits it: an optional subset
         (a file, folder or glob inside the configured source_path) and an optional trailing wave size —
         and the `extract_wave_size` option as the command text carries it as `configured_wave_size`.
+        An uncovered section marked `edgeless` had an extraction that wrote no edge from it
+        (kg_record_edgeless_section), and its text and the pack's types are unchanged since: it is not
+        extracted again. `sections_uncovered` and `waves` count only the sections to extract.
         `ok: false` means do not build; `error`/`problems` say why. With `--leads` first on the line, the
         plan is `mode: "leads"`: `leads[]`, the sections holding the leads rejected claims carry, one
         extractor per section. Read-only, projection-free."""
@@ -3221,6 +3309,17 @@ def _register(mcp, engine: KGEngine) -> None:
         them to the original. `leads=true` (for `/burgess:kg-build --leads`) adds `leads`: the edges grounders found
         stated by spans of this section under claims they rejected, each with that span."""
         return engine.kg_section(source_file, section, leads)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_record_edgeless_section(source_file: str, section: int, note: str) -> dict:
+        """Record that extracting ONE /burgess:kg-build section wrote no edge, because nothing in it states a
+        relation the pack's types can carry: a list of sources, a glossary, a checklist. `source_file` and
+        `section` are the plan's, as for kg_section; `note` says in a sentence why. kg_build_plan then marks
+        the section `edgeless` and leaves it out of the sections to extract, while its text and the pack's
+        types stay the same. Refused for a section a span-present edge already quotes. Writes only the
+        ledger beside the canon: no node, edge or verdict changes."""
+        return engine.kg_record_edgeless_section(source_file, section, note)
 
     @mcp.tool()
     @_tool_result

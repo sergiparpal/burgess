@@ -115,17 +115,18 @@ def test_graphless_scripted_session_end_to_end(tmp_path, monkeypatch):
     assert not (derived / "index.sqlite").exists() and not (derived / "graph.json").exists()
 
 
-def test_mcp_surface_is_thirty_two_tools(engine):
+def test_mcp_surface_is_thirty_three_tools(engine):
     # 27 through 0.4.6; 0.5.0 added kg_build_plan and kg_section, which take /kg-build's planning and
     # section cutting out of Bash, 0.7.0 kg_ground_plan and kg_ground_item, which do the same for
-    # /kg-ground's queue and evidence, and 0.10.0 kg_record_attack, the mark an attack with no
-    # counter-edge leaves for the plan.
+    # /kg-ground's queue and evidence, 0.10.0 kg_record_attack, the mark an attack with no
+    # counter-edge leaves for the plan, and 0.14.0 kg_record_edgeless_section, the mark an extraction
+    # that wrote no edge leaves on its section for the build plan.
     mcp = FakeMCP()
     _register(mcp, engine)
     assert DIVERGE_TOOLS <= set(mcp.tools), sorted(mcp.tools)
     assert {"kg_build_plan", "kg_section", "kg_ground_plan", "kg_ground_item",
-            "kg_record_attack"} <= set(mcp.tools), sorted(mcp.tools)
-    assert len(mcp.tools) == 32, sorted(mcp.tools)
+            "kg_record_attack", "kg_record_edgeless_section"} <= set(mcp.tools), sorted(mcp.tools)
+    assert len(mcp.tools) == 33, sorted(mcp.tools)
 
 
 def test_resolve_axes_source_paths(tmp_path, monkeypatch):

@@ -16,14 +16,15 @@ the boundary stores the restored original span in the canon (the span still veri
 source, §5). For a no-PII source the scrub is a no-op (`redactions=0`). Under `/burgess:kg-build` the scrub runs
 inside `mcp__plugin_burgess_burgess__kg_section(source_file, section)`, which serves an extractor its one
 section already cut and scrubbed (0.5.0). The graph tool surface adds the generative layer's tools on top of
-the twenty-one core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (the /burgess:kg-build plan),
-`kg_section`, `kg_ground_plan` and `kg_ground_item` (the /burgess:kg-ground queue and evidence), `kg_record_attack`
+the twenty-two core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (the /burgess:kg-build plan),
+`kg_section`, `kg_record_edgeless_section` (the mark an extraction that wrote no edge leaves on its section),
+`kg_ground_plan` and `kg_ground_item` (the /burgess:kg-ground queue and evidence), `kg_record_attack`
 (the mark an attack with no counter-edge leaves), `kg_write`, `kg_ground`, `kg_rename`, `kg_merge` (deliberate node-merge with edge dedup), `kg_metrics`, `kg_status`,
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
 `kg_export` (read-only human-facing render) (plus the four generative-layer tools `kg_propose` (§5a),
-`kg_generate`, `kg_operate`, `kg_absorption` — see the generative-layer references) — twenty-five in all.
-The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-two; they
+`kg_generate`, `kg_operate`, `kg_absorption` — see the generative-layer references) — twenty-six in all.
+The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-three; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---

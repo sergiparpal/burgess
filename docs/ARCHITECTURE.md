@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (32 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (33 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -53,7 +53,7 @@ verdict path.
 | `advisory_geometry.py` | Advisory hybrid-descriptor DPP ordering over `kg_generate` candidates (behind `divergence.dpp`, default off) |
 | `pathing.py` | The grounded-only path algorithm behind `kg_explain_path` |
 | `waves.py` | Deterministic resolver for `/burgess:kg-build`'s extraction wave size |
-| `buildplan.py` | `/burgess:kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), and the canon nodes a section names, for `kg_section` |
+| `buildplan.py` | `/burgess:kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), the canon nodes a section names, for `kg_section`, and the digests and ledger lines of the sections an extraction wrote no edge from |
 | `export.py` (+ `templates/graph_html.py`) | Render `graph.html` + `GRAPH_REPORT.md` from the derived layer |
 | `harness.py` | Deterministic measurement: agreement, specificity, ideation, convergence |
 | `backend.py` | Headless API-key extraction for CI (same boundary as the interactive flow) |
@@ -300,16 +300,17 @@ clean band separation. Candidates route through `kg_propose`; the four endo oper
 scores, per node grounded from a hypothesis, how long it stayed perturbing before the graph
 renormalized (`fertile | absorbed | isolated`).
 
-## 5. The MCP tool surface (32 tools)
+## 5. The MCP tool surface (33 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
 - **Read/query (16):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
   status + section coverage, where a span counts toward the file its edge's `source_file` names, as
   span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/burgess:kg-build` plan:
-  files, sections at each file's heading level, per-section coverage, the wave size; it reads the
-  typed arguments and the option text it is handed, so the command needs no shell; with `--leads`,
-  the sections holding the leads rejected claims carry), `kg_section`
+  files, sections at each file's heading level, per-section coverage, the sections an extraction
+  recorded as holding no edge while their text and the pack's types are unchanged, the wave size; it
+  reads the typed arguments and the option text it is handed, so the command needs no shell; with
+  `--leads`, the sections holding the leads rejected claims carry), `kg_section`
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
   nodes the section names, so the extractor can reuse their ids, and on request its pending leads
   with their spans), `kg_ground_plan` (the `/burgess:kg-ground`
@@ -332,10 +333,14 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   budget left out — the search is described in §3.5), `kg_agenda`
   (structural suggested questions, `answerable_now` vs `blocked_on_grounding`), `kg_export`
   (offline `graph.html` + `GRAPH_REPORT.md`; the three axes on independent visual channels).
-- **Write/ground (7):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
+- **Write/ground (8):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
   `kg_rename` (strict), `kg_merge` (deliberate merge; negative information sticky), `kg_operate`,
   `kg_record_attack` (0.10.0: an adversarial attack that wrote no counter-edge, with its falsifying
-  question, so the plan stops offering that hub; it writes only the attack ledger and sets no state).
+  question, so the plan stops offering that hub; it writes only the attack ledger and sets no state),
+  `kg_record_edgeless_section` (0.14.0: a `/burgess:kg-build` section whose extraction wrote no edge, with the
+  extractor's note on why, keyed by the digests of the section's text and of the pack's types, so the build
+  plan stops offering it while both are unchanged; it refuses a covered section, writes only the
+  edgeless-section ledger and sets no state).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (7):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`.
@@ -451,7 +456,8 @@ divergence templates ship as pack fragments under `pack/domains/`.
   `/burgess:kg-generate`, `/burgess:kg-perturb`, `/burgess:kg-query`, `/burgess:kg-eval`, `/burgess:kg-experiment`, `/burgess:kg-view`,
   `/burgess:kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
 - **Subagents** (7): `kg-extractor` (one per planned section, whose text it fetches with
-  `kg_section`; emits `kg_write` payloads),
+  `kg_section`; emits `kg_write` payloads, and records a section it wrote no edge from with
+  `kg_record_edgeless_section`),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
   counter-edges typed `attacked_by`, `confounded_by` or `collapses_into`, plus `failed` verdicts),
   `kg-generator` (phrases structural candidates — language only, never structure),
@@ -591,6 +597,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-ground-audit.jsonl(.ckpt) verdict audit ledger (gitignored engine state)
   .kg-reconcile-state.json      reconciler cache (gitignored)
   .kg-hub-attacks.jsonl         attacks that wrote no counter-edge (gitignored engine state, 0.10.0)
+  .kg-edgeless-sections.jsonl   build sections an extraction wrote no edge from (gitignored engine state, 0.14.0)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
   .kg/constructions/<slug>/     /burgess:kg-perturb second construction (alt canon/ + derived/; ephemeral)
 <data dir>/                     $KG_DATA (or <project>/.kg-data)

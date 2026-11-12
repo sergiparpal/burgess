@@ -21,6 +21,7 @@ uv.lock
 .kg-reconcile-state.json
 .kg-ground-audit.jsonl*
 .kg-hub-attacks.jsonl
+.kg-edgeless-sections.jsonl
 .tmp-*
 /derived/
 **/derived/lightrag/

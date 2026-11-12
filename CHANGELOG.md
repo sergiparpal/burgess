@@ -1,5 +1,95 @@
 # Changelog
 
+## 0.14.0 — 2026-11-13
+
+Found in the field on 0.13.6. A plain `/burgess:kg-build` on the built canon planned 18 sections again, and the
+build that made the canon had found nothing to write in any of them.
+
+### Added
+
+- **`kg_record_edgeless_section(source_file, section, note)`.** An extractor calls it when it finishes a
+  `/burgess:kg-build` section without writing an edge from it, with a sentence on why the section held nothing to
+  write.
+  - **When.** It is for a section the extractor found no relation in, whether it wrote nodes or nothing at all.
+    It is not for a section whose edges `kg_write` rejected.
+  - **What the engine checks.** It refuses a section that a span-present edge already quotes.
+  - **The record.** One line in `<project>/.kg-edgeless-sections.jsonl`, keyed by two digests: one of the
+    section's normalized text and one of the pack's node and edge type names. The record sets no state.
+  - **The ledger** is git-excluded engine state, read fail-open, so losing it only offers those sections again.
+  - The MCP surface goes from 32 to 33 tools.
+- **`kg_build_plan` marks a recorded section `edgeless`** (`{at, note}`) and counts these sections in
+  `sections_edgeless`.
+  - A record holds while the section's text and the pack's types are the ones the extraction read.
+  - A section that moved to another number keeps its record.
+  - A changed text brings the section back. So does a new pack type, which can make a relation in it writable.
+  - `sections_uncovered` and `waves` now count only the sections to extract.
+
+### Fixed
+
+- **A section with nothing to extract was extracted again by every build.**
+  - A section counts as built once a span-present edge quotes it. A list of sources, a glossary or a checklist
+    never gets one, so every build planned it again.
+  - The build that made the field canon, on 2026-11-07, extracted all 84 sections, and 19 of its extractors
+    wrote no edge. They ended in three ways, and the record covers all three:
+    - six sent a `kg_write` with no node and no edge;
+    - two sent none;
+    - eleven wrote nodes alone.
+  - On 2026-11-12 a plain build planned 18 of those sections again. The 19th had gained an edge since.
+  - Only a memory note of the user's session kept that build from launching 18 extractors in three waves. The
+    session asked the user first.
+  - The extractor's contract and the build brief now ask for the record, and the command launches only the
+    sections to extract.
+
+### Changed
+
+- **`/burgess:kg-build`:**
+  - Step 0 describes `edgeless` and `sections_edgeless`.
+  - Step 1 launches only the sections to extract.
+  - The resume probe re-launches at most once a section that is still to extract after its launch: every edge
+    was rejected, or the record was left out.
+  - The report counts the edgeless sections.
+- **The extractor's contract** has a new section, *A section that states no relation*. It says when to record a
+  section and when not to: not after rejections, not in leads mode, not for a second construction. A procedure
+  step points to it.
+
+### Upgrading
+
+- The ledger starts empty. So the first plain build after the update extracts once more each section that
+  holds nothing, and each extractor records its section; later builds skip them. On the field canon that means
+  18 extractors in three waves, once.
+
+### Tests
+
+- `tests/test_fix_edgeless_sections.py` (29 tests):
+  - the plan: a recorded section leaves it, and the field case (an argued section, a vocabulary with nodes and
+    no edge, a list of sources);
+  - what keeps a record and what ends it: a changed text, a moved section, a new pack type, the same types in
+    another order, an edge written later;
+  - a subset, the leads plan, and the egress scrub on the note;
+  - the record: the ledger line, nodes without an edge, no state changed, a covered section and every other
+    refusal;
+  - the ledger: damaged, lost or unreadable, never created by the plan, and kept out of git;
+  - the two digests and the parser, a model's string section number through the MCP layer, and the contract
+    and command texts.
+- 2013 → 2042 passed, 3 skipped.
+  - `tests/fusion/test_diverge_surface.py` counts 33 tools.
+  - `tests/test_fix_session_start.py`'s excluded patterns include the new ledger.
+- **Checked end to end:** one headless `/burgess:kg-build`, in auto mode with Claude Code 2.1.316 and the plugin
+  loaded from this tree. The source was a scratch document of three sections: an argued paragraph, a glossary
+  and a list of sources.
+  - The plan offered all three, and one extractor ran per section.
+  - The argued section's extractor wrote one `enables` edge. The other two wrote nothing and called
+    `kg_record_edgeless_section`, each with a note on why.
+  - The orchestrator's next plan had nothing left to extract and two edgeless sections, and its report named
+    both.
+  - No permission was denied and no shell command ran. The run cost $0.62.
+
+### Docs
+
+- `DECISIONS.md` records the decision.
+- `ARCHITECTURE.md`, `COMMANDS.md`, the skill, its `tools.md` (§1.24) and `contract.md` references, the README
+  and `CLAUDE.md` describe the record and count 33 tools.
+
 ## 0.13.6 — 2026-11-12
 
 Found after the first attack on 0.13.5, which followed the new brief.

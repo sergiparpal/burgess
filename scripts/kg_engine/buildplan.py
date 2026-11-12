@@ -1,5 +1,6 @@
 """The /kg-build plan's deterministic halves: reading the typed arguments and resolving a subset (0.5.0),
-and the nodes already in the canon that a section names (0.6.0, `related_nodes`).
+the nodes already in the canon that a section names (0.6.0, `related_nodes`), and the record of a section an
+extraction wrote no edge from (0.14.0, `edgeless_records`).
 
 Through 0.4.6 `/kg-build` worked these out in its Step 0b Bash block and in the orchestrator's head. In
 auto mode Claude Code ignores a command's `Bash` permission (a tool-wide shell grant would let the model
@@ -8,12 +9,14 @@ would not clear stopped the build on a permission prompt (field report on 0.4.6)
 `kg_build_plan`, an MCP tool the command declares, takes the shell out of the build, and makes the rules
 code that tests can run instead of prose an orchestrator interprets.
 
-Pure stdlib + `envconfig`/`sources`; no I/O beyond resolving the subset's paths. `KGEngine.kg_build_plan`
+Pure stdlib + `envconfig`/`sources`/`model`; no I/O beyond resolving the subset's paths. `KGEngine.kg_build_plan`
 assembles the plan around these.
 """
 from __future__ import annotations
 
 import fnmatch
+import hashlib
+import json
 import math
 import os
 import re
@@ -23,6 +26,7 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from . import envconfig
+from .model import normalize_text
 from .sources import SourceSet
 
 _QUOTES = ("'", '"')
@@ -267,3 +271,68 @@ def related_nodes(text: str, nodes: "Iterable", *, degree: "Mapping[str, int] | 
             scored.append((-best[0], -best[1], -int((degree or {}).get(n.id, 0)), n.id, n))
     scored.sort(key=lambda row: row[:4])
     return [row[4] for row in scored[:limit]], len(scored)
+
+
+# ---- the sections an extraction wrote no edge from (0.14.0) ---------------------------------------------
+#
+# A section is covered once a span-present edge quotes it, and /kg-build launches an extractor for every section
+# that is not. Some sections state no relation at all: a list of sources, a glossary, a checklist, a timeline.
+# Their extractor writes nothing, or nodes without an edge, and through 0.13.6 every later build launched one
+# again, to read the same text and find nothing again (field report on 0.13.6: a plain build re-planned 18 of
+# 84 sections whose extractors had written no edge when the canon was built, and only the session's memory kept
+# it from launching 18 extractors). The extractor now records such a section with `kg_record_edgeless_section`: one line in the
+# ledger beside the canon (`canon.EDGELESS_SECTIONS`). The plan leaves the section out while a record still
+# describes it, that is, while the section's text and the pack's types are the ones the extraction read. The
+# ledger is engine state, not canon: a lost or unreadable one only offers those sections again, as before.
+
+# The longest note a record keeps: a sentence on why the section held nothing to write.
+MAX_EDGELESS_NOTE_CHARS = 500
+
+
+def section_digest(text: str) -> str:
+    """What a record knows a section's text by: the SHA-256 of its normalized text (`model.normalize_text`, the
+    form coverage reads), heading line included. A record keeps matching a section that moved to another
+    number, and stops matching once the text says something else."""
+    return hashlib.sha256(normalize_text(text).encode("utf-8")).hexdigest()
+
+
+def vocabulary_digest(pack) -> str:
+    """The SHA-256 of the pack's node and edge type names, in any order: what an extractor may write. A new type
+    can give a section that held nothing writable an edge (until 0.8.0 added `enables`, a span saying what makes
+    something possible had no relation to go under), so a record made under another vocabulary no longer
+    applies. ``""`` when no pack is loaded."""
+    if pack is None:
+        return ""
+    types = {"node_types": sorted(pack.node_types), "edge_types": sorted(pack.edge_types)}
+    return hashlib.sha256(json.dumps(types, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def edgeless_record(file: str, section: int, title: str, text_digest: str, vocabulary: str, at: str,
+                    note: str) -> str:
+    """One ledger line (0.14.0): the file and section the plan named, the section's title, the digests of its
+    text and of the pack's vocabulary, when it was recorded, and the extractor's note on why it wrote no edge.
+    Only the file and the two digests decide whether a record applies; the rest is for whoever reads it."""
+    return json.dumps({"file": file, "section": section, "title": title, "text_sha256": text_digest,
+                       "vocabulary_sha256": vocabulary, "at": at, "note": note}, ensure_ascii=False)
+
+
+def edgeless_records(lines) -> "dict[tuple[str, str, str], dict]":
+    """``(file, text digest, vocabulary digest) -> {at, note}`` of the newest record for each, from the ledger's
+    lines. A line that is not such a record (a torn last line, a hand edit, another shape) is skipped, never an
+    error."""
+    out: "dict[tuple[str, str, str], dict]" = {}
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        key = (rec.get("file"), rec.get("text_sha256"), rec.get("vocabulary_sha256"))
+        at, note = rec.get("at"), rec.get("note")
+        if not (all(isinstance(k, str) for k in key) and key[0] and key[1]
+                and isinstance(at, str) and at and isinstance(note, str)):
+            continue
+        if key not in out or at >= out[key]["at"]:
+            out[key] = {"at": at, "note": note}
+    return out
