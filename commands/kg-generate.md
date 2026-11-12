@@ -1,16 +1,16 @@
 ---
-description: Generate hypothesized idea candidates from the graph's structure (bridge|seed|compression|regroup|transplant|ensemble|periphery), phrase them via the language layer, and write them to the hypothesized lane — then hand off to /kg-ground as the filter.
+description: Generate hypothesized idea candidates from the graph's structure (bridge|seed|compression|regroup|transplant|ensemble|periphery), phrase them via the language layer, and write them to the hypothesized lane — then hand off to /burgess:kg-ground as the filter.
 argument-hint: "[mechanism-set] [k]"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_operate, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_absorption
 ---
 
-# /kg-generate — the generative layer (PLAN Stages 3–6)
+# /burgess:kg-generate — the generative layer (PLAN Stages 3–6)
 
 This is the *generation* half of the system. It turns the grounded graph from a **verification machine**
 into an **idea-generation machine** — without weakening one anti-nonsense guarantee. The whole design
 rests on **the inversion** (PLAN §1.2): **generate offensively, judge defensively.** Entry into the graph
 is NEVER gatekept by a quality metric — every candidate is written `hypothesized`/`unverified`. The
-*existing* grounding loop (`/kg-ground`) is the filter, applied **after**. The portico that used to stand
+*existing* grounding loop (`/burgess:kg-ground`) is the filter, applied **after**. The portico that used to stand
 at the door of imagination is moved to after generation.
 
 ## Advisory DPP ordering (FUSION Stage 5 — `divergence.dpp`, default off)
@@ -22,14 +22,14 @@ grounded-mix of the neighborhood) — with a `divergence_advisory` block: per-ca
 semantic novelty, and distance to the graph's "center" (the top grounded hubs, the structural
 cliché map — the periphery mechanism and cliché-distance are two views of the same
 away-from-center pressure). Present candidates in that order with those labels, exactly like a
-/kg-diverge slate. It is ADVISORY ONLY (I5, snapshot-enforced): same candidates, same scores,
+/burgess:kg-diverge slate. It is ADVISORY ONLY (I5, snapshot-enforced): same candidates, same scores,
 bit-identical grounding downstream; if the advisory layer is unavailable the engine's own
 deterministic mechanism ranking is kept and `note` says why.
 
 A generated candidate enters as `provenance=hypothesized`, `epistemic_state=unverified`, **with no span**.
 It is a *proposal from a discovery mechanism*, never a text claim — stored in a lane that can never be
 mistaken for grounded content. Promotion to `grounded` happens ONLY through `kg_ground`, and only when a
-grounder supplies a span or citation (which *upgrades* its provenance) — see `/kg-query`/`/kg-ground`.
+grounder supplies a span or citation (which *upgrades* its provenance) — see `/burgess:kg-query`/`/burgess:kg-ground`.
 
 Arguments, as typed (optional): `$ARGUMENTS`. They hold a mechanism set (`default` | `all` | a single
 mechanism name) and an integer `k`, split at spaces; a whole number is `k`, the other word is the set.
@@ -38,7 +38,7 @@ mechanism name) and an integer `k`, split at spaces; a whole number is `k`, the 
 
 Call `mcp__plugin_burgess_burgess__kg_context(budget=2000)`. If `items[]` **and**
 `advisory.bridge_metric.nodes[]` are both empty, there is no graph to generate from — tell the user to run
-`/kg-build` → `/kg-ground` first, and stop. Otherwise note `advisory.bridge_metric.gate_on` (whether
+`/burgess:kg-build` → `/burgess:kg-ground` first, and stop. Otherwise note `advisory.bridge_metric.gate_on` (whether
 specificity-weighted betweenness is the trusted bridge signal this projection) and carry it into the report.
 
 ## Step 1 — mechanism set (NON-BLOCKING survey, §"Autonomy contract")
@@ -65,7 +65,7 @@ Call `mcp__plugin_burgess_burgess__kg_generate(mechanism=<chosen>, k=<k>)` (use
 (≥1). It is a **ranking prior for the grounding queue** (which hypotheses to ground first), **never** a score,
 **never** a verdict, and **never** written onto a canon edge; it does not change the slate's `score`/ranking.
 This call is **READ-ONLY** — nothing is written yet. If `count==0`, report that the structure surfaced no
-candidates for the chosen mechanisms (the demo graph is small; try `all`, a larger `k`, or `/kg-perturb`),
+candidates for the chosen mechanisms (the demo graph is small; try `all`, a larger `k`, or `/burgess:kg-perturb`),
 and stop. Note the `note` (e.g. ensemble degraded to regroup with no second construction).
 
 ## Step 3 — phrase & label the candidates (Task → kg-generator)
@@ -128,13 +128,13 @@ Step 0 (was the slate ranked by the confound-corrected `spec_betweenness` or the
 
 ## Step 6 — the inversion, made explicit
 
-State plainly: **nothing has been judged yet.** Every candidate is `hypothesized`/`unverified`. `/kg-ground`
+State plainly: **nothing has been judged yet.** Every candidate is `hypothesized`/`unverified`. `/burgess:kg-ground`
 now acts as the *filter* over the hypothesized lane — a grounder promotes a candidate to `grounded` ONLY by
 supplying a span or external citation (which upgrades its provenance from `hypothesized` to
 `span-present`/`inferred`), and rejects the rest into failure memory (§1.7), which then *binds* the next
 generation (a candidate that collapses into a known failure is dropped on sight, invariant 5).
 
-Optionally chain into `/kg-ground` restricted to the freshly-proposed hypothesized lane
+Optionally chain into `/burgess:kg-ground` restricted to the freshly-proposed hypothesized lane
 (`epistemic_state=unverified, provenance=hypothesized`).
 
 ## Invariants this command upholds
@@ -142,7 +142,7 @@ Optionally chain into `/kg-ground` restricted to the freshly-proposed hypothesiz
 - **The hypothesized lane is separate, never privileged.** Candidates are written `hypothesized`, never
   presented as grounded, never carrying a span.
 - **Generation is never gatekept by a quality metric** (the inversion) — it always emits and writes; only
-  `/kg-ground` filters, afterward.
+  `/burgess:kg-ground` filters, afterward.
 - **Generality control travels with every mechanism** (§4): structural rankings are spec-weighted, the
   gate decides whether `spec_betweenness` is trusted, compressions pass an MDL screen.
 - **Failure memory binds generation** (§13): the engine drops any candidate whose identity (or its

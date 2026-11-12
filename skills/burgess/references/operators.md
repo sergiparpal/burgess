@@ -18,7 +18,7 @@ new idea plus its descriptor and genealogy.
 When the monitor reports collapse, switch to operators you have not used this
 session, especially `analogy`, `biomimicry`, `random_stimulus`, and `inversion`.
 
-**Reach controls the operator *mix*** (see `/kg-diverge`). The operators split by
+**Reach controls the operator *mix*** (see `/burgess:kg-diverge`). The operators split by
 how far they reach from the brief:
 - *recombinative* (shorter reach) — `mutation`, `combination`, `morphological`,
   `scamper`, `constraint`, `principle_first`: recombine and re-angle the brief's
@@ -130,7 +130,7 @@ Protect this input contract. For every candidate, fill the resolved axes honestl
   everything to the same value — that collapses niches).
 - **continuous** → a number in range that reflects the idea. **Prefer the
   extremes of the allowed band** over clustering everything in the middle — but
-  the band itself is set by the **reach dial** (see `/kg-diverge`). Under
+  the band itself is set by the **reach dial** (see `/burgess:kg-diverge`). Under
   `balanced` reach `boldness` lives in `[0, 0.75]`, under `conservative` in
   `[0, 0.5]`; spread to the ends *of that band* (so niche resolution is
   preserved), don't blow past it. Reach caps the *degree* of divergence

@@ -13,18 +13,18 @@ For a narrative first session in plain language, read [`../TUTORIAL.md`](../TUTO
 
 | Command | One line | Needs a graph? |
 | --- | --- | --- |
-| [`/kg-diverge`](#kg-diverge) | Diverge from a creative brief into a non-cliché idea slate | No — stands alone |
-| [`/kg-build`](#kg-build) | Extract a span-anchored graph from your source document(s) | No — it creates one |
-| [`/kg-ground`](#kg-ground) | Verdict the graph against the source — the **only** verdict path | Yes |
-| [`/kg-generate`](#kg-generate) | Propose new hypotheses from the graph's own structure | Yes |
-| [`/kg-perturb`](#kg-perturb) | Build a second construction and cross-generate against it | Yes |
-| [`/kg-query`](#kg-query) | Answer a question with provenance and falsification attached | Yes |
-| [`/kg-view`](#kg-view) | Render an offline `graph.html` + `GRAPH_REPORT.md` | Yes |
-| [`/kg-eval`](#kg-eval) | Measure extractor precision and grounding reliability | Yes |
-| [`/kg-experiment`](#kg-experiment) | Blind multi-arm test of whether the graph helps ideation | Yes |
+| [`/burgess:kg-diverge`](#burgesskg-diverge) | Diverge from a creative brief into a non-cliché idea slate | No — stands alone |
+| [`/burgess:kg-build`](#burgesskg-build) | Extract a span-anchored graph from your source document(s) | No — it creates one |
+| [`/burgess:kg-ground`](#burgesskg-ground) | Verdict the graph against the source — the **only** verdict path | Yes |
+| [`/burgess:kg-generate`](#burgesskg-generate) | Propose new hypotheses from the graph's own structure | Yes |
+| [`/burgess:kg-perturb`](#burgesskg-perturb) | Build a second construction and cross-generate against it | Yes |
+| [`/burgess:kg-query`](#burgesskg-query) | Answer a question with provenance and falsification attached | Yes |
+| [`/burgess:kg-view`](#burgesskg-view) | Render an offline `graph.html` + `GRAPH_REPORT.md` | Yes |
+| [`/burgess:kg-eval`](#burgesskg-eval) | Measure extractor precision and grounding reliability | Yes |
+| [`/burgess:kg-experiment`](#burgesskg-experiment) | Blind multi-arm test of whether the graph helps ideation | Yes |
 
-The everyday flow is **diverge → build → ground → generate → query → view**. `/kg-perturb`,
-`/kg-eval` and `/kg-experiment` are the optional "going further" commands.
+The everyday flow is **diverge → build → ground → generate → query → view**. `/burgess:kg-perturb`,
+`/burgess:kg-eval` and `/burgess:kg-experiment` are the optional "going further" commands.
 
 ---
 
@@ -37,22 +37,22 @@ The everyday flow is **diverge → build → ground → generate → query → v
 one line of text, and reads its arguments from that line. None of them relies on Claude Code's
 numbered argument slots, whose numbering differs between Claude Code versions.
 
-*Two arguments, in order.* `/kg-build` and `/kg-generate`. Quote an argument that contains spaces,
-or let the command's own rule sort it out: `/kg-build` reads a trailing whole number as the wave size
+*Two arguments, in order.* `/burgess:kg-build` and `/burgess:kg-generate`. Quote an argument that contains spaces,
+or let the command's own rule sort it out: `/burgess:kg-build` reads a trailing whole number as the wave size
 and everything before it as the path (the engine applies that rule, in `kg_build_plan`), and
-`/kg-generate` reads a whole number as `k` and the other word as the mechanism set.
+`/burgess:kg-generate` reads a whole number as `k` and the other word as the mechanism set.
 
-*One path.* `/kg-perturb`, `/kg-eval` and `/kg-experiment` take a single path, and the whole line is
-that path, so a path with spaces works with or without quotes. `/kg-view` takes one word.
+*One path.* `/burgess:kg-perturb`, `/burgess:kg-eval` and `/burgess:kg-experiment` take a single path, and the whole line is
+that path, so a path with spaces works with or without quotes. `/burgess:kg-view` takes one word.
 
-*Whole-string.* `/kg-query`, `/kg-ground` and `/kg-diverge` consume everything you type as one
-string. For `/kg-query` that string is your question; for `/kg-ground` it is a focus
-filter; for `/kg-diverge` it is your brief, and the optional `domain-template` and `reach` are
+*Whole-string.* `/burgess:kg-query`, `/burgess:kg-ground` and `/burgess:kg-diverge` consume everything you type as one
+string. For `/burgess:kg-query` that string is your question; for `/burgess:kg-ground` it is a focus
+filter; for `/burgess:kg-diverge` it is your brief, and the optional `domain-template` and `reach` are
 *recognized within* that string rather than parsed out of fixed slots — so `wild` at the end of the
 brief and "go wild with this" both work.
 
-**Only two commands require an argument:** `/kg-query` needs a question, and `/kg-diverge` needs a
-brief. The other seven run bare. (`/kg-build` run bare falls back to your configured `source_path`,
+**Only two commands require an argument:** `/burgess:kg-query` needs a question, and `/burgess:kg-diverge` needs a
+brief. The other seven run bare. (`/burgess:kg-build` run bare falls back to your configured `source_path`,
 and stops with a clear message if you never configured one — it will never silently build something
 you didn't ask for.)
 
@@ -61,13 +61,13 @@ you didn't ask for.)
 Everything below is an application of two invariants. They are worth internalizing before the
 reference, because they explain why the arguments are shaped the way they are.
 
-1. **Only `/kg-ground` produces a verdict.** `/kg-build`, `/kg-generate`, `/kg-perturb` and
-   `/kg-diverge` all write into the graph, and everything they write arrives `unverified`. No
-   command other than `/kg-ground` can mark anything trusted, and a payload that tries to assert a
-   verdict is stripped at the write boundary. `/kg-query`, `/kg-view` and `/kg-eval` never write to
+1. **Only `/burgess:kg-ground` produces a verdict.** `/burgess:kg-build`, `/burgess:kg-generate`, `/burgess:kg-perturb` and
+   `/burgess:kg-diverge` all write into the graph, and everything they write arrives `unverified`. No
+   command other than `/burgess:kg-ground` can mark anything trusted, and a payload that tries to assert a
+   verdict is stripped at the write boundary. `/burgess:kg-query`, `/burgess:kg-view` and `/burgess:kg-eval` never write to
    the graph at all.
 2. **Generation is never gatekept by a quality metric.** Candidates enter the graph offensively —
-   the filter is applied afterwards, by `/kg-ground`. This is why no generative command takes a
+   the filter is applied afterwards, by `/burgess:kg-ground`. This is why no generative command takes a
    quality threshold argument: there is nowhere to put one.
 
 Every claim in the graph carries three orthogonal axes, never collapsed into one score:
@@ -83,10 +83,10 @@ falsification counters, and used to block re-proposal of things the graph alread
 ---
 
 <a id="kg-diverge"></a>
-## `/kg-diverge`
+## `/burgess:kg-diverge`
 
 ```
-/kg-diverge <brief> [domain-template] [reach]
+/burgess:kg-diverge <brief> [domain-template] [reach]
 ```
 
 **What it does.** Turns a creative brief into a diverse, deliberately non-cliché slate of ideas.
@@ -148,31 +148,31 @@ change reach at any round — just say so.
 Brief only — axes inferred, `balanced` reach:
 
 ```text
-/kg-diverge Ways to get commuters to try our cold-brew without discounting it
+/burgess:kg-diverge Ways to get commuters to try our cold-brew without discounting it
 ```
 
 Brief with a domain template:
 
 ```text
-/kg-diverge Ways to get commuters to try our cold-brew without discounting it marketing
+/burgess:kg-diverge Ways to get commuters to try our cold-brew without discounting it marketing
 ```
 
 Brief with a reach dial — safer ideas you could ship this quarter:
 
 ```text
-/kg-diverge Onboarding flow for a first-time budgeting app conservative
+/burgess:kg-diverge Onboarding flow for a first-time budgeting app conservative
 ```
 
 Brief with both, pushed all the way out:
 
 ```text
-/kg-diverge Reduce single-use packaging in a grocery chain product_features wild
+/burgess:kg-diverge Reduce single-use packaging in a grocery chain product_features wild
 ```
 
-Because `/kg-diverge` reads the whole string, plain phrasing works too:
+Because `/burgess:kg-diverge` reads the whole string, plain phrasing works too:
 
 ```text
-/kg-diverge Name a research programme around forgetting in language models — go wild
+/burgess:kg-diverge Name a research programme around forgetting in language models — go wild
 ```
 
 Carrying results into the graph (after you have pinned ideas in chat) is a **separate, explicit
@@ -195,17 +195,17 @@ in the lane until you add one.
 - The judge can nudge ranking within a niche but cannot veto diversity. Bad ideas can still reach you
   — that is the point. **You are the selector.**
 - A discard is durable negative memory: never re-slated, never bred from. Re-pinning un-discards it.
-- If a materialized pin is later **falsified** by `/kg-ground`, it folds back into this brief's
+- If a materialized pin is later **falsified** by `/burgess:kg-ground`, it folds back into this brief's
   permanent discards. A merely *unsupported* pin stays recoverable in the lane.
 
 ---
 
 <a id="kg-build"></a>
-## `/kg-build`
+## `/burgess:kg-build`
 
 ```
-/kg-build [subset] [wave_size]
-/kg-build --leads [subset] [wave_size]
+/burgess:kg-build [subset] [wave_size]
+/burgess:kg-build --leads [subset] [wave_size]
 ```
 
 **What it does.** Reads your source document section by section, launching one extractor subagent
@@ -213,11 +213,11 @@ per section (in bounded parallel waves), and writes typed nodes and typed edges 
 Every non-deterministic edge must carry a **verbatim span** copied from your source, or the write
 boundary rejects it as fabrication.
 
-**Everything it writes lands `unverified`.** `/kg-build` never asserts a verdict. It is **additive**:
+**Everything it writes lands `unverified`.** `/burgess:kg-build` never asserts a verdict. It is **additive**:
 run it again on another document of your source and the same graph grows.
 
 **It runs no shell commands.** The engine plans the build (`kg_build_plan`) and hands each extractor
-its own section, already cut and scrubbed (`kg_section`). So the only thing `/kg-build` asks Claude Code
+its own section, already cut and scrubbed (`kg_section`). So the only thing `/burgess:kg-build` asks Claude Code
 for is to launch its subagents, and in auto mode it no longer stops to ask your permission for shell
 scripts. (Through 0.4.6 it ran a Bash step, and in auto mode Claude Code ignores a command's Bash
 permission, so those commands could stop the build on a prompt.)
@@ -230,14 +230,14 @@ permission, so those commands could stop the build on a prompt.)
 | `subset` | No | A file, a directory, or a glob of `.md` / `.txt` files **inside your configured `source_path`** | the whole configured source |
 | `wave_size` | No | Integer `1`–`10` | the `extract_wave_size` option, else `6` |
 
-### `--leads` — writing what `/kg-ground` found
+### `--leads` — writing what `/burgess:kg-ground` found
 
-When `/kg-ground` rejects a claim because its quoted text states another relation (a precondition filed
+When `/burgess:kg-ground` rejects a claim because its quoted text states another relation (a precondition filed
 as evidence is an `enables` claim), or relates a broader or narrower concept than one of its nodes, the
 grounder records the claim the text does state: a **lead**. A build skips every section that already has
-claims, so it never writes them. `/kg-build --leads` does: one extractor per section that holds leads,
+claims, so it never writes them. `/burgess:kg-build --leads` does: one extractor per section that holds leads,
 which writes those claims with the same quoted text and nothing else. They land `unverified`, and the
-next `/kg-ground` judges them like any other. Each lead is written once. `/kg-ground`'s plan counts the
+next `/burgess:kg-ground` judges them like any other. Each lead is written once. `/burgess:kg-ground`'s plan counts the
 ones still waiting (`leads_pending`), and its report says when to run this.
 
 ### `subset` — what each form does
@@ -257,7 +257,7 @@ somewhere else, change `source_path` (see the README's configuration reference) 
 Code.
 
 A name with spaces can go in quotes or not: a trailing whole number is read as the wave size and the
-rest as the path, so `/kg-build research/Notas de campo.md 4` works. Quote a name that itself ends in
+rest as the path, so `/burgess:kg-build research/Notas de campo.md 4` works. Quote a name that itself ends in
 a number (`"research/capítulo 3"`), or that number is read as the wave size.
 
 Spans are verified per file: an edge attributed to the wrong source file is rejected. Sections are
@@ -277,7 +277,7 @@ controls how many of those run at once.
 - Lower it (`1`–`2`) if you are rate-limited or want to watch the build step by step. Raise it
   (`8`–`10`) for a long document you want built quickly.
 
-A lone number is the wave size for the whole source (`/kg-build 4`); before 0.5.0 it was read as a
+A lone number is the wave size for the whole source (`/burgess:kg-build 4`); before 0.5.0 it was read as a
 subset that named no file. To change it for every build, set the `extract_wave_size` option instead.
 
 ### Examples
@@ -287,44 +287,44 @@ They assume your configured `source_path` is the folder `research/`.
 Build all of it:
 
 ```text
-/kg-build
+/burgess:kg-build
 ```
 
 Build one document:
 
 ```text
-/kg-build research/theory-of-change.md
+/burgess:kg-build research/theory-of-change.md
 ```
 
 Build a matching set of its documents:
 
 ```text
-/kg-build "research/chapter-*.md"
+/burgess:kg-build "research/chapter-*.md"
 ```
 
 Build one document with a small wave, to watch it land section by section:
 
 ```text
-/kg-build research/theory-of-change.md 2
+/burgess:kg-build research/theory-of-change.md 2
 ```
 
 Build one document whose name holds spaces:
 
 ```text
-/kg-build research/Notas de campo.md
+/burgess:kg-build research/Notas de campo.md
 ```
 
 Build all of it at maximum parallelism:
 
 ```text
-/kg-build 10
+/burgess:kg-build 10
 ```
 
-Write the leads the last `/kg-ground` recorded, then judge them:
+Write the leads the last `/burgess:kg-ground` recorded, then judge them:
 
 ```text
-/kg-build --leads
-/kg-ground
+/burgess:kg-build --leads
+/burgess:kg-ground
 ```
 
 ### Reading the report
@@ -349,10 +349,10 @@ retryable; `truncated-payload` or `schema-invalid` is a *transport* error and is
 ---
 
 <a id="kg-ground"></a>
-## `/kg-ground`
+## `/burgess:kg-ground`
 
 ```
-/kg-ground [query-or-node-filter]
+/burgess:kg-ground [query-or-node-filter]
 ```
 
 **What it does.** Drains the grounding queue — and this is the **only command in Burgess that can
@@ -381,11 +381,11 @@ offered that hub to every later pass.
 
 **The report lists leads.** When a claim is rejected because its quoted text states another relation (a
 precondition filed as evidence is an `enables` claim), or relates a broader or narrower concept than one
-of its nodes, the grounder records the claim the text does state on the rejected one. `/kg-build --leads`
-writes those claims, and the next `/kg-ground` judges them. Through 0.8.1 nothing could write them:
-`/kg-build` skips every section that already has claims.
+of its nodes, the grounder records the claim the text does state on the rejected one. `/burgess:kg-build --leads`
+writes those claims, and the next `/burgess:kg-ground` judges them. Through 0.8.1 nothing could write them:
+`/burgess:kg-build` skips every section that already has claims.
 
-Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.
+Run it after every `/burgess:kg-build`, `/burgess:kg-generate` and `/burgess:kg-perturb`.
 
 ### Arguments
 
@@ -397,7 +397,7 @@ Run it after every `/kg-build`, `/kg-generate` and `/kg-perturb`.
 
 | Form | Purpose |
 | --- | --- |
-| *(omitted)* | Drain the entire queue: every `unverified` relationship, and every `unverified` *proposed* node (a `/kg-diverge` pin or a generated idea), then attack the hubs. The nodes `/kg-build` extracts are not queued: the claims about them are their relationships. |
+| *(omitted)* | Drain the entire queue: every `unverified` relationship, and every `unverified` *proposed* node (a `/burgess:kg-diverge` pin or a generated idea), then attack the hubs. The nodes `/burgess:kg-build` extracts are not queued: the claims about them are their relationships. |
 | A topic or node name | Focus the pass on that area of the graph, and use it to pick which hubs to attack. Useful when the backlog is large and you care about one region, or when you want a second adversarial pass over a concept you don't trust. |
 
 The filter is an **ordering and scoping** device only. It never changes the evidence bar: verdict
@@ -408,26 +408,26 @@ logic is identical for filtered and unfiltered items.
 Drain the whole queue:
 
 ```text
-/kg-ground
+/burgess:kg-ground
 ```
 
 Ground only the claims and hubs around one concept:
 
 ```text
-/kg-ground betweenness
+/burgess:kg-ground betweenness
 ```
 
 Re-attack a concept you suspect is a vague hub earning spurious centrality:
 
 ```text
-/kg-ground compression
+/burgess:kg-ground compression
 ```
 
 Ground the fresh output of a generation pass:
 
 ```text
-/kg-generate
-/kg-ground
+/burgess:kg-generate
+/burgess:kg-ground
 ```
 
 ### What the verdicts mean
@@ -446,7 +446,7 @@ Two advisories may surface, both strictly read-only — neither ever changes a v
   has since **changed**. Evidence is non-monotonic; these come back up for a second look, but only a
   deliberate re-grounding can change them.
 
-Materialized `/kg-diverge` pins are grounded **first** — a purely ordering preference, since you
+Materialized `/burgess:kg-diverge` pins are grounded **first** — a purely ordering preference, since you
 selected them by hand. A pin is a *node*, and routinely has no incident edge; it is still fully
 groundable as a node. And because a pin is a genuinely novel idea, finding no span for it in your
 current source is the **expected** outcome, not a failure: it is left `unverified`, waiting in the
@@ -458,10 +458,10 @@ question (`Merge A and B? [y/N]`). The default is **N** — the pass proceeds wi
 ---
 
 <a id="kg-generate"></a>
-## `/kg-generate`
+## `/burgess:kg-generate`
 
 ```
-/kg-generate [mechanism-set] [k]
+/burgess:kg-generate [mechanism-set] [k]
 ```
 
 **What it does.** Turns the graph from a verification machine into an idea-generation machine. Seven
@@ -471,7 +471,7 @@ then phrases each proposal as one falsifiable sentence.
 
 Everything lands in the **hypothesized lane** (`provenance=hypothesized`, `epistemic_state=unverified`,
 **no span**) — visibly separate from grounded content, never presented as fact. Generation never
-filters. `/kg-ground` is the filter, applied afterwards.
+filters. `/burgess:kg-ground` is the filter, applied afterwards.
 
 ### Arguments
 
@@ -497,13 +497,13 @@ The seven mechanisms, and what each one hunts:
 | `compression` | Yes | New **nodes**, not edges: a concept that a dense cluster collapses into, but only when it genuinely saves description length and the cluster isn't vague. |
 | `regroup` | `all` only | Re-partitions the graph at a different resolution and surfaces pairs that were invisible as bridges under the old partition. |
 | `transplant` | `all` only | Imports a hub's reorganizing pattern into the community with the most capacity to absorb it, and names the hidden commitments that transfer with it. |
-| `ensemble` | `all` only | Cross-construction bridges. Needs a second construction — that is what [`/kg-perturb`](#kg-perturb) is for. Without one it degrades to `regroup` and says so. |
+| `ensemble` | `all` only | Cross-construction bridges. Needs a second construction — that is what [`/burgess:kg-perturb`](#burgesskg-perturb) is for. Without one it degrades to `regroup` and says so. |
 | `periphery` | `all` only | Sources candidates from the graph's **low-degree** nodes — the periphery every hub-seeking mechanism ignores. |
 
 ### `k` — what the number does
 
 How many ranked candidates to return. Raise it when a mechanism surfaces nothing, or when you want a
-wider slate to pin from. A whole number is read as `k` on its own, so `/kg-generate 20` asks the
+wider slate to pin from. A whole number is read as `k` on its own, so `/burgess:kg-generate 20` asks the
 default set for twenty candidates.
 
 ### Examples
@@ -511,37 +511,37 @@ default set for twenty candidates.
 The default three mechanisms, ten candidates:
 
 ```text
-/kg-generate
+/burgess:kg-generate
 ```
 
 All seven mechanisms:
 
 ```text
-/kg-generate all
+/burgess:kg-generate all
 ```
 
 All seven, twenty-five candidates — a wide sweep of a mature graph:
 
 ```text
-/kg-generate all 25
+/burgess:kg-generate all 25
 ```
 
 Only look for new concepts that a dense cluster should collapse into:
 
 ```text
-/kg-generate compression
+/burgess:kg-generate compression
 ```
 
 Hunt specifically in the neglected periphery, fifteen candidates:
 
 ```text
-/kg-generate periphery 15
+/burgess:kg-generate periphery 15
 ```
 
 Then filter — always:
 
 ```text
-/kg-ground
+/burgess:kg-ground
 ```
 
 ### The advisory DPP ordering
@@ -552,27 +552,27 @@ the graph's grounded "center". It is presentation only: same candidates, same sc
 downstream is **bit-identical** with the flag on or off. It is shipped **off** by default because
 whether it actually lifts ideation was measured blind — see [`fusion/EXPERIMENT.md`](fusion/EXPERIMENT.md).
 
-If `/kg-generate` reports `count == 0`, the structure surfaced nothing for those mechanisms. Try
-`all`, a larger `k`, or `/kg-perturb`. A small graph is the usual cause.
+If `/burgess:kg-generate` reports `count == 0`, the structure surfaced nothing for those mechanisms. Try
+`all`, a larger `k`, or `/burgess:kg-perturb`. A small graph is the usual cause.
 
 ---
 
 <a id="kg-perturb"></a>
-## `/kg-perturb`
+## `/burgess:kg-perturb`
 
 ```
-/kg-perturb [second_source_or_graph_json]
+/burgess:kg-perturb [second_source_or_graph_json]
 ```
 
 **What it does.** Every other generator is *endo*: it elaborates the graph using the graph's own
-structure, so it can only ever surface what the current construction already implies. `/kg-perturb`
+structure, so it can only ever surface what the current construction already implies. `/burgess:kg-perturb`
 is the *exo* move. It builds a **second, independent construction** of the same territory, then
 cross-generates against it — surfacing bridges that exist in one construction's structure but not the
 other's. Precisely the connections your graph's own dynamics would resist.
 
 This is the only mechanism in Burgess that **attacks coverage** rather than elaborating within it.
 
-Like `/kg-generate`, everything it emits is `hypothesized`/`unverified`, and `/kg-ground` is the filter.
+Like `/burgess:kg-generate`, everything it emits is `hypothesized`/`unverified`, and `/burgess:kg-ground` is the filter.
 The second construction is built **in-session**, through the same span-verified write boundary — no
 API key and no extra dependencies required.
 
@@ -600,25 +600,25 @@ different angle — a rival paper, a critic's essay, your own earlier draft.
 Perturb in place (degrades to a re-partition, and says so):
 
 ```text
-/kg-perturb
+/burgess:kg-perturb
 ```
 
 Build a second construction from a rival account of the same territory:
 
 ```text
-/kg-perturb papers/opposing-view.md
+/burgess:kg-perturb papers/opposing-view.md
 ```
 
 Cross against a graph you built earlier:
 
 ```text
-/kg-perturb .kg-data/derived/graph.json
+/burgess:kg-perturb .kg-data/derived/graph.json
 ```
 
 Then filter the imported bridges:
 
 ```text
-/kg-ground
+/burgess:kg-ground
 ```
 
 ### The honest caveat
@@ -628,17 +628,17 @@ construction's blind spots for a different set — and the bridges that survive 
 worth grounding. The command states this every time it runs, and so should you when you report its
 results.
 
-`/kg-perturb` verifies that nothing leaked into your primary graph: it records the primary node and
+`/burgess:kg-perturb` verifies that nothing leaked into your primary graph: it records the primary node and
 edge counts before the build and re-reads them after. If the primary grew, the routing was dropped on
 some section, and the command tells you rather than absorbing the leak silently.
 
 ---
 
 <a id="kg-query"></a>
-## `/kg-query`
+## `/burgess:kg-query`
 
 ```
-/kg-query <question>
+/burgess:kg-query <question>
 ```
 
 **What it does.** Answers your question **from the graph**, not from Claude's prior knowledge — and
@@ -660,25 +660,25 @@ graph actually know?").
 A factual question:
 
 ```text
-/kg-query What grounds a compression?
+/burgess:kg-query What grounds a compression?
 ```
 
 A structural question — the answer will walk the graph:
 
 ```text
-/kg-query What connects betweenness to the memory of failures?
+/burgess:kg-query What connects betweenness to the memory of failures?
 ```
 
 A question about trust, not content:
 
 ```text
-/kg-query Which claims about bridges are still unverified?
+/burgess:kg-query Which claims about bridges are still unverified?
 ```
 
 An open-ended orientation question:
 
 ```text
-/kg-query What is this graph confident about, and where is it weakest?
+/burgess:kg-query What is this graph confident about, and where is it weakest?
 ```
 
 > **Bound on structural chains.** When a question makes the command trace an associative chain between
@@ -717,10 +717,10 @@ not fill the gap from memory.
 ---
 
 <a id="kg-view"></a>
-## `/kg-view`
+## `/burgess:kg-view`
 
 ```
-/kg-view [html|report|all]
+/burgess:kg-view [html|report|all]
 ```
 
 **What it does.** Renders two disposable, human-facing artifacts so you can *eyeball* the graph and
@@ -746,19 +746,19 @@ Both files are regenerable: treat them as a view, not a source of truth.
 Render both artifacts:
 
 ```text
-/kg-view
+/burgess:kg-view
 ```
 
 Just the interactive visualization:
 
 ```text
-/kg-view html
+/burgess:kg-view html
 ```
 
 Just the Markdown report — handy after a grounding pass, to diff the counts:
 
 ```text
-/kg-view report
+/burgess:kg-view report
 ```
 
 ### What the artifacts show
@@ -789,10 +789,10 @@ verdicts (spans your source no longer contains), and per-source-file edge counts
 ---
 
 <a id="kg-eval"></a>
-## `/kg-eval`
+## `/burgess:kg-eval`
 
 ```
-/kg-eval [graph.json]
+/burgess:kg-eval [graph.json]
 ```
 
 **What it does.** Measures how good the extraction actually was, and how reliable the grounding
@@ -819,7 +819,7 @@ checked against the current plugin first, because your graph keeps edges from ev
 
 | Form | Purpose |
 | --- | --- |
-| *(omitted)* | Grades the graph you have now: the engine's derived `graph.json`, re-projected for this project first. If the graph is empty, run `/kg-build` first. |
+| *(omitted)* | Grades the graph you have now: the engine's derived `graph.json`, re-projected for this project first. If the graph is empty, run `/burgess:kg-build` first. |
 | A path | Grades a specific projection. Use it to compare a graph before and after a pack change, or to grade an archived build. |
 
 ### Examples
@@ -827,13 +827,13 @@ checked against the current plugin first, because your graph keeps edges from ev
 Grade the current graph:
 
 ```text
-/kg-eval
+/burgess:kg-eval
 ```
 
 Grade a specific projection — for instance, an archived build you want to compare against:
 
 ```text
-/kg-eval snapshots/graph-before-pack-v2.json
+/burgess:kg-eval snapshots/graph-before-pack-v2.json
 ```
 
 ### Reading the numbers
@@ -858,10 +858,10 @@ which a subagent gets by default. A note about an earlier eval could tell them h
 ---
 
 <a id="kg-experiment"></a>
-## `/kg-experiment`
+## `/burgess:kg-experiment`
 
 ```
-/kg-experiment [--judge] [prompts_path]
+/burgess:kg-experiment [--judge] [prompts_path]
 ```
 
 **What it does.** Runs the one experiment that justifies the whole pipeline: a **blind** multi-arm
@@ -903,25 +903,25 @@ the same prompts.
 Run with the 12 default prompts:
 
 ```text
-/kg-experiment
+/burgess:kg-experiment
 ```
 
 Run against your own prompt set:
 
 ```text
-/kg-experiment experiments/my-prompts.txt
+/burgess:kg-experiment experiments/my-prompts.txt
 ```
 
 Same, from a JSON array:
 
 ```text
-/kg-experiment experiments/prompts.json
+/burgess:kg-experiment experiments/prompts.json
 ```
 
-Repeat a run on its saved prompts, with blind judges (about 1.5 million tokens more for 12 prompts):
+Repeat a run on its saved prompts, with blind judges (about 0.8 million tokens more for 12 prompts):
 
 ```text
-/kg-experiment --judge .kg/experiment/prompts-<run>.json
+/burgess:kg-experiment --judge .kg/experiment/prompts-<run>.json
 ```
 
 ### The arms
@@ -968,7 +968,7 @@ The pairs:
 
 The command surfaces these caveats when they apply:
 - **No recorded failures.** If your graph has **zero** of them, the `graph` arm looks artificially clean.
-  Run `/kg-ground` with the adversarial grounder before trusting a `graph`-wins verdict.
+  Run `/burgess:kg-ground` with the adversarial grounder before trusting a `graph`-wins verdict.
 - **Support could not be checked, or failed its check.** `rag` writes from source passages and `control`
   from nothing, so `rag`'s support must exceed `control`'s by 0.10. When it does not, support measures
   nothing on your source, and every verdict reads "not measured".
@@ -1023,8 +1023,9 @@ the rankings by the same sign test, becomes the headline, and the lexical verdic
 The judge's score is saved as `.kg/experiment/judge_score-<run>.json`, and its packets and verdicts stay in
 `.kg/experiment/judge-<run>/`.
 
-**Cost.** Each judge reads a packet of about 35,000–40,000 tokens, about 1.5 million for 12 prompts. That cost
-is why the judge is opt-in.
+**Cost.** Each judge reads a packet of about 35,000–40,000 tokens and ends with 60,000–80,000 tokens of context.
+For 12 prompts that is about 0.8 million new tokens, plus about 1.3 million read back from the prompt cache,
+measured on two field runs. That cost is why the judge is opt-in.
 
 ---
 

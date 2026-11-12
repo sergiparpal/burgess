@@ -4,7 +4,7 @@ argument-hint: "[graph.json] (default: the engine's derived graph.json)"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__query_graph
 ---
 
-# /kg-eval — extraction & grounding measurement
+# /burgess:kg-eval — extraction & grounding measurement
 
 Run the two measurement stages over the current canon's derived graph and append the results to the
 project's `.kg/PROGRESS.md`. This command **measures**; it does not gate. No metric blocks the flow (§4,
@@ -39,7 +39,7 @@ if one was given, else `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
 
 1. **Call `mcp__plugin_burgess_burgess__query_graph(limit=1)` before any Bash step.** Every session on the
    machine shares the engine data dir, so `graph.json` may hold another project's projection; a read tool
-   re-projects it for this project first. If it returns no nodes, tell the user to run `/kg-build` first,
+   re-projects it for this project first. If it returns no nodes, tell the user to run `/burgess:kg-build` first,
    and stop.
 2. **Start every Bash block with the same four lines** (shown in full in each block below). Each Bash call
    is a fresh shell, so nothing set in one block survives into the next:
@@ -165,10 +165,10 @@ Capture from stdout:
   from wrong, or is it vocabulary, not grounding?).
 - **writers** — `harness writers` reads each labeled edge in the canon and splits the sample two ways:
   - **by writer**, from the mark its canon notes open with:
-    - `extractor`: a `/kg-build` extraction;
-    - `lead`: written by `/kg-build --leads` from a grounder's lead;
-    - `counter-edge`: written by an adversarial pass of `/kg-ground`;
-    - `proposal`: written by `/kg-generate`.
+    - `extractor`: a `/burgess:kg-build` extraction;
+    - `lead`: written by `/burgess:kg-build --leads` from a grounder's lead;
+    - `counter-edge`: written by an adversarial pass of `/burgess:kg-ground`;
+    - `proposal`: written by `/burgess:kg-generate`.
   - **by the grounding verdict** each edge holds now. An error the grounding already rejected is not a fact
     in the graph.
 
@@ -195,7 +195,7 @@ plugin is running. Its root is `${CLAUDE_PLUGIN_ROOT}`:
   plugins.
   - Do **not** edit `pack.yaml` or `agents/*.md` there. That copy belongs to one plugin version, every
     project on the machine shares it, and the next update replaces it.
-  - Do **not** re-run `/kg-build` either. Re-extraction rewrites the user's canon, and a measurement must
+  - Do **not** re-run `/burgess:kg-build` either. Re-extraction rewrites the user's canon, and a measurement must
     leave it alone.
   - Record the refinements the numbers point to (the two shapes below, checked against the current
     contract as 4.4 says) under "iterations" in the log, tell the user, and go on with one pass (K = 1).
@@ -216,7 +216,7 @@ plugin is running. Its root is `${CLAUDE_PLUGIN_ROOT}`:
    export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
    "$PY" -m kg_engine.pack validate "${CLAUDE_PLUGIN_ROOT}/pack/pack.yaml" "${user_config.source_path}"
    ```
-3. Re-run `/kg-build` (re-extract → re-project → fresh `graph.json`), then redo 4.2–4.4.
+3. Re-run `/burgess:kg-build` (re-extract → re-project → fresh `graph.json`), then redo 4.2–4.4.
 
 Stop after the precision target is met **or** after 3 passes. Record the **best** precision seen, not the
 last (§4: "record the best precision and proceed regardless").

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.13.3 — 2026-11-12
+
+Found around the clean `--judge` replication on 0.13.2. Two things the plugin told its user were wrong.
+
+### Fixed
+
+- **Commands are named the way Claude Code runs them: `/burgess:kg-build`, not `/kg-build`.**
+  - On the field install (Claude Code 2.1.322), `/kg-experiment --judge` answered "Unknown command:
+    /kg-experiment", and `/burgess:kg-experiment --judge` ran. Every command the field sessions ran was in that
+    full form.
+  - The plugin's own texts used the short form, and the field session copied them. In its messages to the user
+    it wrote the short form 105 times and the full form 4 times.
+  - Every text a user or the model reads now names a command in full:
+    - the README, TUTORIAL, CLAUDE.md, the command reference, MIGRATION and ARCHITECTURE;
+    - the command files, the skill and its references, and `plugin.json`'s option descriptions;
+    - the engine's MCP tool descriptions and the strings it returns or prints: the agenda's questions,
+      `kg_generate`'s and `kg_absorption`'s notes, the graph report, `graph.html`, the harness's writer legend and
+      legacy-log note, and the bootstrap's divergence probe.
+  - The short form stays where nobody is told to type a command: code comments, docstrings no model reads, the
+    subagents' prompts, the historical records, and the `## /kg-eval — <date>` header `/kg-eval` writes to its log.
+  - The command reference's contents link to the renamed headings.
+- **`--judge` states its field cost.**
+  - 0.13.0 said about 1.5 million tokens for 12 prompts. That figure came from the third pilot's judges,
+    general-purpose agents started from the development session with its tools and instructions.
+  - The field's kg-judges, measured on two runs, end with 60,000–80,000 tokens of context each. A run takes
+    about 0.8 million new tokens, plus about 1.3 million read back from the prompt cache.
+  - The command gives the user that figure before it launches the judges, and the README and the command
+    reference state it.
+
+### Tests
+
+- `tests/test_fix_command_names_and_judge_cost.py` (7 tests):
+  - the current docs and the plugin's texts name every command in full;
+  - so do the engine's tool descriptions and returned strings, and the check does read them;
+  - every full name is a command, and none is doubled;
+  - only the kg-eval log header keeps the short form;
+  - the command reference's contents links land;
+  - the judge's cost is the field's figure everywhere it is stated.
+- Three tests that quote a command file now quote the full name, and `test_fix_blind_judge.py` pins the new cost.
+- 1994 → 2001 passed, 3 skipped.
+
+### Docs
+
+- `DECISIONS.md` records the decision, and `CLAUDE.md` states the convention.
+- The cost was first measured in the clean replication's record in `EXPERIMENT.md` (#102).
+
 ## 0.13.2 — 2026-11-11
 
 Found while reviewing the first field run on 0.13.1. Two things reached the agents that must work blind. Neither

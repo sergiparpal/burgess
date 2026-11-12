@@ -105,7 +105,7 @@ def test_kg_eval_never_edits_an_installed_copy_or_rebuilds_the_canon():
     section = _read(EVAL).split("### 4.5", 1)[1].split("\n---\n", 1)[0]
     assert "plugins/cache" in section
     assert "Do **not** edit `pack.yaml` or `agents/*.md` there" in section
-    assert "Do **not** re-run `/kg-build` either" in section
+    assert "Do **not** re-run `/burgess:kg-build` either" in section
 
 
 def test_kg_experiment_drafts_its_prompts_for_any_corpus_but_the_demo():

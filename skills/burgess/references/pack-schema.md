@@ -105,13 +105,13 @@ human-readable companion.
 ## 2b. The optional `divergence:` section
 
 One pack carries both vocabularies: the extraction types above AND (optionally) the divergence
-side's descriptor axes. A pack without a `divergence:` section works untouched — `/kg-diverge`
+side's descriptor axes. A pack without a `divergence:` section works untouched — `/burgess:kg-diverge`
 then falls back to the neutral `pack/domains/generic.yaml` template, and the advisory-DPP flag
 defaults off.
 
 ```yaml
 divergence:
-  dpp: false                      # advisory DPP ordering of /kg-generate slates (default off)
+  dpp: false                      # advisory DPP ordering of /burgess:kg-generate slates (default off)
   unit_of_generation: idea        # idea | concept | hypothesis | name | feature | ...
   axes:                           # 4-6 descriptor axes; exactly one open/primary_novelty axis
     - {name: angle, type: categorical}
@@ -135,7 +135,7 @@ Validation split (the I3 import firewall): `pack.py` itself only **shape-checks*
 `axes` is present it must be a non-empty list of named mappings, and `dpp` must be a boolean —
 so loading a pack never imports the divergence engine. Deep validation (axis types, ranges,
 duplicate names, the single-`primary_novelty` rule, `engine:` bounds) happens in
-`divergence/config.py` when `/kg-diverge` or the advisory-DPP path actually resolves the axes.
+`divergence/config.py` when `/burgess:kg-diverge` or the advisory-DPP path actually resolves the axes.
 
 ---
 

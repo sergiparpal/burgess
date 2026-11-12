@@ -4,10 +4,10 @@ argument-hint: "[second_source_or_graph_json]"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics
 ---
 
-# /kg-perturb — perturbation & exo cross-generation (PLAN Stage 7; §9 / §15)
+# /burgess:kg-perturb — perturbation & exo cross-generation (PLAN Stage 7; §9 / §15)
 
 Every other generator is **endo**: it elaborates the graph using the graph's own structure, so it can only
-ever surface what the current construction already implies. `/kg-perturb` is the **exo** move (§9): it
+ever surface what the current construction already implies. `/burgess:kg-perturb` is the **exo** move (§9): it
 builds a *second construction* of the same territory — the same source under a different pack/resolution, or
 a second source entirely — and cross-generates against it (the `ensemble` mechanism). The candidates it
 emits are bridges that exist in one construction's structure but **not** the other's: precisely the
@@ -26,12 +26,12 @@ cross against. If omitted, perturb the current construction in place (a re-parti
 ## Step 0 — confirm a primary graph exists
 
 Call `mcp__plugin_burgess_burgess__kg_context(budget=2000)`. If empty, tell the user to run
-`/kg-build` → `/kg-ground` (and optionally `/kg-generate`) first, and stop.
+`/burgess:kg-build` → `/burgess:kg-ground` (and optionally `/burgess:kg-generate`) first, and stop.
 
 ## Step 1 — obtain the SECOND construction (KEY-FREE, in-session)
 
 The second construction is built **in-session by a `kg-extractor` subagent** through the same span-verified
-`kg_write` boundary `/kg-build` uses — just routed to a **separately-named alternate canon** under
+`kg_write` boundary `/burgess:kg-build` uses — just routed to a **separately-named alternate canon** under
 `<project>/.kg/constructions/<slug>/`. **No `ANTHROPIC_API_KEY` and no `backend` extra are needed** — the
 session does the language work, the engine only validates + stores (§2.2, the "LLM is the session" model).
 
@@ -102,7 +102,7 @@ primary node/edge counts (`mcp__plugin_burgess_burgess__kg_metrics()` / `kg_stat
 returns, re-read them. The primary counts must be **unchanged** — the whole build lands in the construction's
 own canon. If the primary grew, the extractor dropped the routing args on some section: tell the user, and do
 **not** ground until the leaked primary nodes/edges are identified (they are `unverified`, so a subsequent
-`/kg-ground` is the backstop, but flag it explicitly rather than absorbing them silently).
+`/burgess:kg-ground` is the backstop, but flag it explicitly rather than absorbing them silently).
 
 ## Step 2 — cross-generate (ensemble §9)
 
@@ -136,12 +136,12 @@ Task(subagent_type: "kg-generator", description: "Phrase exo bridges", prompt: "
 Present the ranked slate (mechanism `ensemble`, § = §9, one-sentence idea, specificity), flagged as
 **imported external structure**, then `mcp__plugin_burgess_burgess__kg_metrics` (the new
 hypothesized candidates land under `unverified`). State the caveat explicitly: *perturbation relocates the
-blind spot; it does not eliminate it.* Then point at `/kg-ground` as the filter — a cross-construction bridge
+blind spot; it does not eliminate it.* Then point at `/burgess:kg-ground` as the filter — a cross-construction bridge
 earns `grounded` only by a span/citation, else it joins failure memory and binds the next generation.
 
 ## Invariants this command upholds
 
 - Exo candidates are written `hypothesized`/`unverified`, in the separate lane, never as grounded fact.
-- Generation is never gatekept by a metric (the inversion); `/kg-ground` is the post-hoc filter.
+- Generation is never gatekept by a metric (the inversion); `/burgess:kg-ground` is the post-hoc filter.
 - Failure memory binds even imported structure: a candidate colliding with a known failure is dropped.
 - This command never calls `kg_ground` and never forges a verdict or a span.

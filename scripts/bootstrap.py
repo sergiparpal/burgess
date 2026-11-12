@@ -481,13 +481,13 @@ def probe_divergence(py: Path) -> None:
         "    print('[bootstrap] divergence deps OK (numpy/sklearn/model2vec)')\n"
         "except Exception as e:\n"
         "    print('[bootstrap] divergence deps unavailable (' + type(e).__name__ + ': '\n"
-        "          + str(e) + '); /kg-diverge will raise a clear error until provisioned;'\n"
+        "          + str(e) + '); /burgess:kg-diverge will raise a clear error until provisioned;'\n"
         "          + ' convergence (kg_*) tools are unaffected (I9)')\n"
     ), "[bootstrap] divergence deps unavailable ({exc}); "
-       "/kg-diverge degraded until provisioned; kg_* tools unaffected (I9)",
+       "/burgess:kg-diverge degraded until provisioned; kg_* tools unaffected (I9)",
        "[bootstrap] divergence deps: no answer from the import probe within {secs:g}s. A first "
        "import on a cold machine can take that long, so this alone does not mean they are missing; "
-       "/kg-diverge reports it if they are. kg_* tools are unaffected either way (I9)")
+       "/burgess:kg-diverge reports it if they are. kg_* tools are unaffected either way (I9)")
 
 
 def _has_engine_marker(venv_dir: Path) -> bool:

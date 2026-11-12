@@ -862,3 +862,43 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   `docs/fusion/EXPERIMENT.md` says what each pilot and run could see.
 - **Pinned in:** `tests/test_fix_blind_memory.py`. Against 0.13.1, 2 of its 3 tests fail. The third pins that
   the other agents keep the project's instructions.
+
+## Commands are named the way Claude Code runs them, and --judge states its field cost (2026-11-12)
+
+- **Decision:** every text a user or the model reads names a command in full: `/burgess:kg-build`, not
+  `/kg-build`. That covers:
+  - the current docs: README, TUTORIAL, CLAUDE.md, `docs/COMMANDS.md`, MIGRATION and ARCHITECTURE;
+  - the command files, the operating-guide skill and its references, and `plugin.json`'s option descriptions;
+  - the engine's MCP tool descriptions, and the strings it returns or prints.
+
+  The cost of `--judge` is restated from the field.
+- **What it fixes:** found on 2026-11-11 around the clean `--judge` replication (Windows, Claude Code 2.1.322).
+  - `/kg-experiment --judge` answered "Unknown command: /kg-experiment", and `/burgess:kg-experiment --judge`
+    ran. Every command the field sessions ran, in every transcript, was in the full form.
+  - The plugin named its commands in the short form, and the field session copied it. In its messages to the
+    user it wrote the short form 105 times and the full form 4 times, so its advice to "run /kg-ground" led to
+    the error.
+  - The command, the README and the command reference said `--judge` costs about 1.5 million tokens for 12
+    prompts. That was the third pilot's count, and its judges were general-purpose agents started from the
+    development session with its tools and instructions.
+  - The field's kg-judges end with 60,000–80,000 tokens of context each. Twelve came to 815,072 and 827,891 on
+    two runs, counted the same way. Of what a run processes, about 0.8 million tokens are new and about 1.3
+    million are read back from the prompt cache.
+- **What keeps the short form, and why:**
+  - code comments, and docstrings no model reads: nobody types a command from them;
+  - the historical records (CHANGELOG entries before 0.13.3, `docs/fusion/*`), which keep what was written then;
+  - the subagents' prompts. None tells the user what to type, and the measurement agents' text stays as the
+    experiment measured it.
+  - the header `## /kg-eval — <date>` that `/kg-eval` writes to its log. The earlier entries share that format,
+    and `tests/test_fix_eval_log_and_annotator.py` pins it.
+- **The command reference's contents:** GitHub drops `/` and `:` from a heading's anchor, so a
+  `/burgess:kg-build` heading lands at `#burgesskg-build`. The links now point there.
+- **Rejected alternatives:**
+  - (a) *Fix only the README and the command reference:* the session tells the user what to type from the
+    command files, the skill and the engine's messages, so the error would come back from there.
+  - (b) *Name both forms:* the short one does not run on the field's Claude Code, so a doc that offers it invites
+    the error.
+  - (c) *Rename every mention, comments and records included:* a comment names a command for a developer, and a
+    record keeps its words.
+- **Pinned in:** `tests/test_fix_command_names_and_judge_cost.py`. Against 0.13.2, 6 of its 7 tests fail. The
+  seventh pins that only the log header keeps the short form.

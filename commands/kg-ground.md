@@ -4,9 +4,9 @@ argument-hint: "[query-or-node-filter]"
 allowed-tools: Task, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_agenda, mcp__plugin_burgess_burgess__kg_merge
 ---
 
-# /kg-ground — grounding loop + adversarial grounder + memory of failures (§1.6/§1.7/§1.8, plan Stage 6)
+# /burgess:kg-ground — grounding loop + adversarial grounder + memory of failures (§1.6/§1.7/§1.8, plan Stage 6)
 
-Candidate edges are written `unverified` by `/kg-build`. This command turns them into *grounded knowledge*:
+Candidate edges are written `unverified` by `/burgess:kg-build`. This command turns them into *grounded knowledge*:
 weak edges are rejected, genuinely falsified ones are remembered as negative information, and vague hubs get
 attacked. Verdicts are the canonical grounding state and the ONLY way to set one is `kg_ground` (§1.4/§1.8) —
 this command never forges a verdict; it dispatches the two grounder subagents and then *reports*.
@@ -41,14 +41,14 @@ Find what is actually pending before spending any subagent budget.
    Copy `configured_wave_size` exactly as this text shows it, even if it still reads `${user_config.…}`.
    The plan holds:
    - `batches[]`: the queue, as `{id, kind}` items, one batch per grounder (`batch_size` items, 12 by default).
-     It holds every `unverified` edge and every `unverified` HYPOTHESIZED node. A materialized `/kg-diverge`
+     It holds every `unverified` edge and every `unverified` HYPOTHESIZED node. A materialized `/burgess:kg-diverge`
      pin is such a node, often with **no incident edge at all**, and it is groundable *as a node*: "no edge →
      can't be grounded" is false. The order is already decided: pins, then the other hypotheses, then the
      edges their extractor marked weak, then the rest, each group in source order. Keep it.
    - `queue`: the counts, including `weak_edges` and `extractor_nodes_not_queued`. The extractor's own nodes
      are not queued: each names a concept the text uses, and the claims about it are its edges, which are
      queued. `leads_pending` (0.9.0) counts the leads rejected claims carry that no edge has taken yet: they
-     are not this command's work, but `/kg-build --leads`'s.
+     are not this command's work, but `/burgess:kg-build --leads`'s.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
    - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
@@ -65,12 +65,12 @@ Find what is actually pending before spending any subagent budget.
 Stop and report "queue empty — nothing to ground" **only if** the plan has **no** `batches` **and** there are
 no hub candidates; when `attacked_hubs` is not empty, add that every hub has been attacked and none has gained
 a grounded claim since, and when `queue.leads_pending` is not 0, that that many leads wait for
-`/kg-build --leads`. Otherwise tell the user in a line what this pass covers: items, batches, waves and
+`/burgess:kg-build --leads`. Otherwise tell the user in a line what this pass covers: items, batches, waves and
 hubs.
 
 > **Alternative prioritization (optional).** `mcp__plugin_burgess_burgess__kg_agenda()`'s
 > `blocked_on_grounding[]` lane is a read-only structural shortlist of what grounding would unblock. You may
-> show it beside the plan; it suggests, never grounds. **Convergence** (`/kg-generate` candidates' count of
+> show it beside the plan; it suggests, never grounds. **Convergence** (`/burgess:kg-generate` candidates' count of
 > distinct mechanisms that proposed the same edge) may be displayed, and only once the harness gate is ON may
 > it reorder which batch goes first; it **never** decides a verdict or lets an item skip grounding (G5).
 
@@ -243,8 +243,8 @@ record keeps the hub out of the next plan until the hub gains a newer grounded c
 Then list the leads the grounders named for an extractor: for each `wrong-relation` rejection, the relation its
 span does state (a precondition filed as `grounds` is an `enables` edge from the same span), and for each
 `wrong-node` rejection, the concept its span names. Each lead is recorded on its rejected edge (0.9.0), and the
-last probe's `queue.leads_pending` counts the ones no edge has taken yet: tell the user that `/kg-build --leads`
-writes them, as unverified edges with the same span, and that the next `/kg-ground` judges them. This command
+last probe's `queue.leads_pending` counts the ones no edge has taken yet: tell the user that `/burgess:kg-build --leads`
+writes them, as unverified edges with the same span, and that the next `/burgess:kg-ground` judges them. This command
 writes no edge itself.
 
 ## §Stage 6 — Merge checkpoint (NON-BLOCKING)
@@ -294,6 +294,6 @@ usually find no in-source span — that is the expected outcome, **not** a failu
 grounder **leaves an unsupported `[diverge]`-lineage node (or edge) `unverified`** (triage: don't
 spend a rejection on an item that by construction has no span yet) rather than rejecting it. Only a pin
 that is actively **FALSIFIED** (`failed`, the adversarial grounder's verdict) folds back into its
-/kg-diverge brief's **permanent** discards; a merely-unsupported (`rejected`) pin stays recoverable
-in the lane until sources are added. Ordinary `/kg-generate` proposals (no `[diverge]` marker) are
+/burgess:kg-diverge brief's **permanent** discards; a merely-unsupported (`rejected`) pin stays recoverable
+in the lane until sources are added. Ordinary `/burgess:kg-generate` proposals (no `[diverge]` marker) are
 unchanged: unsupported → `rejected` → failure memory.

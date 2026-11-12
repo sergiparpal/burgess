@@ -4,7 +4,7 @@ argument-hint: "[--judge] [prompts_path]"
 allowed-tools: Task, Bash, Read, Write, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_agenda
 ---
 
-# /kg-experiment — does the graph actually help ideation? (§Stage 8, §4)
+# /burgess:kg-experiment — does the graph actually help ideation? (§Stage 8, §4)
 
 This command runs the one experiment that justifies the whole pipeline: a **blind A/B/C/D** over a fixed
 set of ideation prompts, in four conditions that differ ONLY in what context the idea-generator is given.
@@ -90,7 +90,7 @@ session, whose SessionStart hook builds it, and stop.
 says whether the optional `lightrag` arm can run (see below); note `available`.
 
 `legacy-log` prints nothing unless a `PROGRESS.md` at the top of the project is one of the source documents.
-Through 0.11.6 this command and `/kg-eval` kept their log there. If it prints a note, pass it on to the user
+Through 0.11.6 this command and `/burgess:kg-eval` kept their log there. If it prints a note, pass it on to the user
 and stop: the `rag` arm and the harness read every source document, so this run would take an earlier run's
 results for source, both to answer and to score. Don't move or delete the file; the user moves it out of the
 source folder and runs the command again.
@@ -98,7 +98,7 @@ source folder and runs the command again.
 Confirm the graph is queryable before spending tokens generating ideas:
 
 - Call **`mcp__plugin_burgess_burgess__kg_context`** with `budget=2000` and no `query`. If it returns an empty
-  `items[]`, there is no grounded graph to test — tell the user to run `/kg-build` then `/kg-ground` first,
+  `items[]`, there is no grounded graph to test — tell the user to run `/burgess:kg-build` then `/burgess:kg-ground` first,
   and stop. Note the `falsification_counters.failed_or_rejected_edges`; a graph with **zero** recorded
   failures (§1.7) is suspect and the `graph` arm will look artificially clean — surface that caveat in the
   final report.
@@ -393,8 +393,9 @@ Judges never score novelty. Evidence retrieved for an idea's own words cannot sh
 source in other words. Three pilots fixed this method; the plugin's `docs/fusion/EXPERIMENT.md` records them
 (option D, and "novelty and paraphrase").
 
-**Cost.** Each judge reads a packet of about 35,000–40,000 tokens, so 12 prompts cost about 1.5 million tokens
-on top of the experiment. Tell the user so before launching the judges.
+**Cost.** Each judge reads a packet of about 35,000–40,000 tokens and ends with 60,000–80,000 tokens of context.
+For 12 prompts that is about 0.8 million new tokens on top of the experiment, plus about 1.3 million read back
+from the prompt cache (two field runs, 2026-11-11). Tell the user so before launching the judges.
 
 1. **Write the controls** with the Write tool, two per prompt, to
    `${CLAUDE_PROJECT_DIR}/.kg/experiment/judge-<RUN>/private/controls.json` as
@@ -523,7 +524,7 @@ Then print a one-paragraph summary to the user:
   baseline**, the strongest comparison available (beating LightRAG, not just flat `rag`, is what shows
   grounding-with-falsification earns its keep against real graph retrieval).
 - The **caveat from Step 0** if `falsification_counters.failed_or_rejected_edges == 0`: a graph with no
-  recorded failures (§1.7) makes `graph` look cleaner than it has earned; recommend running `/kg-ground` with
+  recorded failures (§1.7) makes `graph` look cleaner than it has earned; recommend running `/burgess:kg-ground` with
   the adversarial grounder before trusting a `graph`-wins verdict.
 - Path to the appended log: `${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md`, and to the saved prompt file.
 

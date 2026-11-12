@@ -36,7 +36,7 @@ Produce **4–6 axes** that:
    whenever the unit can be more or less grounded — ideas, concepts, features,
    strategies, hypotheses. It is a **coverage axis**: MAP-Elites keeps buildable
    ideas in their own niches (a bold idea can't evict a grounded one), which is what
-   lets the `/kg-diverge` **reach** dial keep grounded options alive rather than
+   lets the `/burgess:kg-diverge` **reach** dial keep grounded options alive rather than
    drowning in extravagant ones. Skip it only when "buildable" isn't meaningful for
    the unit (names, taglines). Then add **at most one other** continuous dial the
    user clearly cares about (`boldness` safe↔daring, simple↔complex, cheap↔lavish,

@@ -21,12 +21,12 @@ plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
-the `/kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), the `/kg-ground` pair
+the `/burgess:kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), the `/burgess:kg-ground` pair
 `kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22), and `kg_record_attack` (§1.23), the mark an
 adversarial attack leaves when it writes no counter-edge.
 The seven **divergence-surface** tools (§1B) complete the server's **thirty-two**.
 There is no `kg_build` / `kg_query` /
-`kg_project` MCP tool — those are slash commands (`/kg-build`, …) that *orchestrate* these tools.
+`kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
 Mutation tools (`kg_write`, `kg_propose`, `kg_ground`, `kg_rename`, `kg_merge`) write the **canon** (human-editable Markdown,
 the single source of truth) — `kg_propose` (§1.12) is the hypothesized write lane and `kg_operate` (§1.14) writes
@@ -102,7 +102,7 @@ which the transport envelope returns as `{ok: false, error, error_kind: "ValueEr
 
 `construction` (optional) routes this SAME key-free, span-verified write to a separately-named **second
 construction**'s alternate canon under `<project>/.kg/constructions/<slug>/` instead of the primary canon —
-the in-session second construction `/kg-perturb` cross-generates against (§9/§15, `kg_generate`'s
+the in-session second construction `/burgess:kg-perturb` cross-generates against (§9/§15, `kg_generate`'s
 `second_construction`). `source` names the second source document so spans verify against IT. Omit both for
 the normal primary-canon write (byte-for-byte unchanged).
 
@@ -163,7 +163,7 @@ record so the reconciler treats the transition as legitimate.
 - `lead: str = ""` (0.9.0) — with `verdict="rejected"` on an edge only: the edge the rejected span does state
   instead, `"<head-id> <relation> <tail-id>"` (`groundplan.parse_lead`: the ids slugged, the relation a pack
   edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
-  `lead: <head> <relation> <tail>`, and echoed as `"lead"` in the return. `/kg-build --leads` writes it (§1.19).
+  `lead: <head> <relation> <tail>`, and echoed as `"lead"` in the return. `/burgess:kg-build --leads` writes it (§1.19).
   A malformed lead, an undeclared relation, a self-loop, a lead that repeats the rejected edge, or a lead with
   another verdict or `kind="node"` is refused before any state change. A lead belongs to the rejection that
   recorded it (0.11.1): a verdict that changes an edge's state and records no lead of its own withdraws the
@@ -361,7 +361,7 @@ over the graph. Reads precomputed ranks **O(1)**; it **NEVER computes centrality
 precomputed off the hot path by the projector). `budget` (default `2000`, at most `100000`) caps approximate
 tokens (`len(json)//4` per item).
 
-`query` (optional) is a question in any language. Its **search words** are /kg-build's content words: case,
+`query` (optional) is a question in any language. Its **search words** are /burgess:kg-build's content words: case,
 accents and plural endings are ignored, function words such as «del» or "the" are dropped, and two-character
 letter-digit codes such as `N4` are kept. Only the first 12 search words count (`_QUERY_TERM_CAP`), and the
 rest are dropped, so a longer list needs several calls. An edge matches when its span, its relation or either
@@ -416,7 +416,7 @@ the true total across both.
 - `items[]` — budget-trimmed **grounded/text-claim** edge records (note: `source_file` is omitted from context
   items, unlike `query_graph`/`get_node` edge rows).
 - `hypotheses[]` — the **SEPARATE** hypothesized lane (Stage 8 query segregation): machine proposals from
-  `/kg-generate`, `provenance=hypothesized`, never mixed into the grounded `items[]`. A hypothesis becomes a
+  `/burgess:kg-generate`, `provenance=hypothesized`, never mixed into the grounded `items[]`. A hypothesis becomes a
   fact only after `kg_ground` promotes it with support (§1.4).
 - `items_total`, `hypotheses_total` — every edge that qualified for each lane (that matched the query, when one
   was given). More than the lane holds means the budget left the rest out; through 0.11.4 nothing said so.
@@ -471,7 +471,7 @@ Returns the `kg_write` shape plus two fields:
 ### 1.13 `mcp__plugin_burgess_burgess__kg_generate(mechanism="bridge", k=10, second_graph=None, dpp=None, second_construction=None)`
 
 The **discovery engine** (PLAN Stage 3). **READ-ONLY** — projects if stale, reads precomputed ranks O(1),
-dispatches to the chosen mechanism, and returns ranked candidates. It never writes; `/kg-generate` routes the
+dispatches to the chosen mechanism, and returns ranked candidates. It never writes; `/burgess:kg-generate` routes the
 candidates through `kg_propose`.
 
 - `mechanism` — `bridge` (§2/§4) | `seed` (§3 residual `c − E[c|d]`) | `compression` (§7 dense-cluster MDL) |
@@ -483,12 +483,12 @@ candidates through `kg_propose`.
   Windows corpus `all` with `k=12` returned 51.
 - `second_graph: str | None` — path to a **pre-built** second construction's `graph.json` for `ensemble`
   (the §11 escape hatch). Without a second construction, `ensemble`/`all` **degrades to `regroup`** and says
-  so in `note` (run `/kg-perturb` to supply one).
+  so in `note` (run `/burgess:kg-perturb` to supply one).
 - `second_construction: str | None` — the **name** of an in-session second construction built key-free via
   `kg_write(..., construction=<name>)`. The engine projects its alternate canon
   (`<project>/.kg/constructions/<slug>/`) here and cross-generates — no API key, no `backend` extra. Takes
   effect only when `second_graph` is not given (an explicit path wins); an absent/empty construction degrades
-  to `regroup` with a `note`. This is what `/kg-perturb` uses for its in-session exo move (§9/§15).
+  to `regroup` with a `note`. This is what `/burgess:kg-perturb` uses for its in-session exo move (§9/§15).
 - `dpp: bool | None = None` — the **advisory-DPP presentation** (I5). `None` falls back to the pack's
   `divergence.dpp` (default **off**). When ON and >1 candidate came back, the SAME candidate set is
   reordered by hybrid-descriptor DPP — one semantic axis (batch k-NN novelty over candidate embeddings)
@@ -534,7 +534,7 @@ Returns the `kg_propose` shape with `{ok: true, op, info}` merged in. On a bad o
 
 The **§14 absorption window** (PLAN Stage 5). For each node grounded *from* a hypothesis, scores how long it
 stayed perturbing before the graph renormalised, so the slate can prefer the fertile middle. Reads the derived
-graph plus the `derived/generations.json` ledger that `/kg-generate` appends to. No args.
+graph plus the `derived/generations.json` ledger that `/burgess:kg-generate` appends to. No args.
 
 ```json
 {"tracked": 3, "summary": {"fertile": 1, "absorbed": 1, "isolated": 1},
@@ -543,7 +543,7 @@ graph plus the `derived/generations.json` ledger that `/kg-generate` appends to.
 ```
 
 `status ∈ fertile | absorbed | isolated`. With no ledger yet, `tracked` is `0` and `note` explains that
-`/kg-generate` has not started tracking the window (never an error).
+`/burgess:kg-generate` has not started tracking the window (never an error).
 
 ### 1.16 `mcp__plugin_burgess_burgess__kg_agenda(limit=5)`
 
@@ -556,7 +556,7 @@ edge provenance/state) and returns ~`limit` structural gaps, split into two lane
                      "question": "'compression' is a well-grounded hub (degree 4, 4 grounded) — how do its neighbours (claim, …) interrelate?",
                      "signals": {"degree": 4, "structural_bridge": 1, "betweenness": 0.3, "spec_betweenness": 0.2, "specificity": 0.7}}],
  "blocked_on_grounding": [{"detector": "under-grounded-hub", "lane": "blocked_on_grounding", "focus": ["betweenness"],
-                           "question": "Hub 'betweenness' (degree 5) is under-grounded — only 1/5 of its edges are grounded. Drain its unverified queue (/kg-ground) to trust it.", "signals": {…}}],
+                           "question": "Hub 'betweenness' (degree 5) is under-grounded — only 1/5 of its edges are grounded. Drain its unverified queue (/burgess:kg-ground) to trust it.", "signals": {…}}],
  "count": 2, "limit": 5, "gate_on": 0, "ranked_by": "structural_bridge",
  "note": "structural suggestions — a heuristic, not a guarantee. …"}
 ```
@@ -595,7 +595,7 @@ dir. `kind ∈ {html, report, all}` (default `all`).
 - **Read-only / measure-never-gate**: consumes only the derived layer, writes only its two artifacts; never
   reads prose, never writes through `kg_write`/`kg_ground`, never `_atomic_write`s `graph.json`/`index.sqlite`
   (`projector.py` stays their sole writer). Cannot forge a verdict or bypass span-present. Also: CLI
-  `python -m kg_engine.export html|report|all` and the `/kg-view` command.
+  `python -m kg_engine.export html|report|all` and the `/burgess:kg-view` command.
 
 ### 1.18 `mcp__plugin_burgess_burgess__kg_status()`
 
@@ -623,10 +623,10 @@ build** after a transport hiccup without grepping the filesystem. No args.
 }
 ```
 
-- `unverified_edges` — the still-`unverified` grounding-queue size (the `/kg-ground` backlog).
+- `unverified_edges` — the still-`unverified` grounding-queue size (the `/burgess:kg-ground` backlog).
 - `source` — the **engine-resolved** source (`{path, exists, files}`): `path` is the configured
   `source_path` the server resolved (or `null` when nothing is configured), `exists` is true iff it
-  resolves to ≥1 readable `.md`/`.txt` file, `files` are the ordered basenames (R4). `/kg-build` reads the
+  resolves to ≥1 readable `.md`/`.txt` file, `files` are the ordered basenames (R4). `/burgess:kg-build` reads the
   source from the ENGINE (this block, which `kg_build_plan` §1.19 also returns), never from a shell env
   var — the host injects userConfig only into the server process, so a Bash-shell env-var read would
   silently miss a configured `source_path` and build the demo by surprise.
@@ -642,13 +642,13 @@ build** after a transport hiccup without grepping the filesystem. No args.
 - `projection_degraded` — echoes the last reprojection failure (a read sets it, never this probe); `null` when
   healthy.
 
-Unlike `kg_metrics` (§1.6) this NEVER opens the derived db. Granted to `/kg-build` for node/edge counts and
+Unlike `kg_metrics` (§1.6) this NEVER opens the derived db. Granted to `/burgess:kg-build` for node/edge counts and
 the grounding queue; the build's own resume probe is `kg_build_plan` (§1.19), whose coverage is per planned
 section.
 
 ### 1.19 `mcp__plugin_burgess_burgess__kg_build_plan(arguments="", configured_wave_size="")`
 
-The `/kg-build` plan (0.5.0): which files and sections to build, which are already covered, and the wave
+The `/burgess:kg-build` plan (0.5.0): which files and sections to build, which are already covered, and the wave
 size. It is the build's Step 0, which through 0.4.6 ran as a Bash block; in auto mode Claude Code ignores a
 command's `Bash` permission, so that block could stop a build on a permission prompt, while an MCP tool the
 command declares runs without one. **Read-only and projection-free**: it reads the canon spans and the
@@ -728,7 +728,7 @@ edges (§1.4), for extractors to write. The rest of the line still reads as a su
 ### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section, leads=False)`
 
 One section of the configured source, **cut and egress-scrubbed by the engine**: what a `kg-extractor`
-launched by `/kg-build` extracts from (0.5.0). `source_file` is a basename and `section` a number, both from
+launched by `/burgess:kg-build` extracts from (0.5.0). `source_file` is a basename and `section` a number, both from
 `kg_build_plan`. The extractor calls it itself, so no section text ever passes through the orchestrator.
 
 ```json
@@ -765,16 +765,16 @@ extractors asking at once keeps one placeholder per value.
 
 ### 1.21 `mcp__plugin_burgess_burgess__kg_ground_plan(focus="", configured_wave_size="", batch_size=None)`
 
-The `/kg-ground` plan (0.7.0): what the grounding loop verdicts, in batches for parallel grounders. It
+The `/burgess:kg-ground` plan (0.7.0): what the grounding loop verdicts, in batches for parallel grounders. It
 replaces listing the queue through `query_graph`, which on a real canon came back as 300 000 characters,
 was saved to a file, and was read with scripts that auto mode stopped on permission prompts.
 **Read-only and projection-free.**
 
-- **The queue:** every `unverified` edge (any lane) and every `unverified` HYPOTHESIZED node (a `/kg-diverge`
+- **The queue:** every `unverified` edge (any lane) and every `unverified` HYPOTHESIZED node (a `/burgess:kg-diverge`
   pin or a generated proposal). The extractor's own unverified nodes are not queued: each names a concept the
   text uses, and the claims about it are its edges. They are counted in `queue.extractor_nodes_not_queued`.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
-  for `/kg-build --leads`. The whole canon's, whatever the focus.
+  for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
   extractor marked weak (`confidence: AMBIGUOUS`, or a `confidence_score` under 0.5; counted in
   `queue.weak_edges`), then the other text edges. Inside each group the order is the source's (file, then the
@@ -920,7 +920,7 @@ lane and is **not** discarded.
 ### 1B.2 `kg_diverge_ingest(project, candidates, axes=None, seed=0)`
 
 One divergence cycle: embed → near-duplicate dedupe → MAP-Elites placement → k-NN novelty → DPP slate,
-with the monitor reading the round. Candidate shape (see `/kg-diverge` step 6):
+with the monitor reading the round. Candidate shape (see `/burgess:kg-diverge` step 6):
 `{id, text, descriptor: {<axis>: value, …, mechanism: "…"}, fitness?, genealogy: {operator_id, parents}}`.
 
 ```json
@@ -943,7 +943,7 @@ Field honesty: `slate_ids` is the id list of the slate items, NOT breeding paren
 pins nor discards, so never breed from it; use `kg_diverge_parents` for that. `novelty` is mean k-NN
 cosine distance (k=5) to THIS SESSION's own ideas — a variety proxy,
 never originality against the world; `mechanism_novelty` is the same for the open-axis value. `monitor`
-flags are advisory notices (react per `/kg-diverge` step 9). When the axes set `engine: {gap_probe: true}`
+flags are advisory notices (react per `/burgess:kg-diverge` step 9). When the axes set `engine: {gap_probe: true}`
 the result also carries a `surface_mechanism_gap` block (measurement only).
 
 ### 1B.3 `kg_diverge_remember(project, event)`
@@ -1223,7 +1223,7 @@ any-of-three-words guard let 140/143, 171/173 and 181/181 invented-word probes t
 
 #### `rag-slices <prompts> <source> <out_dir> [budget_tokens]` (0.11.8)
 
-Builds the `rag` arm's context for `/kg-experiment`, the same way on every run. For each prompt it ranks the
+Builds the `rag` arm's context for `/burgess:kg-experiment`, the same way on every run. For each prompt it ranks the
 source's paragraphs by **BM25** against the prompt, with accents folded and no stopword list or stemming, and
 takes the best while they fit in `budget_tokens` (default 2000, the graph arm's `kg_context` budget, at four
 characters a token). A heading stays with the paragraph after it, and a paragraph longer than 1,200
@@ -1245,11 +1245,11 @@ Checks that the kg-evaluator wrote its two drafts in order, beside `outputs`:
 
 `verified` is true when each file predates the next and `outputs` carries both drafts' answers unchanged.
 Otherwise `problems` names what failed: a missing or unreadable draft, an answer that changed, or the files
-out of order. It prints JSON and always exits 0; `/kg-experiment` logs a failure as a caveat.
+out of order. It prints JSON and always exits 0; `/burgess:kg-experiment` logs a failure as a caveat.
 
 #### `judge-packets <outputs> <prompts> <source> <controls> <out_dir>` and `judge-aggregate <judge_dir> [outputs]` (0.13.0)
 
-The deterministic half of `/kg-experiment --judge`, in `scripts/kg_engine/judge.py`.
+The deterministic half of `/burgess:kg-experiment --judge`, in `scripts/kg_engine/judge.py`.
 
 **`judge-packets`** writes one packet per prompt to `out_dir/packets/NN.md`.
 - A packet holds every arm's idea and the two controls from `controls` (`{"decoys": [...], "positives": [...]}`),
@@ -1291,32 +1291,32 @@ tally stays a display-only prior — it never reorders the grounding queue.
 
 Splits a filled f4_probe sheet two ways, reading each labeled edge in the project's canon.
 - **By writer**, from the mark its notes open with:
-  - `extractor`: a `/kg-build` extraction;
-  - `lead`: written by `/kg-build --leads` from a grounder's lead;
-  - `counter-edge`: an adversarial pass of `/kg-ground`;
-  - `proposal`: `/kg-generate`.
+  - `extractor`: a `/burgess:kg-build` extraction;
+  - `lead`: written by `/burgess:kg-build --leads` from a grounder's lead;
+  - `counter-edge`: an adversarial pass of `/burgess:kg-ground`;
+  - `proposal`: `/burgess:kg-generate`.
 - **By the grounding verdict** each edge holds now.
 
 It prints labeled / correct / precision per row, then lists the edges labeled other than `correct`, each
 with its writer and verdict.
 
 The canon keeps every edge since its first build and does not record which plugin version wrote one. So an
-error in the sample shows how its writer worked then. `/kg-eval` checks a refinement against the current
+error in the sample shows how its writer worked then. `/burgess:kg-eval` checks a refinement against the current
 contract before recommending it.
 
 #### `legacy-log <project> <source>` (0.11.7)
 
 Prints a note when a `PROGRESS.md` at the top of the project is one of the source's documents, and nothing
 otherwise.
-- Through 0.11.6, `/kg-eval` and `/kg-experiment` kept their log there. Since 0.11.7 they write
+- Through 0.11.6, `/burgess:kg-eval` and `/burgess:kg-experiment` kept their log there. Since 0.11.7 they write
   `<project>/.kg/PROGRESS.md`, which `SourceSet` never reads.
 - A source folder's top-level `.md`/`.txt` files are its documents. So an old log in the source would be
-  extracted by `/kg-build` and read as source by `/kg-experiment`.
+  extracted by `/burgess:kg-build` and read as source by `/burgess:kg-experiment`.
 - It never moves or deletes the file.
 
 ### 2.4 `python -m kg_engine.divergence` — the divergence engine, no MCP needed
 
-The same engine the `kg_diverge_*` tools call, as a CLI (dev/debug; `/kg-diverge` uses the tools):
+The same engine the `kg_diverge_*` tools call, as a CLI (dev/debug; `/burgess:kg-diverge` uses the tools):
 
 ```bash
 python -m kg_engine.divergence init-project --project <slug> --axes <dict|path|template> [--seed N] [--session ID]

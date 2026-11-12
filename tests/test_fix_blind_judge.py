@@ -302,7 +302,9 @@ def test_the_command_runs_the_judge_only_when_asked():
     assert "Skip this step unless the arguments held `--judge`" in step
     assert 'Task(subagent_type: "kg-judge"' in step
     assert "judge-packets" in step and "judge-aggregate" in step
-    assert "about 1.5 million tokens" in step
+    # 0.13.3: the field's kg-judges, not the pilots' general-purpose judges (1.5 million), set the figure
+    assert "about 0.8 million new tokens" in step and "1.3 million read back from the prompt cache" in step
+    assert "1.5 million" not in step
     assert "Never put anything from `$J/private/` into a judge's prompt" in step
     assert "the judge's `verdict` is the headline" in body
 

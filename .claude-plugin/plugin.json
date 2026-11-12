@@ -1,6 +1,6 @@
 {
   "name": "burgess",
-  "version": "0.13.2",
+  "version": "0.13.3",
   "description": "The full creative cycle in one plugin: turn a conceptual document into a rigorously-grounded, queryable knowledge graph (human-editable canon, three-axis provenance, span-present write boundary, grounding loop with memory of failures), and diverge from any brief with a geometry-driven ideation engine (MAP-Elites, k-NN novelty, DPP slates, anti-collapse monitor) that proposes into the hypothesized lane — embeddings measure dispersion, never truth.",
   "author": {
     "name": "Sergi Parpal",
@@ -30,7 +30,7 @@
     "extract_wave_size": {
       "type": "string",
       "title": "Extraction wave size",
-      "description": "How many subagents run concurrently per wave: section extractors in /kg-build, grounders in /kg-ground (bounded parallelism, 1–10). Higher = faster but more rate-limit/lock pressure. Default 6.",
+      "description": "How many subagents run concurrently per wave: section extractors in /burgess:kg-build, grounders in /burgess:kg-ground (bounded parallelism, 1–10). Higher = faster but more rate-limit/lock pressure. Default 6.",
       "default": "6"
     }
   }

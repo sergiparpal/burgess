@@ -4,12 +4,12 @@ argument-hint: "[html|report|all]"
 allowed-tools: mcp__plugin_burgess_burgess__kg_export
 ---
 
-# /kg-view — render the human-facing artifacts (R1)
+# /burgess:kg-view — render the human-facing artifacts (R1)
 
 The canon and the derived index are machine surfaces. This command renders two **disposable, human-facing**
 artifacts so a person can *eyeball* the graph and its grounding state — without ever changing it.
 
-`/kg-view` is **read-only**: it projects-if-stale, then consumes only the derived layer and writes only its
+`/burgess:kg-view` is **read-only**: it projects-if-stale, then consumes only the derived layer and writes only its
 two artifacts under `${CLAUDE_PLUGIN_DATA}/derived/`. It never writes the canon, never sets a verdict, never
 copies a span — it cannot forge anything (§1.4/§1.5/§1.8). Both files are **regenerable**; treat them as a
 view, not a source of truth (the canon is the source of truth).
@@ -37,4 +37,4 @@ view, not a source of truth (the canon is the source of truth).
      memory**, the R3 **stale verdicts** (spans the source no longer contains), and per-source-file edge counts
      (R4). A list longer than 50 shows the first 50 and says how many more there are.
 3. Do **not** present either artifact as authoritative. They are a regenerable *view* of the canon; if the user
-   wants to change the graph, that flows through `/kg-build` → `/kg-ground` (verdicts) — never through this view.
+   wants to change the graph, that flows through `/burgess:kg-build` → `/burgess:kg-ground` (verdicts) — never through this view.
