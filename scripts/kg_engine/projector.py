@@ -496,7 +496,7 @@ class Projector:
         # The advisory ranks (degree/communities/betweenness/spec_betweenness) are computed over the
         # LIVE subgraph (§1.7). graph.json and the edges table stay COMPLETE — failure memory is never
         # pruned — but a `failed`/`rejected` edge must not inflate centrality: the adversarial grounder
-        # stamps its attacked_by/confounded_by counter-edges `failed`, so counting them would make "more
+        # stamps `failed` the claims its counter-edges refute, so counting them would make "more
         # refutation -> higher apparent centrality". `obsolete` is excluded for the SAME reason and for
         # consistency with the answer lane (kg_context excludes FAILURE_STATE_VALUES | {OBSOLETE}): a
         # SUPERSEDED relation is no longer live, so it must not confer degree/betweenness/community/bridge

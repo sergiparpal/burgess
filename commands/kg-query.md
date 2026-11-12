@@ -74,9 +74,10 @@ Use these to find what `kg_context` did not return and to follow specific relati
   `query_graph(text="<key words of the question>", epistemic_state="grounded")`.
 - `mcp__plugin_burgess_burgess__query_graph(node_type=…, relation=…, epistemic_state=…, limit=…)` — e.g.
   `query_graph(epistemic_state="grounded")` for the grounded claims, or
-  `query_graph(relation="attacked_by")` to enumerate adversarial edges and the nodes they touch. Every filter
-  applies to both nodes and edges. The claims are the edges: the extractor's nodes are never verdicted, so a
-  state filter returns few nodes. Node types are
+  `query_graph(relation="attacked_by")` for the attacks and the nodes they touch. The adversarial pass also
+  writes `confounded_by` and `collapses_into` counter-edges, so when the question is what challenges a claim,
+  query each of the three relations. Every filter applies to both nodes and edges. The claims are the edges:
+  the extractor's nodes are never verdicted, so a state filter returns few nodes. Node types are
   `compression | primitive | claim | metric | operation | failure`; relations are
   `grounds | attacked_by | reconciles_with | bridges | collapses_into | confounded_by | approximates | defends_against | projects | survives | enables`.
 - `mcp__plugin_burgess_burgess__get_node(node_id)` — one node plus its incident edges (use slug IDs, e.g. `compression`).

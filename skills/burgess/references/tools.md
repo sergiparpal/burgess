@@ -185,8 +185,10 @@ leaves both as they are, so they record who put the edge in its state and when. 
 still appended, and the audit log records the call. Note: the return `key` for a node verdict is
 `node:<id>`; for an edge it is the edge id.
 
-> Adversarial grounding (§1.7): the adversarial grounder adds `attacked_by` edges then calls
-> `kg_ground(target_id=<edge>, verdict="failed")`. Failed/rejected edges are NEGATIVE INFORMATION — never
+> Adversarial grounding (§1.7): the adversarial grounder writes counter-edges typed `attacked_by`,
+> `confounded_by` or `collapses_into`, which stay `unverified` for the next pass's grounders, and calls
+> `kg_ground(target_id=<the refuted claim's edge id>, verdict="failed")` only on a claim one of them
+> genuinely refutes, never on its own counter-edge. Failed/rejected edges are NEGATIVE INFORMATION — never
 > pruned, surfaced by `kg_context.falsification_counters`.
 
 ### 1.5 `mcp__plugin_burgess_burgess__kg_rename(old_id, new_id)`
