@@ -1108,3 +1108,45 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     - The sources' extractor recorded its section.
     - The orchestrator never called the record tool, and the next plan had nothing left to extract.
     - No permission was denied and no shell command ran.
+
+## The extractor starts without the project's instructions and memory (2026-11-13)
+
+- **Decision:** `kg-extractor` declares `omitClaudeMd: true`.
+  - Claude Code starts it without the user, project and local CLAUDE.md files, and without the auto-memory index.
+  - Its contract says that its facts come from the section and from `kg_write`'s answers. It sends a relation
+    even when it believes the canon holds it.
+- **Bug it fixes** (field report on 0.14.1, 2026-11-13):
+  - The plan held one section, Del LLM §3, whose one relation the canon holds as rejected. The session's memory
+    index said so, in a line written after the previous build.
+  - The extractor read the section, then, "by my notes", sent no `kg_write` and recorded the section. Its note
+    could not name the edge, because no quarantine had returned its id.
+  - The note was right. A wrong or stale one would have kept a writable relation out of the graph for good.
+- **Why the extractor now, when 0.13.4 left it out:** 0.13.4 kept the extractor and the generator on the
+  project's instructions, because they write candidates and the grounders filter them.
+  - 0.14.0 broke that premise for the extractor. An extraction that writes nothing is recorded, and the plan
+    stops offering the section.
+  - An omission is therefore final in a way a bad candidate is not, and no grounder ever sees it.
+- **Why not the generator:** it writes into the hypothesized lane, and every hypothesis goes through grounding.
+  Nothing it writes ends a section's extraction.
+- **Rejected alternatives:**
+  - (a) *Text only.* 0.10.0's contract already said not to take a rule from a note. The field extractor took a
+    fact, not a rule, and the index came with its launch, unasked.
+  - (b) *Have the engine refuse a record that no `kg_write` from the same read preceded.* Most edgeless sections
+    (bibliographies, glossaries) rightly send no write, so the engine cannot tell a skip from a section with
+    nothing in it.
+  - (c) *Keep the memory and have the orchestrator write notes that say nothing about sections.* The notes are
+    the field session's own, written by a model, and Burgess cannot police them.
+- **Accepted trade-offs:**
+  - Extraction guidance in a project's CLAUDE.md no longer reaches the extractor. Nothing in Burgess relies on
+    it: extraction follows the pack and the contract.
+  - Managed policy files still reach the extractor, as they reach the grounders.
+  - A note can still be opened with `Read`, though the extractor no longer receives the index that points to
+    it.
+- **Pinned in:** `tests/test_fix_extractor_without_memory.py` (5 tests). Against 0.14.1, 3 of them fail. The 2
+  that pass pin the generator's boundary and the premise that the build's brief carries what an extraction
+  needs.
+  - **Checked end to end:** one headless `/burgess:kg-build`, in auto mode with Claude Code 2.1.316, on 0.14.1's
+    field case, with a note planted in the project's memory telling an extractor to skip the write.
+    - The main session's transcript carried the memory index with the note. Neither extractor's did.
+    - The glossary's extractor sent the judged edge, got the quarantine back, and recorded its section with
+      the edge's id.

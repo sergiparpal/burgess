@@ -472,8 +472,11 @@ divergence templates ship as pack fragments under `pack/domains/`.
     that saves a run's results in its memory would otherwise tell the next run's blind agents what the
     last one found. Managed policy files still reach them.
   - The two grounders (`kg-grounder`, `kg-adversarial-grounder`) declare it too (0.13.4), so a verdict
-    rests on the source and the contract, never on what a session's memory says about the claim. The
-    extractor and the generator still get the project's instructions.
+    rests on the source and the contract, never on what a session's memory says about the claim.
+  - So does `kg-extractor` (0.14.2). Since 0.14.0 a section its extraction writes nothing from is recorded
+    and skipped by later builds, so a note that talks an extractor out of a relation keeps that relation
+    out of the graph for good, where no grounder can catch it. The generator still gets the project's
+    instructions: what it writes is a hypothesis the grounders filter.
 - **Skill**: `skills/burgess/SKILL.md` is the operating guide; `references/` holds the
   load-on-demand contracts (write contract, tool shapes, pack schema, divergence operators, judge
   rubric, axis inference).

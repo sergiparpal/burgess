@@ -47,10 +47,12 @@ def test_both_grounders_start_without_instructions_or_memory():
         assert head.get("omitClaudeMd") is True, f"{name} must declare omitClaudeMd: true"
 
 
-def test_only_the_measurement_agents_and_the_grounders_carry_the_key():
+def test_only_the_measurement_agents_the_grounders_and_the_extractor_carry_the_key():
+    # the extractor took the key in 0.14.2 (tests/test_fix_extractor_without_memory.py); the generator keeps
+    # the project's instructions
     carriers = {name for name, (head, _) in _agents().items() if head.get("omitClaudeMd") is True}
-    assert carriers == MEASUREMENT | GROUNDERS
-    assert {"kg-extractor", "kg-generator"} <= set(_agents()) - carriers
+    assert carriers == MEASUREMENT | GROUNDERS | {"kg-extractor"}
+    assert "kg-generator" in set(_agents()) - carriers
 
 
 def test_the_grounders_contract_carries_the_rules_the_memory_held():

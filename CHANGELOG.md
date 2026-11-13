@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.14.2 — 2026-11-13
+
+Found in the field on 0.14.1, in its first plain `/burgess:kg-build`.
+
+### Fixed
+
+- **An extractor took what the canon held from the session's memory.**
+  - The plan held one section, Del LLM §3, whose one relation the canon holds as rejected. The session's memory
+    index said so, in a line the session wrote after the previous build.
+  - Claude Code hands every subagent the project's CLAUDE.md files and its memory index. The extractor read the
+    section and then, "by my notes", sent no `kg_write`. It recorded the section with a note that described the
+    rejected edge but could not give its id, because no quarantine had returned one.
+  - The note was right that time. But since 0.14.0 a section an extraction writes nothing from is recorded, and
+    no later build reads it again. A stale or wrong note would keep a writable relation out of the graph for
+    good, where no grounder sees it.
+  - `kg-extractor` now declares `omitClaudeMd: true`, as the grounders have since 0.13.4.
+
+### Changed
+
+- **The extractor's contract** says that its rules are the contract, and its facts are the section and the
+  engine's answers.
+  - It keeps 0.10.0's rule: do not take a rule from a note. It adds: nor a fact about the canon.
+  - It sends a relation even when it believes the canon already holds it, and records the section only once the
+    quarantine comes back.
+- The generator keeps the project's instructions. What it writes is a hypothesis that the grounders filter.
+
+### Upgrading
+
+- Nothing to do. If your CLAUDE.md held guidance for extraction, it no longer reaches the extractor: the pack and
+  the contract are what extraction follows.
+
+### Tests
+
+- `tests/test_fix_extractor_without_memory.py` (5 tests):
+  - the flag on the extractor, and none on the generator;
+  - the contract's rule on facts;
+  - a judged relation learned from `kg_write`;
+  - the premise that the build's brief carries what an extraction needs.
+- Against 0.14.1, 3 of the 5 fail. The 2 that pass pin the generator's boundary and the premise.
+- `test_fix_grounders_without_memory.py`, `test_fix_blind_memory.py` and `test_fix_connective_and_notes.py` now
+  count the extractor among the agents that start without the project's notes.
+- 2056 → 2061 passed, 3 skipped.
+- **Checked end to end:** one headless `/burgess:kg-build`, in auto mode with Claude Code 2.1.316 and the plugin
+  loaded from this tree. The project was 0.14.1's field case: a premise whose edge the canon holds as rejected,
+  a glossary restating it, and a list of sources.
+  - A note was planted in the project's memory, in the field's words, telling an extractor to record the
+    glossary without sending its edge to `kg_write`.
+  - The main session's transcript carried the memory index with that note. Neither extractor's did.
+  - The glossary's extractor sent the edge, got `collapses-into-known-failure` back, and recorded the section
+    with the edge's id in its note. The sources' extractor recorded its section.
+  - No permission was denied, and the run cost $0.51.
+
+### Docs
+
+- `DECISIONS.md` records the decision.
+- `ARCHITECTURE.md` and `COMMANDS.md` describe it.
+
 ## 0.14.1 — 2026-11-13
 
 Found in the field on 0.14.0, in its first plain `/burgess:kg-build`.
