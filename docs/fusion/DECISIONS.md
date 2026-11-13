@@ -1351,3 +1351,50 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_views_stay_current.py` (15 tests). Against 0.14.5, 12 fail. The 3 that pass
   pin what 0.14.5 already did: a read creates no view, a current view is left alone, and `kg_export` renders
   once.
+
+## An edge's provenance is its line's opacity, and an older engine's view is stale (2026-11-13)
+
+- **Decision:**
+  - `graph.html` draws an `inferred` edge lighter (`PALETTE.edgeAlpha.inferred`, 0.4), in every state. The
+    state keeps colour, width and dash.
+  - Each view records the engine version that rendered it. `export.stale_views` treats a view that an older
+    engine rendered, or one with no mark, as stale, like one older than `graph.json`. A view that a newer engine
+    rendered is left alone.
+- **Request it answers** (field project on 0.15.0, 2026-11-13):
+  - The user asked why the view showed no hypothesized or inferred nodes and no hypothesized lines.
+  - The canon has none of those, but 35 of its 261 edges are `inferred` (19 grounded, 16 rejected). The view drew
+    them exactly like span-present ones, and the user asked for them to be told apart.
+- **Why opacity:**
+  - The state already holds colour (green, red, grey, blue), width (failed thicker) and dash (unverified dashed,
+    unverified hypothesized dotted). Any of those would mix the two axes: a dash for `inferred` cannot coexist
+    with the dash of `unverified`.
+  - Opacity was free on edges, and it is what a node's provenance already uses. So provenance reads the same way
+    on both.
+- **Why the version mark:**
+  - 0.15.0 re-rendered a view only when the projection moved past it.
+  - The field views were rendered by 0.14.5 after the day's last projection, so a new template would have reached
+    them only with the next build or grounding pass.
+  - A view's look is part of what "current" means, so an update re-renders it once, on the first read that
+    projects.
+  - A newer engine's view is left alone. Otherwise two sessions on different versions would each re-render it on
+    every read, undoing the other.
+- **Rejected alternatives:**
+  - (a) *A thinner line for `inferred`.* Width already separates failed from grounded from unverified. A thin
+    failed edge would read as a grounded one.
+  - (b) *Opacity for every edge provenance, hypothesized faint as on nodes.* An unverified proposal's dotted blue
+    line is how a `/burgess:kg-generate` user finds the proposals, and a faint dotted line nearly vanishes.
+  - (c) *Compare the view's time with the template file's.* Whether an update rewrites a file's time is the
+    installer's business, not the engine's. The mark says which version rendered the view, whatever the times.
+  - (d) *Re-render whenever the mark differs.* Two open sessions on different versions would undo each other on
+    every read.
+- **Accepted trade-offs:**
+  - A judged hypothesized edge is still drawn like a span-present one (green or red, full opacity). No field
+    canon has one yet. Giving it a look of its own is a separate decision about how proposals should read once
+    judged.
+  - A view rendered by an older engine while a newer session is open keeps the older look until the newer
+    engine's next projecting read.
+  - Each projecting read now reads the first 512 bytes of each view, besides three file times.
+- **Pinned in:** `tests/test_fix_inferred_edges_distinct.py` (11 tests). Against 0.15.0, 10 fail. The one that
+  passes pins the premise: the view's data already carried each edge's provenance.
+  - **Checked visually:** a scratch graph with both provenances in each state, screenshotted with headless
+    Chromium.

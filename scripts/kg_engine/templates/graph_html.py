@@ -9,7 +9,10 @@ The whole point is **three axes on independent visual channels** (never one conf
     the last geometric surface to agree with projector._live_subgraph, which already excludes the
     identical edges from degree / betweenness / community / bridge ranks §1.7);
   - `authored_by`     → node border colour (deterministic / agent / human);
-  - `provenance`      → node fill opacity (span-present opaque / inferred mid / hypothesized faint).
+  - `provenance`      → opacity: node fill (span-present opaque / inferred mid / hypothesized faint), and an
+    `inferred` edge's line, drawn lighter whatever its state (0.15.1). Through 0.15.0 an inferred edge
+    looked exactly like a span-present one: the line showed its state alone. A hypothesized edge keeps its
+    dotted blue line while unverified.
 Node **size = degree only** (the honest advisory). The **bridge highlight** is gate-aware (a gold ring;
 spec_betweenness only when `gate_on=1`, else the structural-bridge advisory) — node size is never the
 bridge metric, so the generality confound is never smuggled into the most prominent visual channel.
@@ -23,6 +26,7 @@ HTML_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="generator" content="__KG_GENERATOR__">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Burgess — knowledge graph</title>
 <style>
@@ -70,6 +74,11 @@ HTML_TEMPLATE = r"""<!doctype html>
     <li><span class="dot" id="dot-inferred" style="border-color:#777;opacity:0.55"></span>inferred (mid)</li>
     <li><span class="dot" id="dot-hypothesized" style="border-color:#777;opacity:0.25"></span>hypothesized (faint)</li>
   </ul>
+  <div class="ax">provenance — edge line opacity</div>
+  <ul>
+    <li><span class="sw" id="sw-span-present"></span>span-present (full)</li>
+    <li><span class="sw" id="sw-inferred"></span>inferred (lighter, in any state)</li>
+  </ul>
   <div class="ax">size = degree · <span id="bridgelegend"></span></div>
 </div>
 <div id="empty" style="display:none">graph is empty — build it with /burgess:kg-build</div>
@@ -87,6 +96,10 @@ window.__KG_DATA__ = __KG_DATA_JSON__;
     edge: { grounded: "#2e7d32", unverified: "#9e9e9e", failed: "#c62828", hypothesized: "#1565c0" },
     border: { "deterministic": "#111", "agent": "#777", "human": "#7b1fa2" },
     fill: { "span-present": 1.0, "inferred": 0.55, "hypothesized": 0.25 },
+    // an edge's provenance, on its own channel (0.15.1): the line's opacity. Only `inferred` is drawn
+    // lighter; colour and dash stay the state's, so the two axes never mix. A hypothesized edge keeps
+    // its dotted blue line while unverified.
+    edgeAlpha: { "inferred": 0.4 },
     fillColor: "#00897b",
     bridge: "#f9a825"  // the gate-aware bridge ring — the one channel that used to bypass PALETTE
   };
@@ -108,6 +121,9 @@ window.__KG_DATA__ = __KG_DATA_JSON__;
     document.getElementById("sw-unverified").style.borderTopColor = PALETTE.edge.unverified;
     document.getElementById("sw-failed").style.borderTopColor = PALETTE.edge.failed;
     document.getElementById("sw-hypothesized").style.borderTopColor = PALETTE.edge.hypothesized;
+    document.getElementById("sw-span-present").style.borderTopColor = PALETTE.edge.grounded;
+    document.getElementById("sw-inferred").style.borderTopColor = PALETTE.edge.grounded;
+    document.getElementById("sw-inferred").style.opacity = PALETTE.edgeAlpha.inferred;
     document.getElementById("dot-deterministic").style.borderColor = PALETTE.border.deterministic;
     document.getElementById("dot-agent").style.borderColor = PALETTE.border.agent;
     document.getElementById("dot-human").style.borderColor = PALETTE.border.human;
@@ -168,13 +184,15 @@ window.__KG_DATA__ = __KG_DATA_JSON__;
 
   // node size = DEGREE ONLY (the honest advisory) — never the bridge metric
   function radius(n) { return RADIUS_BASE + Math.sqrt(n.degree || 0) * RADIUS_SCALE; }
-  var UNVERIFIED = { color: PALETTE.edge.unverified, width: 1.2, dash: [6, 4] };
+  // the state picks colour, width and dash; the provenance picks the opacity (0.15.1)
   function edgeStyle(l) {
-    var state = l.epistemic_state, prov = l.provenance;
-    if (FAILURE_STATES.indexOf(state) !== -1) return { color: PALETTE.edge.failed, width: 2.2, dash: [] };
-    if (state === "grounded") return { color: PALETTE.edge.grounded, width: 1.6, dash: [] };
-    if (prov === "hypothesized") return { color: PALETTE.edge.hypothesized, width: 1.2, dash: [2, 4] };
-    return UNVERIFIED;
+    var state = l.epistemic_state, prov = l.provenance, s;
+    if (FAILURE_STATES.indexOf(state) !== -1) s = { color: PALETTE.edge.failed, width: 2.2, dash: [] };
+    else if (state === "grounded") s = { color: PALETTE.edge.grounded, width: 1.6, dash: [] };
+    else if (prov === "hypothesized") s = { color: PALETTE.edge.hypothesized, width: 1.2, dash: [2, 4] };
+    else s = { color: PALETTE.edge.unverified, width: 1.2, dash: [6, 4] };
+    s.alpha = PALETTE.edgeAlpha[prov] !== undefined ? PALETTE.edgeAlpha[prov] : 1;
+    return s;
   }
 
   function step() {
@@ -204,9 +222,10 @@ window.__KG_DATA__ = __KG_DATA_JSON__;
     links.forEach(function (l) {
       if (!showFailed && isFailed(l)) return;  // toggle hides failed/rejected from the DRAW only (layout already ignores them)
       var style = edgeStyle(l); ctx.strokeStyle = style.color; ctx.lineWidth = style.width; ctx.setLineDash(style.dash);
+      ctx.globalAlpha = style.alpha;
       ctx.beginPath(); ctx.moveTo(l.s.x, l.s.y); ctx.lineTo(l.t.x, l.t.y); ctx.stroke();
     });
-    ctx.setLineDash([]);
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
     nodes.forEach(function (n) {
       var r = radius(n);
       if (n.bridge) {  // gate-aware bridge highlight (gold ring) — size stays degree-only
