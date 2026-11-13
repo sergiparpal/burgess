@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.15.0 — 2026-11-13
+
+Asked for in the field on 0.14.5. After a grounding pass, the user asked whether `/burgess:kg-view` had to be run
+again after every change to see it. It did: the `graph.html` the user had open was rendered on 2026-11-10, and 48
+canon notes had changed since.
+
+### Added
+
+- **A rendered view stays current.** The engine re-renders `graph.html` and `GRAPH_REPORT.md`, each one that
+  exists, on the first read that projects the canon after a change.
+  - **When.** Every read that projects (`kg_context`, `query_graph`, `get_node`, `get_neighbors`, `kg_agenda`,
+    `kg_generate` and the others behind the lazy projection) re-renders a view older than the projection's
+    `graph.json`. Every `/burgess:kg-build` and `/burgess:kg-ground` ends with such a read. A write projects
+    nothing, so it re-renders nothing.
+  - **Projections made elsewhere.** The PreToolUse hook projects through its own read-only projector and renders
+    nothing; the server's next read that projects catches the views up.
+  - **What it never does.** It never creates a view: `/burgess:kg-view` does that, once. It never brings back a
+    view the user deleted, and never renders from a degraded projection (failed or contended). A render that
+    fails is logged, the old view stays, and the read is served.
+  - **Cost.** Three file-time reads on each read that projects. Rendering both views takes about 20 ms on the
+    field canon of 463 notes; the incremental projection before it takes about 86 ms (Linux, scratch copy).
+  - The rule lives in `export.stale_views` and `export.refresh_views`.
+
+### Changed
+
+- **`kg_export` renders each view it was asked for once.** Its projection skips the refresh (`views=False`), and
+  so do the export CLI and the projection of a second construction for `kg_generate`.
+- **`/burgess:kg-build --leads` confirms the projection** with `kg_context(budget=300)` before its report (a new
+  step 4), as a build's step 2 does. So the leads it writes reach the views too.
+- **`/burgess:kg-view`** says the views now follow the graph, and that reloading the page shows a change. The
+  `kg_export` tool description, the build's step 2 and `/burgess:kg-ground`'s Stage 3 say so too.
+- **Docs:** README (the workflow and the command table), the skill's tool reference (§1.17) and ARCHITECTURE.
+
+### Upgrading
+
+- Nothing to do. On the field project, both views date from 2026-11-10, before the last projection. So the first
+  read that projects after the update re-renders them, and reloading the page shows the current graph.
+
+### Tests
+
+- `tests/test_fix_views_stay_current.py` (15 tests):
+  - the field case: a verdict and then a read re-render both views, and a new edge reaches the view through
+    `get_node`;
+  - a projection the hook made is caught up by the next read;
+  - what a read never does: create a view, bring back a deleted one, or re-render a current one;
+  - a degraded projection (failed, contended) re-renders nothing and the next healthy read catches up; a render
+    that fails leaves the old view and serves the read;
+  - `kg_export` renders each view once, and `refresh_views` returns what it rendered;
+  - the texts: the tool description, `/burgess:kg-view`, the build's step 2, its leads mode and
+    `/burgess:kg-ground`'s Stage 3.
+- Against 0.14.5, 12 fail. The 3 that pass pin what 0.14.5 already did: a read creates no view, a current view
+  is left alone, and `kg_export` renders once.
+- 2080 → 2095 passed, 3 skipped.
+
+### Docs
+
+- `docs/fusion/DECISIONS.md`: *A rendered view stays current*, with the rejected alternatives (a final
+  `kg_export` step in each command, rendering on writes, a background thread, a content stamp, projecting plan
+  tools, creating views on any read) and the trade-offs, among them that the views follow the plugin's shared
+  data dir.
+
 ## 0.14.5 — 2026-11-13
 
 Found in the field on 0.14.4, in a `/burgess:kg-build --leads` run.

@@ -1294,3 +1294,60 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     - The sonnet extractor declared `producto-hecho-al-100-por-agentes` as a new `primitive`, because "the known
       node of that name is the claim, not the product itself", and wrote both leads: 3 ACCEPTED.
     - The next plan had no leads left, and no permission was denied.
+
+## A rendered view stays current (2026-11-13)
+
+- **Decision:** the engine re-renders each human-facing view, `graph.html` and `GRAPH_REPORT.md`, that exists and
+  is older than the projection's `graph.json`. It does so on every read that projects the canon
+  (`_ensure_projected` → `_refresh_views` → `export.refresh_views`).
+  - A read never creates a view: `/burgess:kg-view` does, once, and a view the user deleted stays deleted.
+  - A degraded projection (failed or contended) re-renders none, so a view is never rendered from an empty or
+    stale derived layer.
+  - A render that fails is logged, the old view stays, and the read is served.
+  - `kg_export` renders the views it was asked for once: its own projection skips the refresh (`views=False`).
+  - `/burgess:kg-build --leads` now ends with `kg_context`, as a build's step 2 and `/burgess:kg-ground`'s Stage 3
+    already did. Every build and grounding pass therefore ends with a read that projects.
+- **Request it answers** (field project on 0.14.5, 2026-11-13):
+  - After a grounding pass, the user asked whether `/burgess:kg-view` had to be run again after every change to
+    see it in the view. It did.
+  - The `graph.html` the user had open was rendered on 2026-11-10, and 48 canon notes had changed since.
+  - The user asked for the view to regenerate on its own.
+- **Why the read path, and why `graph.json`'s file time:**
+  - A view is a render of the derived layer. Only a projection changes that layer, and projections run on reads:
+    a write never projects (defense #6). So a read that projects is the first moment a view can show a change.
+  - Only a projection writes `graph.json`, and it skips the write when nothing changed (the up-to-date check
+    returns first). Two fallbacks create an empty `graph.json` when it is missing, and both are degraded reads,
+    which re-render nothing. So a view older than `graph.json` was rendered from a projection that has since been
+    replaced.
+  - The same test covers projections made elsewhere. The PreToolUse hook projects through its own read-only
+    projector and renders nothing, and the server's next read finds the view older and catches it up.
+  - The check is three file-time reads on each projecting read. The render costs about 20 ms for both views on
+    the field canon of 463 notes, against about 86 ms for the incremental projection before it (Linux, scratch
+    copy).
+- **Rejected alternatives:**
+  - (a) *A final `kg_export` step in each command that changes the graph.* It depends on the model following
+    the step and costs a tool call per run. It also misses changes made outside those commands, such as a merge
+    asked for in conversation or `/burgess:kg-diverge`'s materialization.
+  - (b) *Render on the write path.* A write never projects (defense #6). Projecting on each write is the per-call
+    cost review-M3 removed from the grounding drain.
+  - (c) *A background thread that renders once writes go quiet.* It would project inside the same process as
+    the session's own calls, under a single-writer lease whose handoff 0.14.3 had to fix.
+  - (d) *A content stamp in each view, such as a hash of `graph.json`.* It needs its own storage, and a read of
+    it on every read. The file time needs neither, and `graph.json` is already written exactly when the derived
+    layer changes.
+  - (e) *Have the plan tools project.* `kg_build_plan` and `kg_ground_plan` read the canon on purpose. Making
+    them project would put a projection on every progress probe, for the view's sake. The commands' existing
+    projecting reads, plus one `kg_context` in leads mode, reach the same end.
+  - (f) *Create the views on any read.* A project that never asked for a view would get files in the shared data
+    dir, and a deleted view would come back.
+- **Accepted trade-offs:**
+  - The views live in the plugin's data dir, which every project shares (`KG_DATA=${CLAUDE_PLUGIN_DATA}`). Like
+    `graph.json` and the index, they now follow whichever project last projected. That was already true of the
+    derived layer; through 0.14.5 the views stayed behind instead.
+  - A change made outside a command reaches the views at the next read that projects, not at once.
+    `/burgess:kg-view` still renders on demand.
+  - A browser does not reload a local file by itself, so the user reloads the page.
+  - File times decide staleness. A system clock stepped back could hold a re-render until the next projection.
+- **Pinned in:** `tests/test_fix_views_stay_current.py` (15 tests). Against 0.14.5, 12 fail. The 3 that pass
+  pin what 0.14.5 already did: a read creates no view, a current view is left alone, and `kg_export` renders
+  once.

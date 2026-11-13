@@ -14,6 +14,12 @@ two artifacts under `${CLAUDE_PLUGIN_DATA}/derived/`. It never writes the canon,
 copies a span — it cannot forge anything (§1.4/§1.5/§1.8). Both files are **regenerable**; treat them as a
 view, not a source of truth (the canon is the source of truth).
 
+**Once rendered, a view stays current (0.15.0).** The engine re-renders each view this command has rendered on
+the first read that projects the canon after a change. Every `/burgess:kg-build` and `/burgess:kg-ground` ends
+with such a read. The file keeps its path, so reloading the page shows the change. After a change made any
+other way (a merge, `/burgess:kg-diverge`), the next read that projects does it, or this command. A read never
+creates a view: run this command once to create one, and again after deleting one.
+
 ## Procedure
 
 1. Read the kind from the arguments, `$ARGUMENTS`, trimmed and without quotes: `html`, `report` or `all`,
@@ -38,3 +44,5 @@ view, not a source of truth (the canon is the source of truth).
      (R4). A list longer than 50 shows the first 50 and says how many more there are.
 3. Do **not** present either artifact as authoritative. They are a regenerable *view* of the canon; if the user
    wants to change the graph, that flows through `/burgess:kg-build` → `/burgess:kg-ground` (verdicts) — never through this view.
+4. Tell the user the views now follow the graph: after a later change, reloading the page shows it, with no
+   need to run this command again.

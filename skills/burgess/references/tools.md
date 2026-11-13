@@ -600,6 +600,11 @@ dir. `kind ∈ {html, report, all}` (default `all`).
   reads prose, never writes through `kg_write`/`kg_ground`, never `_atomic_write`s `graph.json`/`index.sqlite`
   (`projector.py` stays their sole writer). Cannot forge a verdict or bypass span-present. Also: CLI
   `python -m kg_engine.export html|report|all` and the `/burgess:kg-view` command.
+- **A rendered view stays current (0.15.0).** Every read that projects the canon re-renders each view that
+  exists and is older than the projection's `graph.json`: the first such read after a change does it. Every
+  `/burgess:kg-build` and `/burgess:kg-ground` ends with one (`kg_context`). A read never creates a view, and a
+  degraded projection (failed or contended) re-renders none. A render that fails is logged and never fails
+  the read.
 
 ### 1.18 `mcp__plugin_burgess_burgess__kg_status()`
 

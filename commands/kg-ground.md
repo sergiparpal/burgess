@@ -232,7 +232,8 @@ Both subagents have applied verdicts. Re-read the engine and present the delta â
    against the Stage 0 baseline for `unverified` (should drop), `grounded`, `rejected`, and `failed`.
 2. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` â†’ read `falsification_counters` and report
    `falsification_counters.failed_or_rejected_edges` as the size of the negative-information memory. Also note
-   `approx_tokens` vs `budget` if context was requested for downstream use.
+   `approx_tokens` vs `budget` if context was requested for downstream use. This read projects the pass's
+   verdicts, which also brings the graph views `/burgess:kg-view` rendered up to date (0.15.0).
 
 Render a summary like:
 

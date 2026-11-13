@@ -59,7 +59,7 @@ With `source_path` configured, the primary workflow is:
 1. **Build** — `/burgess:kg-build` extracts the configured source section by section. Accepted edges carry verbatim spans and begin `unverified`; the build never assigns verdicts.
 2. **Ground** — `/burgess:kg-ground` is the only workflow that can assign a verdict. It checks the pending graph, challenges vague hubs, and retains rejected or falsified relationships as negative information. When a rejected claim's span states a different relationship, the grounder records it as a lead, and `/burgess:kg-build --leads` writes those for the next `/burgess:kg-ground` to judge.
 3. **Query** — `/burgess:kg-query <question>` answers against the graph, leads with grounded relationships, quotes available spans, and labels unverified hypotheses separately. If the graph does not contain an answer, it says so.
-4. **View** — `/burgess:kg-view` renders an offline `graph.html` and `GRAPH_REPORT.md`.
+4. **View** — `/burgess:kg-view` renders an offline `graph.html` and `GRAPH_REPORT.md`. After that, both follow the graph: every build and grounding pass re-renders them, so reloading the page shows the change.
 
 Builds are additive. To grow the corpus without reconfiguring the plugin, configure `source_path` as a directory or glob and add files that it resolves. Files with the same basename are deduplicated, so give every source a distinct filename.
 
@@ -219,7 +219,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 | `/burgess:kg-build [--leads] [subset] [wave_size]` | Extract a span-anchored graph from the configured source, one section per extractor | *Optional:* `--leads`, to write the leads `/burgess:kg-ground` recorded instead; a file, folder or glob inside the configured source, to build only that part; concurrent sections per wave |
 | `/burgess:kg-ground [query-or-node-filter]` | Drain the grounding queue, challenge hubs, and assign verdicts through the sole verdict path | *Optional:* limit the run to one topic or node area |
 | `/burgess:kg-query <question>` | Answer from the grounded graph, with provenance and falsification counters attached | **Required:** your question |
-| `/burgess:kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
+| `/burgess:kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`, which then stay current; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
 | `/burgess:kg-generate [mechanism-set] [k]` | Propose unverified candidates from graph structure | *Optional:* `default`, `all`, or one of seven mechanisms; number of candidates |
 | `/burgess:kg-diverge <brief> [domain-template] [reach]` | Explore a brief as a varied idea slate; optionally materialize selected pins as hypotheses | **Required:** your brief. *Optional:* domain axes and `conservative\|balanced\|wild` reach |
 | `/burgess:kg-perturb [second_source_or_graph_json]` | Build or load a second construction and cross-generate against it | *Optional:* a second text source or pre-built `graph.json`; omission degrades to regrouping the current graph |
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **2080 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **2095 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:
