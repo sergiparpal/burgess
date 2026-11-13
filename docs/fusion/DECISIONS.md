@@ -1246,3 +1246,51 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     derived index 0.14.3 built (rules "3", 62 flags). The 0.14.4 engine's first read through `kg_context`
     rebuilt the index (rules "4"). It left 0 flags and 0 stale verdicts, with the falsification memory still
     at 62.
+
+## A claim about a concept is not that concept, and a lead's new end is never its other end (2026-11-13)
+
+- **Decision:** the extractor's contract and `/burgess:kg-build --leads`'s brief say three things.
+  - A node whose label states something about a thing is a claim, and the thing is another node. A claim's id
+    is reused only when the edge's end is that whole statement.
+  - In leads mode, a new end (`head_known` or `tail_known` false) is never the lead's other end, and never a
+    claim about the end.
+  - In leads mode, a `self-loop` rejection is not dropped. The extractor declares the lead's own id for the new
+    end and re-sends.
+- **Bug it fixes** (field report on 0.14.4, 2026-11-13):
+  - The lead `producto-hecho-al-100-por-agentes attacked_by agentes-multiplican-errores` named a new head. The
+    grounder had rejected the generic `agente` as `wrong-node`.
+  - 0.9.0's rule for a new end is to look in `known_nodes` for the same concept under another id. The extractor
+    took the claim node `producto-100-por-agentes-deficiente` («El producto hecho al 100 % por agentes suele ser
+    deficiente») for the product. Its edge turned the claim's own reason into an attack on it, and the next pass
+    rejected it as `wrong-relation`.
+  - That pass left a lead whose head is the same new product and whose tail is that claim. The same
+    substitution there makes a self-loop, which `kg_write` rejects in every lane. The contract said to drop a
+    self-loop, so the lead would have stayed pending for good.
+- **Why the contract and not the engine:**
+  - The engine already refuses the one outcome nobody can judge: a self-loop is REJECTED in every lane, and
+    that stays.
+  - Reusing a known id for a lead's new end is the extractor's call by design. `known_nodes` only decides what
+    the extractor is shown. A grounder names an end by slug and may not know the id the canon holds for the same
+    concept, so a mapping is often right.
+- **Rejected alternatives:**
+  - (a) *Have `kg_write` take a lead's ids verbatim and refuse any other.* It would duplicate a node whenever
+    the grounder's slug differs from the canon's id for the same concept, the case the lookup exists for.
+  - (b) *Have `kg_write` refuse a lead edge that puts a `claim` node on a new end.* A claim node is the right end
+    when the lead's new end is itself a statement the canon already holds under another id. The engine cannot
+    tell the two apart, and a type check would miss a node of another type that states something about the end.
+  - (c) *Have the grounder name the canon's id for every end.* It names a new end because it judged that no node
+    in the canon is it. That judgment is the signal the extractor now honors.
+  - (d) *A leads-only rejection reason with its own hint, such as `lead-self-loop`.* The contract now gives the
+    recovery for `self-loop` in leads mode, and a new reason would add engine surface for one text rule.
+- **Accepted trade-offs:**
+  - The rule is text, so a model can still break it. A substitution that makes no self-loop lands `unverified`,
+    and grounding rejects it as `wrong-node` or `wrong-relation`, as it did here, at the cost of one cycle.
+  - Whether a node is a claim about the end is judged on its label and body, and a terse label can hide it. The
+    declared `node_type` helps but does not settle it.
+- **Pinned in:** `tests/test_fix_claim_is_not_its_subject.py` (6 tests). Against 0.14.4, the 4 text tests fail.
+  The 2 that pass pin the engine premise: the self-loop leaves the lead pending, and the lead's own id takes it.
+  - **Checked end to end:** one headless `/burgess:kg-build --leads`, in auto mode with Claude Code 2.1.316, on
+    a scratch copy of the Síntesis with the field's §8 state written fresh and two leads pending.
+    - The sonnet extractor declared `producto-hecho-al-100-por-agentes` as a new `primitive`, because "the known
+      node of that name is the claim, not the product itself", and wrote both leads: 3 ACCEPTED.
+    - The next plan had no leads left, and no permission was denied.

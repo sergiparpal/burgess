@@ -65,6 +65,11 @@ counts the ones past the cap. They are how your section joins what other section
   only if your text states the relation, with its span. A table cell naming test tampering is not the known
   node for cheating on tests at large. The grounder checks this: an edge whose node is broader or narrower
   than what its span names is rejected as `wrong-node` (0.8.1).
+- **A claim about a concept is not that concept.** A node whose label states something about a thing («El
+  producto hecho al 100 % por agentes suele ser deficiente») is a claim, and the thing itself («el producto
+  hecho al 100 % por agentes») is another node. Use a claim's id only when your edge's end is that whole
+  statement. (0.14.5: a lead's extractor took that claim for the product, and its edge turned the claim's own
+  reason into an attack on it.)
 - **When in doubt, create a new node.** A duplicate can be merged later with `kg_merge`, while a wrong reuse
   silently joins two concepts.
 - **Do not redeclare a known node in `nodes[]`.** Name its id in your edges: a redeclared node's label,
@@ -297,6 +302,10 @@ span does state, whether the canon already holds each end, and the span. For eac
 - **The ends.** A known end (`head_known` / `tail_known` true) keeps its id. For a new end, look in
   `known_nodes` first: the same concept under another id means you use that id. Otherwise declare the node in
   `nodes[]` with the lead's id, a label and body from the text, and its pack `node_type`.
+  - **Never the lead's other end.** A known id that would make the head and the tail one node is not the same
+    concept: the grounder named two.
+  - **Never a claim about the end** (**A claim about a concept is not that concept**, above). A grounder that
+    names a new end has just judged that no node in the canon is it.
 - **Open the edge's `notes` with `lead (from <from_edge>)`,** the rejected edge's id exactly. That mark tells the
   engine the lead is taken, whatever id the edge ends up with.
 - **If the text does not state the lead,** write nothing for it and say why in your report. A later run offers
@@ -334,6 +343,9 @@ no other edge from the section, and no known node redeclared. The next `/kg-grou
    - `retryable=false` + `write-lane-hypothesis` → you marked the item `hypothesized`. Re-emit it as
      `inferred` (or `span-present`) with the verbatim span that anchors it, or drop it if no span does.
    - `retryable=false` + `self-loop` → the edge joined a node to itself. There is no claim to repair: drop it.
+     In leads mode it means a known id you put on a new end made the lead's two ends one node: declare the
+     lead's own id for that end and re-send. Dropped, the lead would stay pending and fail the same way on
+     every run.
    - `placeholders` in the result → your edges named a node you did not declare, and it was written untyped.
      Re-send the same payload with that node declared (same id, its node_type, label and body); everything
      else in it dedups.
