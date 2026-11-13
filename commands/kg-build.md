@@ -306,8 +306,9 @@ the next `/burgess:kg-ground` judges it like any other.
    Get the section with mcp__plugin_burgess_burgess__kg_section(source_file: "<file>", section: <n>, leads: true):
    its leads[] give each lead's span and say which ends the canon already holds. Write each lead as one edge
    with a verbatim span from the section's text, its notes opening with `lead (from <from_edge>)`, and declare
-   a new end in nodes[] unless known_nodes holds the same concept. Write nothing else: no other edge, and no
-   known node redeclared. Return the kg_write result, and say why for any lead you did not write.
+   a new end in nodes[] unless known_nodes holds the same concept: never the lead's other end, and never a
+   claim about the end. Write nothing else: no other edge, and no known node redeclared. Return the kg_write
+   result, and say why for any lead you did not write.
    """
    )
    ```

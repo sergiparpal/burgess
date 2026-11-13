@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.14.5 — 2026-11-13
+
+Found in the field on 0.14.4, in a `/burgess:kg-build --leads` run.
+
+### Fixed
+
+- **A leads extractor took a claim about a concept for the concept.**
+  - A grounder rejected `agente attacked_by agentes-multiplican-errores` as `wrong-node`. Its span, «el producto
+    hecho al 100% por agentes suele ser deficiente: los agentes multiplican los errores», is about the product
+    made only by agents, not about agents at large. The lead named a new head, `producto-hecho-al-100-por-agentes`.
+  - The contract told the extractor to look in `known_nodes` for the same concept under another id. It took the
+    adversarial grounder's claim node `producto-100-por-agentes-deficiente`, «El producto hecho al 100 % por
+    agentes suele ser deficiente», for the product.
+  - Its edge, `producto-100-por-agentes-deficiente attacked_by agentes-multiplican-errores`, turned the claim's
+    own reason into an attack on it. The next `/burgess:kg-ground` rejected it as `wrong-relation`, which cost
+    one more leads-and-ground cycle.
+- **The next lead could never have been written.**
+  - That same pass left the lead `producto-hecho-al-100-por-agentes attacked_by
+    producto-100-por-agentes-deficiente`, whose tail is that claim. The same mistake there joins the claim to
+    itself, and `kg_write` rejects a self-loop.
+  - The contract said that a self-loop has no claim to repair, so drop it. The lead would have stayed pending
+    and failed the same way on every run.
+- **Now the extractor's contract says:**
+  - a node whose label states something about a thing is a claim, and the thing is another node. A claim's id
+    is used only when the edge's end is that whole statement;
+  - in leads mode, a new end is never the lead's other end, nor a claim about the end. A grounder that names a
+    new end has just judged that no node in the canon is it;
+  - in leads mode, a `self-loop` rejection means a known id went on a new end. The extractor declares the lead's
+    own id for that end and re-sends.
+
+### Changed
+
+- **`/burgess:kg-build --leads`'s extractor brief** carries the rule: a new end is declared unless `known_nodes`
+  holds the same concept, and it is never the lead's other end nor a claim about the end.
+
+### Upgrading
+
+- Nothing to do. On the field project, the next `/burgess:kg-build --leads` writes the two pending leads, and
+  `/burgess:kg-ground` judges them.
+
+### Tests
+
+- `tests/test_fix_claim_is_not_its_subject.py` (6 tests):
+  - the premise, in the engine: the claim put on the lead's new end is rejected `self-loop` and the lead stays
+    pending, while the lead written with its own id lands and is taken;
+  - the rule on claims in the `known_nodes` list;
+  - the rules on a lead's ends;
+  - the self-loop retry in leads mode, with the build-mode rule kept;
+  - the build's leads brief.
+- Against 0.14.4, the 4 text tests fail. The 2 that pass pin the engine premise, which 0.14.4 already had.
+- 2074 → 2080 passed, 3 skipped.
+- **Checked end to end:** one headless `/burgess:kg-build --leads`, in auto mode with Claude Code 2.1.316 and
+  the plugin loaded from this tree. The scratch project held a copy of the Síntesis and the field's §8 state,
+  written fresh: the four nodes, the three rejected edges, the first lead taken and the two pending.
+  - One sonnet extractor read §8 with its leads. It declared `producto-hecho-al-100-por-agentes` as a new
+    `primitive`, "because the known node of that name is the claim, not the product itself", and wrote both
+    leads with their notes.
+  - The write came back with 3 ACCEPTED and nothing else, and the next plan had no leads left.
+  - No permission was denied, and the run cost $0.39.
+
+### Docs
+
+- `DECISIONS.md` records the decision.
+
 ## 0.14.4 — 2026-11-13
 
 Found in the field on 0.14.3, when the user added a ninth document to the source folder.
