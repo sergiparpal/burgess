@@ -185,8 +185,9 @@ def test_node_specificity_reads_an_accented_label_whole():
 
 
 def test_an_index_built_under_the_ascii_tokenizer_is_rebuilt():
-    # "3" (0.11.8): an index written by an older plugin holds specificities of truncated words
-    assert PROJECTION_RULES == "3"
+    # "3" (0.11.8): an index written by an older plugin holds specificities of truncated words. A later
+    # bump ("4", 0.14.4) rebuilds such an index too: any value from "3" on keeps this rebuild in force.
+    assert int(PROJECTION_RULES) >= 3
 
 
 # --------------------------------------------------------------------------- columns that cannot tell

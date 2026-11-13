@@ -467,7 +467,9 @@ Two advisories may surface, both strictly read-only — neither ever changes a v
   edited the source after it was judged. The claim is re-verified against the current text.
 - **Re-examinable verdicts.** A `failed`/`rejected` claim that was judged against a source set which
   has since **changed**. Evidence is non-monotonic; these come back up for a second look, but only a
-  deliberate re-grounding can change them.
+  deliberate re-grounding can change them. A claim that quotes a span comes back only when the document
+  its span comes from changes (0.14.4): adding a document, or editing another one, cannot change what that
+  span states. Through 0.14.3 adding one document to the field corpus brought back all 62 negative verdicts.
 
 Materialized `/burgess:kg-diverge` pins are grounded **first** — a purely ordering preference, since you
 selected them by hand. A pin is a *node*, and routinely has no incident edge; it is still fully

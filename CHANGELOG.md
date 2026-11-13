@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.14.4 — 2026-11-13
+
+Found in the field on 0.14.3, when the user added a ninth document to the source folder.
+
+### Fixed
+
+- **Adding one document marked every rejected or failed verdict for a second look.**
+  - The new file was a 12 KB synthesis of the topic the other eight documents cover. The next projection
+    flagged all 62 negative verdicts of the field graph `source-set-changed-since-judged`.
+  - None of the 62 came from the new file. All were edges whose spans live in the eight unchanged documents (46
+    span-present, 16 inferred), and no extractor of the new file wrote any of them again.
+  - The filter flags an item when the changed text shares any non-stopword term with it, and a topical document
+    shares one with nearly everything.
+  - `/burgess:kg-ground`'s Stage 0c then asks the orchestrator to reconsider every flagged item. That
+    orchestrator is not a grounder and reads the project's notes. A flag also lasts while its item stays
+    rejected or failed, so a kept rejection would come back on every pass.
+- **Now an edge that quotes a span from a configured source file is flagged only when that file changes,** with
+  the new reason `span-file-changed-since-judged`. It was judged on its own span, and another file cannot change
+  what that span states.
+  - Nodes and span-less items keep the source-set rule and its reason.
+  - Flags the old rule stored on span-backed edges are dropped.
+  - `PROJECTION_RULES` goes to "4", so the first read after the upgrade rebuilds the index and drops them.
+  - Checked on a copy of the field project: the first read rebuilt the index, and the 62 flags went to 0. No
+    stale verdict appeared, and the falsification memory stayed at 62.
+
+### Changed
+
+- **`/burgess:kg-ground` Stage 0c** names both reasons. For a `span-file-changed-since-judged` edge it says to
+  read the span in its changed file and judge whether it now states the relation.
+- **`ARCHITECTURE.md` and `COMMANDS.md`** describe the narrower rule.
+
+### Upgrading
+
+- Nothing to do. The first read after the update rebuilds the derived index once, and on the field project the
+  62 flags disappear.
+
+### Tests
+
+- `tests/test_fix_reexaminable_own_file.py` (7 tests):
+  - the field case (a new file flags no span-backed edge);
+  - a change to the edge's own file flags it, with the new reason;
+  - span-less items keep the source-set rule;
+  - which edges count as span-backed;
+  - the upgrade drops the old flags on span-backed edges and keeps a span-less item's;
+  - a new-rule flag lasts until the edge leaves its verdict;
+  - Stage 0c names both reasons.
+- Against 0.14.3, all 7 fail.
+- `tests/test_fix_experiment_measurement.py` now pins `PROJECTION_RULES` at "3" or later instead of exactly "3".
+- 2067 → 2074 passed, 3 skipped.
+
+### Docs
+
+- `DECISIONS.md` records the decision.
+
 ## 0.14.3 — 2026-11-13
 
 Found through a flaky CI test. `test_full_wave_of_concurrent_writers_all_commit_none_corrupted` failed three
