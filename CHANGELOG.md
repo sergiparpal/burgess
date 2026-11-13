@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.14.3 — 2026-11-13
+
+Found through a flaky CI test. `test_full_wave_of_concurrent_writers_all_commit_none_corrupted` failed three
+times (2026-11-07, 2026-11-08, 2026-11-13) with "a writer deadlocked on the lease", on Ubuntu runners, and
+each failing leg ran about two minutes long, the lease's 120 s TTL. The cause was in the lease itself.
+
+### Fixed
+
+- **The single-writer lease let two writers in at once.**
+  - `LeaseLock.acquire()` creates the lock file with O_EXCL and writes its record a moment later. A contender
+    that lost the create race and read the still-empty file took it for a vanished lock. It moved the file
+    aside, dropped it and took the lease, so both writers held it.
+  - Measured on 30 waves of 10 concurrent writers: 47 times a writer found another one inside the lease, and up
+    to 5 were inside at once. In production, writes contend only across processes (a second session in the
+    same project, the reconcile worker), so the window was far rarer there, but it was the same race.
+- **A lease could be left behind for its whole TTL.** This is the flaky test.
+  - `acquire()` judged staleness by reading the lock a second time, in `is_stale()`. When the holder released
+    in between, that read found nothing and called it stale. The reclaim then moved aside the next holder's
+    fresh lock and checked it.
+  - If that holder finished and released before the reclaim put its lock back, its release found no lock of
+    its own. The record put back then named a writer that was gone. A foreign holder's process cannot be
+    probed, so every waiter sat out the TTL.
+  - With both windows widened in a test, every wave stalled for one TTL.
+- **Now `acquire()` judges the record it read, and never reclaims on a read that found nothing.**
+  - A lost create race followed by a read with no record is retried.
+  - An unparseable lock file is respected while it is younger than `LOCK_UNPARSEABLE_GRACE` (5 s), as an
+    unreadable ticket already was. An older one is a crash leftover and is reclaimed.
+  - Measured after the fix: 0 overlaps in the same 30 waves, and no stall with either window widened.
+
+### Changed
+
+- **The wave test** waits 30 s past its writers' budget, so a writer that runs out of budget surfaces its
+  locked-vault error instead of "deadlocked". Through 0.14.2 the deadline equalled the budget.
+- **When a writer does get stuck,** the failure now prints the lock record and its age, the queue's tickets,
+  and where each stuck writer is waiting. The three CI failures said only "a writer deadlocked".
+
+### Upgrading
+
+- Nothing to do. A lock file left empty by a crash is now reclaimed after 5 s instead of at once.
+
+### Tests
+
+- `tests/test_fix_lease_handoff.py` (6 tests):
+  - an empty young lock file is respected, and an old one is reclaimed;
+  - a lost create race followed by a read with no record is retried, never reclaimed;
+  - staleness is judged on the record read, not a re-read;
+  - a wave never has two writers inside the lease, counted over 5 waves;
+  - a wave with both windows widened never leaves a lease behind.
+- Against 0.14.2, 5 of the 6 fail. The one that passes pins what 0.14.2 already did: reclaiming an old,
+  unparseable lock file.
+- `tests/test_fix_canon.py`: the wave test's deadline and its diagnosis.
+- The new tests and the wave test passed 10 runs in a row.
+- 2061 → 2067 passed, 3 skipped.
+
+### Docs
+
+- `DECISIONS.md` records the decision and what the July FIFO decision took for granted.
+
 ## 0.14.2 — 2026-11-13
 
 Found in the field on 0.14.1, in its first plain `/burgess:kg-build`.

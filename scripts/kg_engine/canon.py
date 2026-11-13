@@ -107,6 +107,12 @@ LOCK_QUEUE_STALL_SECS = 4.0
 # succeeds on the first attempt or two (there are always reader-free windows between the waiters' backoff
 # sleeps). Same fail-closed posture as the lock reader/heartbeat (a transient IO error never "succeeds").
 LOCK_REPLACE_RETRY_TIMEOUT = 5.0
+# How old a lock file holding no record (empty or not JSON) must be before acquire() reclaims it. O_EXCL
+# creates the file empty and the record lands a moment later, so a young unparseable file is a create in
+# flight and is respected, as an unreadable ticket is. Only a crash in that moment, or outside damage, leaves
+# one behind, and it then costs this long. Through 0.14.2 such a file read as "stale" at once, and the
+# reclaim that followed let two writers hold the lease together (0.14.3).
+LOCK_UNPARSEABLE_GRACE = 5.0
 # Grounding audit log (kg_ground tamper-evidence). Defined here — the lowest layer that must keep it
 # out of git — and re-exported by reconciler so server/tests have one source of truth.
 GROUND_AUDIT = ".kg-ground-audit.jsonl"
@@ -209,18 +215,38 @@ class LeaseLock:
             if self._try_exclusive_create(now):
                 return True
             rec = self._read()  # lost the create race; re-evaluate below
+            # A read that finds no record is never staleness (0.14.3). Either the winner of the create is
+            # still writing its record (O_EXCL leaves the file empty until the write lands) or it has
+            # already released. Reclaiming here moved a LIVE lock aside: two writers then held the lease at
+            # once, and a restore landing after the owner's release left its record behind for a whole
+            # TTL (the flaky 10-writer wave). Retry instead; only an unparseable file old enough to be a
+            # crash leftover is reclaimed (LOCK_UNPARSEABLE_GRACE).
+            if rec is None and not self._unparseable_orphan(now):
+                return False
         if rec is not None and self._owned_by_self(rec):
             self._write(now)  # refresh our own lock (re-acquire is idempotent)
             return True
-        if rec is not None and not self.is_stale(now):
+        # Judge THIS record, never a re-read (0.14.3): a re-read that finds the lock gone means its holder
+        # released, and treating that as staleness moved the next holder's fresh lock aside.
+        if rec is not None and not self._rec_stale(rec, now):
             return False  # held by another live session
-        # stale (or vanished after our read): reclaim atomically.
+        # stale, or an orphaned unparseable file: reclaim atomically.
         if not self._reclaim_stale(now):
             return False
         if self._try_exclusive_create(now):
             return True
         rec2 = self._read()  # lost the recreate race to a fresh acquirer; honor theirs unless it's us
         return bool(rec2 and self._owned_by_self(rec2))
+
+    def _unparseable_orphan(self, now: float) -> bool:
+        """True when the lock file is there but holds no record (empty or not JSON) and is older than
+        LOCK_UNPARSEABLE_GRACE: a crash between O_EXCL and the record write, or outside damage. A younger
+        one is a create still writing, and is respected, as an unreadable ticket is (`_ticket_orphaned`).
+        An absent file is not an orphan: the caller retries the create."""
+        try:
+            return (now - self.path.stat().st_mtime) > LOCK_UNPARSEABLE_GRACE
+        except OSError:
+            return False
 
     def _reclaim_stale(self, now: float) -> bool:
         """Rename the stale lock aside and clear it, so acquire() can O_EXCL-create a fresh one.
