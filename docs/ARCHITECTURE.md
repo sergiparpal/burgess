@@ -211,8 +211,10 @@ re-queues anything (re-grounding stays a `kg_ground` decision):
 - **R3-mirror re-examinable verdicts** (`reexaminable_verdicts`) — a `failed`/`rejected` item (nodes and
   **span-less** items included) that was judged against a source set which has since **grown or changed**
   (non-monotonic evidence), filtered to items whose text overlaps the changed source (`source_file_sigs`
-  tracks the per-file baseline). Self-clearing on re-ground; surfaced in `kg_context.advisory` and the
-  `GRAPH_REPORT`. The divergence side mirrors it: `failed`-fated brief discards are surfaced as
+  tracks the per-file baseline). Since 0.14.4 an edge that quotes a span from a configured file is flagged
+  only when that file changes (`span-file-changed-since-judged`): it was judged on its own span. Nodes and
+  span-less items keep the source-set rule (`source-set-changed-since-judged`). Self-clearing on re-ground;
+  surfaced in `kg_context.advisory` and the `GRAPH_REPORT`. The divergence side mirrors it: `failed`-fated brief discards are surfaced as
   `reexaminable_discards` on a source change with an explicit un-seal lever (never auto-un-sealed).
 
 Staleness (`is_stale()`) is content-driven, independent of git state: a cheap canon-dir

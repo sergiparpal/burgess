@@ -1198,3 +1198,51 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   passes pins the reclaim of an old unparseable file, which 0.14.2 already did.
   - The wave test now waits 30 s past the writers' budget, and on a stuck writer it prints the lock record, the
     tickets and where each writer waits.
+
+## A span-backed edge is re-examinable only when its own file changes (2026-11-13)
+
+- **Decision:** the R3-mirror re-examinable advisory treats a negative verdict on an edge that quotes a span
+  from a configured source file (`Projector._span_file`) by that file alone.
+  - Such an edge is flagged only when its own file's text changed, with the new reason
+    `span-file-changed-since-judged` (`REEX_SPAN_FILE`).
+  - Nodes, span-less edges and spans attributed to no configured file keep the source-set rule:
+    `source-set-changed-since-judged`, through the term-overlap filter.
+  - On every re-filter, a stored source-set flag on a span-backed edge is dropped.
+  - `PROJECTION_RULES` "4" makes the first read after the upgrade rebuild the index, which runs that re-filter.
+- **Bug it fixes** (field report on 0.14.3, 2026-11-13):
+  - The user added «Síntesis - Fábricas de software.md», a 12 KB synthesis of the corpus's own topic, and the
+    projection flagged all 62 negative verdicts.
+  - All 62 were span-backed edges from the eight unchanged documents (46 span-present, 16 inferred, every one
+    with a span and a source file). No Síntesis write collided with any of them.
+  - The term-overlap filter fires on a single shared word, which made it noise on a topical addition.
+  - Stage 0c then asks the orchestrator to reconsider each flagged item, and a flag lasts while its item stays
+    negative.
+- **Why the item's own file:**
+  - A span-backed verdict judges what that span states in its file. A new or edited file elsewhere cannot change
+    that.
+  - A new file that restates a rejected relation is caught on the extraction side. Writing the same edge id is
+    quarantined `collapses-into-known-failure`, and since 0.14.1 the extractor records its section and names
+    the edge.
+  - Span-less items (divergence pins, the advisory's motivating case) have no file to tie them to, so they keep
+    the source-set rule.
+- **Rejected alternatives:**
+  - (a) *A stronger overlap threshold* (several shared terms, or both endpoint labels). It would still be a guess
+    about relevance, and it would keep flagging span-backed verdicts for files that cannot bear on them.
+  - (b) *Per-section change detection.* It needs a per-section baseline in the meta and a span-to-section lookup
+    on every projection. The file-level rule fixes the field case, and the finer one can come if file edits
+    prove noisy.
+  - (c) *Clearing the flags by deleting the derived layer.* That is a workaround for one machine, and the next
+    topical addition would raise them again.
+- **Accepted trade-offs:**
+  - **An edit to a document flags each of its negative edges.** The file still holds every span, so the term
+    filter cannot narrow the set. This is deliberate: the context a verdict read may have changed.
+  - **Flags are still sticky.** A flag lasts until its item leaves `{failed, rejected}`. A re-confirmed rejection
+    keeps its time (0.10.2), so nothing records the re-look. It now arises only for edits to the item's own
+    file.
+  - **Stage 0c is still done by the orchestrator, which reads the project's notes,** not by a grounder without
+    memory (0.13.4).
+- **Pinned in:** `tests/test_fix_reexaminable_own_file.py` (7 tests). Against 0.14.3 all 7 fail.
+  - **Checked on field data:** a scratch copy of the Windows project held its canon, its nine sources and the
+    derived index 0.14.3 built (rules "3", 62 flags). The 0.14.4 engine's first read through `kg_context`
+    rebuilt the index (rules "4"). It left 0 flags and 0 stale verdicts, with the falsification memory still
+    at 62.

@@ -60,7 +60,10 @@ _NEW_EDGE_COLUMNS = {"owner"}
 #   "2" (0.4.6): edge endpoints resolve to node ids (_resolve_endpoints).
 #   "3" (0.11.8): node specificity reads letters outside ASCII (harness._WORD), so an index built before it
 #                 holds the specificity of truncated words ("revisi" for "revisión").
-PROJECTION_RULES = "3"
+#   "4" (0.14.4): a span-backed edge is re-examinable only when its own file changes (_span_file), so the
+#                 full rebuild re-filters the stored flags and drops those the source-set rule raised on
+#                 such edges (the field index held 62).
+PROJECTION_RULES = "4"
 # The `nodes` table column order, in DDL order — the single source of truth for the positional
 # persistence contract. `_NODES_DDL`, the INSERT placeholder string, `_node_row`, and the
 # incremental rank-refresh all derive from this tuple, so a column add/reorder is one edit here
@@ -128,9 +131,15 @@ _REEXAMINABLE_CAP = 50
 # The two verdict states the re-examinable advisory covers — the SAME negative-memory vocabulary as
 # model.FAILURE_STATES ({REJECTED, FAILED}), referenced here (never redefining that global) so
 # extending the vocabulary there extends this advisory too. Unlike R3, the predicate is item-agnostic
-# (nodes AND edges) and span-agnostic (span-present AND span-less) — falsified divergence pins, the
-# motivating case, are typically span-less nodes R3 cannot see.
+# (nodes AND edges) and covers span-less items — falsified divergence pins, the motivating case, are
+# typically span-less nodes R3 cannot see. Since 0.14.4 a span-backed edge looks only at its own file.
 _REEXAMINABLE_STATES = (EpistemicState.FAILED, EpistemicState.REJECTED)
+# Why an item is re-examinable (0.14.4). A span-backed edge — a span quoted from a configured source file —
+# was judged on that span, so it is flagged only when THAT file's text changed, and says so. Every other
+# item (nodes, span-less edges, spans attributed to no configured file) keeps the source-set rule: any
+# changed text that mentions it.
+REEX_SOURCE_SET = "source-set-changed-since-judged"
+REEX_SPAN_FILE = "span-file-changed-since-judged"
 # Term-overlap noise filter (§Stage 6): tokens for the relevance test that decides whether the CHANGED
 # source text actually bears on a failed/rejected item. Applied AFTER normalize_text (which casefolds),
 # so the class is lowercase-only; it deliberately splits on '-'/'_' (unlike harness._WORD, which keeps
@@ -715,7 +724,7 @@ class Projector:
         prior_reexaminable = prior.get("reexaminable_verdicts") or []
         if do_full or cur_source_hash != prior.get("source_hash", ""):
             fresh_reex = self._reexaminable_verdicts(nodes, sources,
-                                                     self._changed_source_text(sources, prior))
+                                                     self._changed_source_texts(sources, prior))
             carried_reex = self._refilter_reexaminable(prior_reexaminable, nodes, sources)
             seen_reex = {r["item_id"] for r in carried_reex}
             reexaminable = carried_reex + [r for r in fresh_reex if r["item_id"] not in seen_reex]
@@ -1177,16 +1186,34 @@ class Projector:
         no prior signature baseline (a cold first projection, or the one-projection lag on a pre-feature
         index whose meta lacks ``source_file_sigs`` — mirroring R3's Q3 lag). Removed source files
         contribute nothing: a deleted source can't newly SUPPORT a failed idea."""
+        return "\n".join(Projector._changed_source_texts(sources, prior).values())
+
+    @staticmethod
+    def _changed_source_texts(sources, prior) -> "dict[str, str]":
+        """``_changed_source_text`` per file, ``{basename: text}`` (0.14.4): a span-backed edge is tested
+        against the CHANGED text of its own file only (``_span_file``), so the per-file split is kept.
+        Same rule otherwise: content new to the corpus, rename-tolerant, ``{}`` with no baseline."""
         if not sources or "source_file_sigs" not in prior:
-            return ""
+            return {}
         prior_hashes = set((prior.get("source_file_sigs") or {}).values())
         try:
             texts = sources.texts
         except Exception:  # noqa: BLE001 — degrade to "no changed text" rather than crash the projection
-            return ""
-        changed = [t for _, t in texts.items()
-                   if hashlib.sha256((t or "").encode()).hexdigest() not in prior_hashes]
-        return "\n".join(changed)
+            return {}
+        return {name: t for name, t in texts.items()
+                if hashlib.sha256((t or "").encode()).hexdigest() not in prior_hashes}
+
+    @staticmethod
+    def _span_file(e, configured) -> "str | None":
+        """The configured source file an edge's verdict rests on, or None (0.14.4). An edge that quotes a
+        span from a configured file was judged on that span, so only a change to that file can bear on its
+        verdict. Through 0.14.3 any changed file did: adding one 12 KB synthesis to the field corpus flagged
+        all 62 rejected/failed edges, none of whose files had changed, because each shared some word with
+        it. Span-less items, and spans attributed to no configured file, keep the source-set rule."""
+        if not (e.span or "").strip() or not e.source_file:
+            return None
+        name = Path(e.source_file).name  # SourceSet._key; SourceSet is a type-only import here
+        return name if name in configured else None
 
     @staticmethod
     def _content_terms(text) -> set:
@@ -1216,12 +1243,14 @@ class Projector:
         ]))
 
     @staticmethod
-    def _reexaminable_entry(item_id, kind, state) -> dict:
+    def _reexaminable_entry(item_id, kind, state, reason=None) -> dict:
         """The advisory record for one re-examinable item — one shape for the full scan and the refilter.
-        ``kind`` is ``"node"``/``"edge"``; ``state`` is the current ``failed``/``rejected`` value."""
+        ``kind`` is ``"node"``/``"edge"``; ``state`` is the current ``failed``/``rejected`` value; ``reason``
+        is ``REEX_SPAN_FILE`` for a span-backed edge whose own file changed (0.14.4), else
+        ``REEX_SOURCE_SET``."""
         return {"item_id": item_id, "kind": kind,
                 "state": state.value if isinstance(state, EpistemicState) else state,
-                "reason": "source-set-changed-since-judged"}
+                "reason": reason or REEX_SOURCE_SET}
 
     def _full_note_for_terms(self, n):
         """Re-read a candidate note from canon so the term-overlap filter sees the FULL body + edge
@@ -1237,7 +1266,7 @@ class Projector:
         except Exception:  # noqa: BLE001 — a read hiccup degrades to the shell (label/endpoint terms only)
             return n
 
-    def _reexaminable_verdicts(self, nodes, sources, changed_text="") -> list[dict]:
+    def _reexaminable_verdicts(self, nodes, sources, changed_text: "str | dict[str, str]" = "") -> list[dict]:
         """R3-MIRROR (READ-ONLY): failed/rejected items — nodes AND edges, span-present AND span-less —
         that were judged against a source set which has since changed, so they deserve a grounder re-look.
         Item-agnostic and span-agnostic on purpose (R3 covers neither nodes nor span-less items), because
@@ -1247,12 +1276,23 @@ class Projector:
         CHANGED source text actually bears on — over the FULL node body + edge notes (re-read from canon
         for the small candidate set, not the body-less incremental shells); an empty ``changed_text`` (no
         detectable change) flags nothing — the filter carries the relevance load so the source-hash
-        pre-gate need not."""
+        pre-gate need not.
+
+        ``changed_text`` is per file, ``{basename: text}`` (``_changed_source_texts``); a plain string is
+        the whole changed text with no file to tell, as before. A span-backed edge (``_span_file``) is
+        tested against the changed text of ITS file only and flagged ``REEX_SPAN_FILE`` (0.14.4); a file
+        added or edited elsewhere cannot change what its own span states."""
         if not sources:
             return []
-        changed_terms = self._content_terms(changed_text)
+        per_file = changed_text if isinstance(changed_text, dict) else {"": changed_text or ""}
+        changed_terms = self._content_terms("\n".join(per_file.values()))
         if not changed_terms:  # nothing meaningfully changed → nothing bears on any item
             return []
+        try:
+            configured = set(sources.texts)
+        except Exception:  # noqa: BLE001 — no file list: every item falls back to the source-set rule
+            configured = set()
+        file_terms: dict = {}
         by_id = {n.id: n for n in nodes}
         out: list[dict] = []
         for n in nodes:
@@ -1264,8 +1304,17 @@ class Projector:
             if node_is_candidate and (self._node_terms(full) & changed_terms):
                 out.append(self._reexaminable_entry(n.id, "node", n.epistemic_state))
             for e in full.edges:
-                if e.epistemic_state in _REEXAMINABLE_STATES and (self._edge_terms(e, by_id) & changed_terms):
-                    out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state))
+                if e.epistemic_state not in _REEXAMINABLE_STATES:
+                    continue
+                own = self._span_file(e, configured)
+                if own is None:
+                    if self._edge_terms(e, by_id) & changed_terms:
+                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state))
+                elif own in per_file:
+                    if own not in file_terms:
+                        file_terms[own] = self._content_terms(per_file[own])
+                    if self._edge_terms(e, by_id) & file_terms[own]:
+                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, REEX_SPAN_FILE))
         return out
 
     def _refilter_reexaminable(self, prior, nodes, sources) -> list[dict]:
@@ -1277,14 +1326,25 @@ class Projector:
         loses nothing. Empty when no source is configured."""
         if not prior or not sources:
             return []
+        try:
+            configured = set(sources.texts)
+        except Exception:  # noqa: BLE001 — no file list: keep every flag, as before
+            configured = set()
         node_state = {n.id: n.epistemic_state for n in nodes}
-        edge_state = {e.id: e.epistemic_state for n in nodes for e in n.edges}
+        edges = {e.id: e for n in nodes for e in n.edges}
         out: list[dict] = []
         for entry in prior:
             item_id, kind = entry.get("item_id"), entry.get("kind")
-            state = node_state.get(item_id) if kind == "node" else edge_state.get(item_id)
-            if state in _REEXAMINABLE_STATES:
-                out.append(self._reexaminable_entry(item_id, kind, state))
+            reason = entry.get("reason") or REEX_SOURCE_SET
+            edge = edges.get(item_id) if kind == "edge" else None
+            state = node_state.get(item_id) if kind == "node" else (edge.epistemic_state if edge else None)
+            if state not in _REEXAMINABLE_STATES:
+                continue
+            # A source-set flag on a span-backed edge was raised by the rule 0.14.4 retired: drop it. Its
+            # own file is what bears on its verdict, and a change there raises a REEX_SPAN_FILE flag.
+            if edge is not None and reason != REEX_SPAN_FILE and self._span_file(edge, configured):
+                continue
+            out.append(self._reexaminable_entry(item_id, kind, state, reason))
         return out
 
     def _save_meta(self, con, head, hashes, gate_on=0, source_hash="", stale_verdicts=None, topo_sig="",
