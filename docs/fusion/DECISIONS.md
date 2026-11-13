@@ -1150,3 +1150,51 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     - The main session's transcript carried the memory index with the note. Neither extractor's did.
     - The glossary's extractor sent the judged edge, got the quarantine back, and recorded its section with
       the edge's id.
+
+## The lease is reclaimed only from a stale record, never from a read that found nothing (2026-11-13)
+
+- **Decision:** `LeaseLock.acquire()` decides with the record it read.
+  - Staleness is judged on that record (`_rec_stale(rec)`), never on a re-read through `is_stale()`.
+  - After a lost create race, a read that finds no record is retried, not reclaimed.
+  - A lock file that holds no record (empty or not JSON) is respected while it is younger than
+    `LOCK_UNPARSEABLE_GRACE` (5 s), as an unreadable ticket already was (`_ticket_orphaned`). An older one is a
+    crash leftover and is reclaimed.
+- **Bugs it fixes** (found through the flaky wave test, 2026-11-13):
+  - **Two writers inside the lease.**
+    - O_EXCL creates the lock file empty, and the record lands a moment later.
+    - A contender that lost the create race read the empty file as "no record" and went to `_reclaim_stale`.
+      There the moved-aside file still read as nothing, so the contender dropped it and created its own lock,
+      and both writers held the lease.
+    - Measured on 30 waves of 10 writers: 47 overlaps, up to 5 writers inside at once.
+  - **A lease left behind for a TTL.** This is the flaky test.
+    - `is_stale()` re-read the lock. When the holder had just released, that read found nothing and called it
+      stale.
+    - The reclaim then moved aside the next holder's fresh lock and found it live. If that holder finished in
+      the meantime, its release found no lock of its own, and the restore put back a record whose writer was
+      gone.
+    - A foreign holder cannot be pid-probed, so every waiter sat out the lease's 120 s TTL. That is the two
+      minutes the failing CI legs ran long.
+    - With both windows widened, every wave stalled for one TTL. After the fix none did.
+- **What the July FIFO decision took for granted:** that entry left "acquire()'s O_EXCL/reclaim CAS" as the
+  sole serializer, and that stays true. But the CAS was only as sound as the reads that sent a lock to
+  reclaim, and two of them said nothing about staleness. The FIFO queue made the wave fast enough that both
+  windows mattered less often, and it never could have closed them.
+- **Why not more:**
+  - (a) *Raise the test's budget past the TTL.* The wave would pass by waiting the leaked lease out, and the
+    overlaps would stay. July's entry already records this wrong first diagnosis for this same test.
+  - (b) *OS file locks (`flock`, `LockFileEx`).* They would end staleness altogether. But they are a port of
+    the lease, they don't hold across hosts on network filesystems, and the CAS design is sound once it only
+    acts on stale records.
+  - (c) *An atomic create, through a hard link from a temporary file.* It would remove the empty window, but
+    not the re-read, and it needs a fallback where hard links are missing. Respecting a young unparseable file
+    covers both create paths with no new filesystem call.
+- **Accepted trade-offs:**
+  - A crash between O_EXCL and the record write now costs 5 s instead of nothing.
+  - The reclaim of a genuinely stale record keeps its move-aside-and-check shape, so a stale lock with two
+    reclaimers can still race as before. It needs a holder already past its TTL or dead.
+  - In the wave, a contender that lost the create race now waits one poll, about 10 ms at the queue's front,
+    instead of reclaiming.
+- **Pinned in:** `tests/test_fix_lease_handoff.py` (6 tests). Against 0.14.2, 5 of them fail. The one that
+  passes pins the reclaim of an old unparseable file, which 0.14.2 already did.
+  - The wave test now waits 30 s past the writers' budget, and on a stuck writer it prints the lock record, the
+    tickets and where each writer waits.

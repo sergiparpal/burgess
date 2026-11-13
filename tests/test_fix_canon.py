@@ -428,6 +428,28 @@ def test_reclaim_does_not_orphan_live_record_on_restore_failure(tmp_path, monkey
 # host probes as a live holder), so the lease is genuinely contended rather than re-acquired idempotently.
 
 
+def _lease_diagnosis(vault: Path, stuck: "list[threading.Thread]") -> str:
+    """What a stuck wave leaves to read (0.14.3): the lock record and its age, the queue's tickets, and
+    where each stuck writer is waiting. Through 0.14.2 the failure said only "a writer deadlocked", three
+    times on CI, and nothing told a slow runner from a lease left behind."""
+    import sys
+    import traceback
+    now = time.time()
+    lines = []
+    lock = vault / LOCK_NAME
+    try:
+        lines.append(f"lock ({now - lock.stat().st_mtime:.1f}s old): {lock.read_text(encoding='utf-8')!r}")
+    except OSError as e:
+        lines.append(f"lock: {type(e).__name__}")
+    tickets = sorted((vault / f"{LOCK_NAME}.q").glob("*.json"))
+    lines.append(f"tickets: {[(t.name, round(now - t.stat().st_mtime, 1)) for t in tickets]}")
+    frames = sys._current_frames()
+    for t in stuck:
+        stack = "".join(traceback.format_stack(frames[t.ident])[-4:]) if t.ident in frames else "(no frame)\n"
+        lines.append(f"{t.name} is waiting at:\n{stack}")
+    return "\n".join(lines)
+
+
 def _foreign_canon(vault: Path, host: str) -> Canon:
     """A Canon whose lease looks like a distinct live session (foreign host), so two of them genuinely
     contend on the one vault lock instead of sharing it as the same owner."""
@@ -462,18 +484,21 @@ def test_full_wave_of_concurrent_writers_all_commit_none_corrupted(tmp_path: Pat
         except Exception as e:  # noqa: BLE001 — a contended writer must retry+serialize, never raise
             errors.append(f"writer {i} raised {type(e).__name__}: {e}")
 
-    threads = [threading.Thread(target=writer, args=(i, c)) for i, c in enumerate(canons)]
+    threads = [threading.Thread(target=writer, args=(i, c), name=f"writer-{i}", daemon=True)
+               for i, c in enumerate(canons)]
     for t in threads:
         t.start()
     # One shared deadline above the lease budget (not a per-thread join timeout, which would stack
-    # to WAVE× on a genuine deadlock): the whole wave must drain within it. Above LOCK_ACQUIRE_TIMEOUT
-    # on purpose, so a writer that exhausts its budget surfaces the specific locked-vault error below
-    # rather than the blunt "a writer deadlocked" assertion.
-    deadline = time.monotonic() + 120
+    # to WAVE× on a genuine deadlock): the whole wave must drain within it. Above the budget on
+    # purpose, so a writer that exhausts its budget surfaces the specific locked-vault error below
+    # rather than the blunt "a writer deadlocked" assertion. Through 0.14.2 the deadline EQUALLED the
+    # budget, so a spent budget read as a deadlock, and the log could not tell the two apart (0.14.3).
+    deadline = time.monotonic() + canons[0].lock_acquire_timeout + 30
     for t in threads:
         t.join(timeout=max(0.0, deadline - time.monotonic()))
 
-    assert not any(t.is_alive() for t in threads), "a writer deadlocked on the lease"
+    stuck = [t for t in threads if t.is_alive()]
+    assert not stuck, "a writer deadlocked on the lease\n" + _lease_diagnosis(tmp_path, stuck)
     assert not errors, errors
     got = {n.id: n for n in Canon(tmp_path).all_nodes()}
     assert set(got) == {f"n{i}" for i in range(WAVE)}, f"missing/extra nodes: {sorted(got)}"
