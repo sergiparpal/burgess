@@ -226,6 +226,13 @@ it already holds with a verdict, so a new read has nothing to add. Only the extr
 records it, and the engine refuses a record no read of the section stands behind. To have the recorded
 sections extracted once more, delete `.kg-edgeless-sections.jsonl` from the project folder.
 
+**The extractors start without your notes.** Since 0.14.2 an extractor starts without your CLAUDE.md files
+and without Claude Code's memory index, which a subagent gets by default, as the grounders have since
+0.13.4. What it writes rests on the section's text and on what `kg_write` answers. On 0.14.1 an extractor
+read in a memory note that the graph had already rejected its section's one relation, so it skipped the write
+and recorded the section. The note was right, but a recorded section is skipped by every later build, so a
+wrong note would have kept a relation out of the graph for good.
+
 **It runs no shell commands.** The engine plans the build (`kg_build_plan`) and hands each extractor
 its own section, already cut and scrubbed (`kg_section`). So the only thing `/burgess:kg-build` asks Claude Code
 for is to launch its subagents, and in auto mode it no longer stops to ask your permission for shell
