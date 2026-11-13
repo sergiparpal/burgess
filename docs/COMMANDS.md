@@ -220,8 +220,11 @@ run it again on another document of your source and the same graph grows.
 no relation the pack's types can carry, so its extractor writes no claim from it. Since 0.14.0 the extractor
 records that, and later builds skip the section until its text or the pack's types change; the plan counts
 these sections apart (`sections_edgeless`). Through 0.13.6 every build launched an extractor for each of them
-again, to read the same text and find nothing. To have the recorded sections extracted once more, delete
-`.kg-edgeless-sections.jsonl` from the project folder.
+again, to read the same text and find nothing. Since 0.14.1 the extractor also records a section whose only
+relations are edges the graph has already judged, from another section's span: the engine quarantines a claim
+it already holds with a verdict, so a new read has nothing to add. Only the extractor that read a section
+records it, and the engine refuses a record no read of the section stands behind. To have the recorded
+sections extracted once more, delete `.kg-edgeless-sections.jsonl` from the project folder.
 
 **It runs no shell commands.** The engine plans the build (`kg_build_plan`) and hands each extractor
 its own section, already cut and scrubbed (`kg_section`). So the only thing `/burgess:kg-build` asks Claude Code

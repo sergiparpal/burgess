@@ -622,6 +622,12 @@ class KGEngine:
         # name. The PRIMARY canon (`construction=None` everywhere else) is never in this map, so the
         # default write path is byte-for-byte unchanged. See _construction_engine.
         self._constructions: "dict[str, KGEngine]" = {}
+        # (file, section_digest) of every section text kg_section served for extraction since this engine
+        # started (0.14.1). kg_record_edgeless_section records only a section whose CURRENT text one of these
+        # reads served: a record says an extraction read the section and found nothing to write. On 0.14.0
+        # the build's orchestrator, which reads no section, offered to record 18 of them itself (field
+        # report). Kept in memory like the write cache: after a restart a record waits for a new read.
+        self._sections_read: "set[tuple[str, str]]" = set()
 
     # ---- source set (for span verification) — delegate to the shared resolver
     def source_set(self) -> SourceSet:
@@ -1961,7 +1967,11 @@ class KGEngine:
         the original. ``redactions``/``categories``/``sensitivity`` are kg_scrub's, for this text.
 
         ``leads=True`` (0.9.0, the extractor `/kg-build --leads` launches) adds ``leads``: the pending leads
-        whose rejected edge's span lies in this section (``_section_leads``)."""
+        whose rejected edge's span lies in this section (``_section_leads``).
+
+        A read without ``leads`` is what ``kg_record_edgeless_section`` asks for (0.14.1): the engine keeps the
+        digest of the text it served, and records only a section whose current text was served. A leads read
+        writes a rejected claim's leads, not the section, so it never stands behind a record."""
         texts = self.source_set().texts
         name = SourceSet._key(source_file or "")
         if name not in texts:
@@ -1977,6 +1987,8 @@ class KGEngine:
             return {"ok": False, "error": f"{name} has {len(secs)} section(s), so there is no section {idx}",
                     "source_file": name, "of": len(secs)}
         s = secs[idx - 1]
+        if not leads:
+            self._sections_read.add((name, section_digest(s.text)))
         scrubbed = self.kg_scrub(s.text)
         out = {"ok": True, "source_file": name, "section": idx, "of": len(secs), "heading_level": level,
                "title": self.kg_scrub(s.title)["scrubbed"] if s.title else "(whole file)",
@@ -2002,8 +2014,16 @@ class KGEngine:
         offering it while its text and the pack's types stay the ones that extraction read.
 
         ``source_file`` and ``section`` are the plan's, as for ``kg_section``; ``note`` is the extractor's
-        sentence on why the section held nothing to write (a list of sources, a glossary, a checklist). A
-        section a span-present edge already quotes is refused: it is covered, and the plan never offers it.
+        sentence on why the section held nothing to write (a list of sources, a glossary, a checklist, or a
+        relation the canon already holds with a verdict, which ``kg_write`` quarantines). A section a
+        span-present edge already quotes is refused: it is covered, and the plan never offers it.
+
+        **A record needs a read (0.14.1).** It is refused unless a ``kg_section`` call (not a leads read)
+        served the section's current text since this engine started. A record says that a read of that text,
+        under the current pack, found nothing to write, and the digest it stores is of the text that read
+        saw. On 0.14.0 the build's orchestrator, which reads no section, offered to record 18 sections
+        itself, without an extractor reading any of them (field report).
+
         The record goes to the ledger beside the canon (``canon.EDGELESS_SECTIONS``), one fsync'd JSON line
         under the writer lease, keyed by the digests of the section's text and of the pack's types
         (``buildplan.section_digest`` and ``vocabulary_digest``). It sets no state: no node, edge or verdict
@@ -2034,6 +2054,12 @@ class KGEngine:
                     "source_file": name, "section": idx}
         s = secs[idx - 1]
         title = s.title or "(whole file)"
+        digest = section_digest(s.text)
+        if (name, digest) not in self._sections_read:
+            return {"ok": False, "error": "no kg_section call since the engine started served this section's "
+                                          "current text, so no read stands behind the record: nothing "
+                                          "recorded. Only the extractor that read the section records it",
+                    "source_file": name, "section": idx}
         if not self._try_writer_lease():
             return {"ok": False, "error": self._LOCKED_ERROR, "source_file": name, "section": idx}
         try:
@@ -2046,8 +2072,7 @@ class KGEngine:
                         "source_file": name, "section": idx}
             at = utcnow()
             path = self.canon.root / EDGELESS_SECTIONS
-            line = edgeless_record(name, idx, title, section_digest(s.text), vocabulary_digest(self.pack),
-                                   at, note)
+            line = edgeless_record(name, idx, title, digest, vocabulary_digest(self.pack), at, note)
             try:
                 with open(path, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
@@ -3314,11 +3339,14 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def kg_record_edgeless_section(source_file: str, section: int, note: str) -> dict:
         """Record that extracting ONE /burgess:kg-build section wrote no edge, because nothing in it states a
-        relation the pack's types can carry: a list of sources, a glossary, a checklist. `source_file` and
-        `section` are the plan's, as for kg_section; `note` says in a sentence why. kg_build_plan then marks
-        the section `edgeless` and leaves it out of the sections to extract, while its text and the pack's
-        types stay the same. Refused for a section a span-present edge already quotes. Writes only the
-        ledger beside the canon: no node, edge or verdict changes."""
+        relation the pack's types can carry (a list of sources, a glossary, a checklist), or because every
+        relation it states is an edge the canon already holds with a verdict (kg_write QUARANTINED it as
+        collapses-into-known-failure or collapses-into-known-verdict). For the extractor that read the
+        section: refused unless kg_section served the section's current text since the engine started.
+        `source_file` and `section` are the plan's, as for kg_section; `note` says in a sentence why.
+        kg_build_plan then marks the section `edgeless` and leaves it out of the sections to extract, while
+        its text and the pack's types stay the same. Refused for a section a span-present edge already
+        quotes. Writes only the ledger beside the canon: no node, edge or verdict changes."""
         return engine.kg_record_edgeless_section(source_file, section, note)
 
     @mcp.tool()

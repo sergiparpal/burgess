@@ -61,6 +61,7 @@ FILE = "Fábricas de software.md"
 
 
 def _record(e: KGEngine, section: int = 3, note: str = NOTE) -> dict:
+    assert e.kg_section(FILE, section)["ok"]       # 0.14.1: a record needs the extractor's read
     out = e.kg_record_edgeless_section(FILE, section, note)
     assert out["ok"], out
     return out
@@ -190,6 +191,7 @@ def test_the_record_sets_no_state(eng):
 
 def test_a_covered_section_is_refused(eng):
     _cover(eng)
+    assert eng.kg_section(FILE, 1)["ok"]
     out = eng.kg_record_edgeless_section(FILE, 1, NOTE)
     assert not out["ok"] and "already quotes this section" in out["error"], out
     assert not _ledger(eng).exists()
@@ -267,6 +269,7 @@ def test_the_tool_accepts_what_a_model_sends(eng):
 
     mcp = FastMCP("burgess-test")
     _register(mcp, eng)
+    asyncio.run(mcp.call_tool("kg_section", {"source_file": FILE, "section": 3}))
     out = asyncio.run(mcp.call_tool("kg_record_edgeless_section",
                                     {"source_file": FILE, "section": "3", "note": NOTE}))
     if isinstance(out, tuple):   # (content, structured) on mcp versions that return both
