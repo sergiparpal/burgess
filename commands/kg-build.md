@@ -239,7 +239,8 @@ read tools project **lazily** — they only rebuild the derived layer when it is
 2. `mcp__plugin_burgess_burgess__kg_context(budget=2000)` — this **lazily projects** (rebuilds the derived layer if
    stale) and returns `{items[], approx_tokens, budget, falsification_counters:{failed_or_rejected_edges},
    advisory:{signal:"structural-bridge", note, nodes[]}}`. Calling it both *forces* the projection and confirms
-   the derived layer agrees with the canon. At build time `falsification_counters.failed_or_rejected_edges` will
+   the derived layer agrees with the canon. The projection also brings the graph views `/burgess:kg-view`
+   rendered up to date (0.15.0). At build time `falsification_counters.failed_or_rejected_edges` will
    typically be 0 — failures are negative information created later by an adversarial grounder via `kg_ground`
    (§1.7).
 
@@ -315,7 +316,9 @@ the next `/burgess:kg-ground` judges it like any other.
 3. **Progress probe:** call `kg_build_plan` again with the same arguments. A written lead drops out of it. A lead
    its extractor declined stays in the plan: re-launch its section at most once, then report the lead with the
    extractor's reason instead of looping.
-4. **Report:** the leads written (the new edge ids) and the ones declined, with why; the summed dispositions, as
+4. **Confirm the projection:** call `mcp__plugin_burgess_burgess__kg_context(budget=300)`, as a build's step 2
+   does. It projects the canon, which also brings the graph views `/burgess:kg-view` rendered up to date.
+5. **Report:** the leads written (the new edge ids) and the ones declined, with why; the summed dispositions, as
    for a build; and `kg_metrics()`'s counts. End by telling the user to run `/burgess:kg-ground`: the new edges wait in
    its queue as `unverified`.
 

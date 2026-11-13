@@ -334,7 +334,9 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   matches by the rarity weight of the words they share, grounded first, and `items_total` says what the
   budget left out — the search is described in §3.5), `kg_agenda`
   (structural suggested questions, `answerable_now` vs `blocked_on_grounding`), `kg_export`
-  (offline `graph.html` + `GRAPH_REPORT.md`; the three axes on independent visual channels).
+  (offline `graph.html` + `GRAPH_REPORT.md`; the three axes on independent visual channels). Once rendered, a
+  view stays current (0.15.0): every projecting read re-renders each view that exists and is older than
+  `graph.json`, unless the projection is degraded. A read never creates a view.
 - **Write/ground (8):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
   `kg_rename` (strict), `kg_merge` (deliberate merge; negative information sticky), `kg_operate`,
   `kg_record_attack` (0.10.0: an adversarial attack that wrote no counter-edge, with its falsifying

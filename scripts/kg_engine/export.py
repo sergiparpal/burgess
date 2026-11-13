@@ -10,6 +10,10 @@ stays the sole writer of the derived index. Pure render/serialize; no new "quali
 
 Three ways in: ``python -m kg_engine.export html|report|all`` (CLI), ``kg_export`` (a thin read-only MCP
 tool), and ``/kg-view``.
+
+Once rendered, a view stays current (0.15.0). The engine's projecting reads call ``refresh_views`` after the
+projection, and it re-renders each view that exists and is older than the projection's ``graph.json``. A
+read never creates a view: ``/kg-view`` renders the first one.
 """
 from __future__ import annotations
 
@@ -31,6 +35,9 @@ _FAILURE = FAILURE_STATE_VALUES  # the single-homed negative-memory vocabulary (
 _BRIDGE_TOP_N = BRIDGE_LIMIT
 # The export kinds, named once for the engine entry point and the CLI (review-r5).
 _KINDS = ("html", "report", "all")
+# The two views' file names under the derived dir, named once for the builders and the refresh (0.15.0).
+HTML_NAME = "graph.html"
+REPORT_NAME = "GRAPH_REPORT.md"
 _COMMUNITY_PREVIEW = 8        # community-member preview count (the slice AND the "…"-more threshold must match)
 # The cap on every list the report prints: falsification memory, stale and re-examinable verdicts, and the
 # names in the single-node-communities entry. A list that stops at the cap says how many it leaves out
@@ -153,7 +160,7 @@ def build_html(engine) -> Path:
     _subs = {"__KG_DATA_JSON__": payload,
              "__KG_FAILURE_STATES_JSON__": json.dumps(sorted(FAILURE_STATE_VALUES))}
     html = re.sub("|".join(re.escape(k) for k in _subs), lambda m: _subs[m.group(0)], HTML_TEMPLATE)
-    out = engine.projector.derived / "graph.html"
+    out = engine.projector.derived / HTML_NAME
     _atomic_write(out, html)
     return out
 
@@ -390,7 +397,7 @@ def build_report(engine) -> Path:
     model = _load_render_model(engine)
     md = _report_md(engine.kg_metrics(), model["nodes"], model["edges"],
                     model["stale_verdicts"], model["gate_on"], model["reexaminable_verdicts"])
-    out = engine.projector.derived / "GRAPH_REPORT.md"
+    out = engine.projector.derived / REPORT_NAME
     _atomic_write(out, md)
     return out
 
@@ -412,6 +419,51 @@ def export(engine, kind: str = "all") -> dict:
             "report_path": str(report_path) if report_path else None}
 
 
+# --------------------------------------------------------------------------- keeping the views current
+# A view is a snapshot: the builders inline the derived layer into the file, and through 0.14.5 only
+# `/kg-view` wrote one. On the field project (2026-11-13) the graph.html the user had open was three days
+# old: 48 canon notes had changed since it was rendered, and nothing said so. The user asked for the view
+# to follow the graph.
+#
+# The anchor is graph.json. The projector rewrites it on every projection that changes the derived layer,
+# and on no other read: an up-to-date check returns before the write. So a view older than graph.json was
+# rendered from a projection that has since been replaced. That includes one the PreToolUse hook made. The
+# hook projects through its own read-only projector and renders nothing, and the server's next projecting
+# read finds the view older and re-renders it.
+#
+# Only a view that exists is kept current. The user creates a view with /kg-view, and a read never creates
+# one: a project that never asked for a view gets no file in the data dir, and a view the user deleted
+# stays deleted.
+
+
+def stale_views(engine) -> list:
+    """The views (``html``, ``report``) that exist and are older than the projection's ``graph.json``,
+    in that order. Empty when nothing has been projected yet. Reads three file times, nothing else."""
+    try:
+        projected = engine.projector.graph_path.stat().st_mtime_ns
+    except OSError:
+        return []
+    stale = []
+    for kind, name in (("html", HTML_NAME), ("report", REPORT_NAME)):
+        try:
+            if (engine.projector.derived / name).stat().st_mtime_ns < projected:
+                stale.append(kind)
+        except OSError:
+            continue  # never rendered, or deleted: /kg-view creates a view, never a read
+    return stale
+
+
+def refresh_views(engine) -> list:
+    """Re-render each stale view (`stale_views`) from the current derived layer. Returns the kinds it
+    re-rendered. The caller has just ensured the projection: the engine's `_ensure_projected`, which calls
+    this only when the projection is not degraded, so a view is never rendered from an empty or contended
+    derived layer. Raises what a builder raises; the engine logs it and serves the read anyway."""
+    kinds = stale_views(engine)
+    for kind in kinds:
+        build_html(engine) if kind == "html" else build_report(engine)
+    return kinds
+
+
 def _main(argv: list) -> int:
     kind = (argv[0] if argv else "all").lower()
     if kind not in _KINDS:
@@ -419,7 +471,9 @@ def _main(argv: list) -> int:
         return 2
     from .server import build_engine_from_env
     engine = build_engine_from_env()
-    engine._ensure_projected()  # project-if-stale, then render the derived layer (never writes the canon)
+    # project-if-stale, then render the derived layer (never writes the canon). views=False: the views asked
+    # for are rendered just below, so the projection's own refresh would only render them twice.
+    engine._ensure_projected(views=False)
     out = export(engine, kind)
     print(json.dumps(out, indent=2))
     return 0 if out.get("ok") else 1

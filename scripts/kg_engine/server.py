@@ -2558,7 +2558,7 @@ class KGEngine:
             raise ValueError(
                 f"construction {construction!r} is empty — build it first with "
                 f"kg_write(..., construction={construction!r})")
-        eng._ensure_projected()
+        eng._ensure_projected(views=False)   # this projection feeds kg_generate, never a view (0.15.0)
         # _ensure_projected never raises — a failed/contended projection sets _projection_degraded and
         # leaves an EMPTY graph.json behind (_ensure_degraded_db). Surface that here so kg_generate
         # degrades to `regroup` with a note, instead of silently cross-generating against an empty second
@@ -2642,13 +2642,17 @@ class KGEngine:
         return result
 
     # ---- read surface (projects if stale, then reads precomputed ranks)
-    def _ensure_projected(self) -> None:
+    def _ensure_projected(self, *, views: bool = True) -> None:
         """Project-if-stale on the read path — and NEVER raise. A projection failure (a sqlite hiccup, a
         native-dep blowup in community detection, a corrupt derived db) must DEGRADE a read, not crash the
         tool: log it, remember the reason in `_projection_degraded`, and make sure an empty-schema'd
         derived layer exists so the read tools return canon-empty data with the degraded flag instead of
         blowing up on a missing table. Writes never come through here — kg_write/kg_propose/kg_ground/
-        kg_rename touch only the canon — so projection can never block or fail a write (defense #6)."""
+        kg_rename touch only the canon — so projection can never block or fail a write (defense #6).
+
+        Then, with `views` and a projection that is not degraded, it brings the human-facing views up to
+        date (0.15.0, `_refresh_views`). kg_export passes `views=False`, because it renders the views it was
+        asked for anyway."""
         try:
             report = None
             if not self.projector.db_path.exists() or self.projector.is_stale():
@@ -2671,6 +2675,27 @@ class KGEngine:
             self._projection_degraded = f"{type(e).__name__}: {self._scrub_error(e)}"
             logger.warning("projection failed (%s); serving degraded derived layer", e, exc_info=True)
             self._ensure_degraded_db()
+        if views and not self._projection_degraded:
+            self._refresh_views()
+
+    def _refresh_views(self) -> None:
+        """Re-render each view `/kg-view` rendered that the projection has moved past (0.15.0) — and NEVER
+        raise. Through 0.14.5 a view changed only when the user ran `/kg-view` again. On the field project
+        (2026-11-13) the graph.html in the user's browser was three days and 48 changed canon notes old.
+        Now the first projecting read after a change re-renders it: every `/kg-build` and `/kg-ground` ends
+        with one (`kg_context`). The rule and its anchor live in `export.refresh_views`.
+
+        It is skipped on a degraded projection (failed or contended), so a view is never re-rendered from
+        an empty or stale derived layer. It costs three file-time reads when nothing is stale, and a render
+        when something is: about 20 ms for both views on the field canon of 463 notes. A render that fails
+        is logged, the old view stays, and the read is served as if nothing had happened. The views are a
+        convenience; the read is the work."""
+        try:
+            from . import export as _export   # deferred, like kg_export's: export pulls the HTML template
+            _export.refresh_views(self)
+        except Exception as e:  # noqa: BLE001 — a view that cannot be re-rendered never fails the read
+            logger.warning("could not re-render the graph views (%s); they stay as they were", e,
+                           exc_info=True)
 
     def _ensure_degraded_db(self) -> None:
         """Best-effort: guarantee a schema'd (possibly empty/stale) derived layer exists so a read after a
@@ -2789,8 +2814,10 @@ class KGEngine:
     def kg_export(self, kind: str = "all") -> dict:
         """Render the human-facing artifacts (R1): a self-contained `graph.html` + `GRAPH_REPORT.md` under
         the derived dir. Read-only — projects-if-stale, then consumes only the derived layer; never writes
-        the canon and never `_atomic_write`s graph.json/index.sqlite."""
-        self._ensure_projected()
+        the canon and never `_atomic_write`s graph.json/index.sqlite. From then on the engine keeps each
+        rendered view current (0.15.0, `_refresh_views`); `views=False` here because this call renders the
+        views it was asked for."""
+        self._ensure_projected(views=False)
         from . import export as _export
         # DELIBERATE, justified path egress (like `_source_info`'s echo of the user's own config): the
         # returned `html_path`/`report_path` are absolute so /kg-view can tell the user WHERE to open the
@@ -3466,7 +3493,9 @@ def _register(mcp, engine: KGEngine) -> None:
         layout encoding the three axes on independent channels — epistemic_state→line, authored_by→border,
         provenance→fill; size=degree; failed/rejected edges drawn, never filtered) and a `GRAPH_REPORT.md`,
         under the derived dir. `kind ∈ {html, report, all}`. READ-ONLY — projects-if-stale, consumes only the
-        derived layer, writes only its two disposable artifacts; never forges a verdict or touches the canon."""
+        derived layer, writes only its two disposable artifacts; never forges a verdict or touches the canon.
+        Once rendered, a view stays current: the engine re-renders it on the first read that projects the
+        canon after a change, so the user reloads the page to see it. Only `/burgess:kg-view` creates one."""
         return engine.kg_export(kind)
 
     # ------------------------------------------------------------------------- #
