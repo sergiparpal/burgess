@@ -339,8 +339,10 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   question, so the plan stops offering that hub; it writes only the attack ledger and sets no state),
   `kg_record_edgeless_section` (0.14.0: a `/burgess:kg-build` section whose extraction wrote no edge, with the
   extractor's note on why, keyed by the digests of the section's text and of the pack's types, so the build
-  plan stops offering it while both are unchanged; it refuses a covered section, writes only the
-  edgeless-section ledger and sets no state).
+  plan stops offering it while both are unchanged; since 0.14.1 also a section whose every relation is an
+  edge the canon already holds with a verdict, and only a section whose current text `kg_section` served
+  since the engine started; it refuses a covered section, writes only the edgeless-section ledger and sets
+  no state).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (7):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`.

@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.14.1 — 2026-11-13
+
+Found in the field on 0.14.0, in its first plain `/burgess:kg-build`.
+
+### Fixed
+
+- **The build's orchestrator offered to record sections nobody had read.**
+  - The plan listed 18 sections that no extractor had read since 2026-11-07, a day before 0.8.0 added `enables`.
+  - The orchestrator loaded `kg_record_edgeless_section` through ToolSearch, although its command does not
+    declare the tool. It offered the user to call it on each of the 18 sections itself, with no extractor
+    reading any of them. The user did not choose it.
+  - Each record would have stored the section's text with the current pack's types, which no extractor had read
+    it under. The vocabulary digest exists to rule out exactly that case. When the 18 were read, four of them
+    gave an edge, one of them an `enables` edge.
+  - **The engine now records only a section it served.** It keeps in memory the digest of each section text
+    `kg_section` served since it started, leads reads aside. It refuses a record for any section whose current
+    text is not among them.
+  - The command says that only the extractor that read a section records it. The orchestrator never records
+    one and never offers to.
+- **A section whose only relation the canon had already judged stayed in every plan.**
+  - Del LLM §3 (*Vocabulario*) restates `mecanismo defends_against deficit-del-modelo` in other words. That edge
+    was rejected on 2026-11-09, from another section's span.
+  - `kg_write` quarantines a re-emitted edge that already has a verdict (`collapses-into-known-failure`,
+    `retryable: false`), so no edge quoted the section.
+  - The extractor had been told not to record after rejections, and left the section unrecorded. Every later
+    plan would have launched an extractor for it, only to hit the same quarantine.
+  - The extractor now records such a section and names the edge in the note. It does so when every edge it
+    wrote came back as `collapses-into-known-failure` or `collapses-into-known-verdict`. The engine already
+    accepted that record.
+
+### Changed
+
+- **`kg_record_edgeless_section`** refuses a section whose current text no `kg_section` call served since the
+  engine started, with the error "no read stands behind the record". Its MCP description says so and names the
+  quarantine case.
+- **The extractor's contract:**
+  - *A section that states no relation* gains two bullets.
+    - A relation the canon already judged is nothing new: record the section and name the edge. Do not retry
+      the edge, and do not rename one of its ends to get past the check.
+    - The engine records only a section it served. After an engine restart, read the section again before
+      recording it.
+  - The retry policy tells the two kinds of quarantine apart. An undeclared type can be fixed when the text
+    supports it. An edge the canon already judged is final.
+  - The procedure step on recording covers both cases.
+- **`/burgess:kg-build`:**
+  - Step 1 says that only the extractor that read a section records it, and that the orchestrator never calls
+    the tool or offers to.
+  - The brief asks for the record after a quarantine against a judged edge.
+  - The report gives each QUARANTINED item's reason.
+
+### Upgrading
+
+- Nothing to do. The ledger's format is unchanged, and the records 0.14.0 wrote stay valid.
+- On the field canon, the next plain build launches one extractor, for Del LLM §3. The extractor records the
+  section whether it writes the judged edge again or finds nothing.
+
+### Tests
+
+- `tests/test_fix_edgeless_record_rules.py` (14 tests):
+  - **Reads.** A record nobody read (the field offer), the reader's record, a read of another section, a leads
+    read, a text changed since the read, and a restarted engine.
+  - **Errors.** The argument errors still come first. The MCP layer refuses a record nobody read, and its
+    description states both rules.
+  - **The field quarantine,** for a rejected and for a grounded edge. The section stays to extract until its
+    extractor records it, and the verdict stands.
+  - **The texts:** the contract and the command.
+- Against 0.14.0, 10 of the 14 fail. The 4 that pass pin what 0.14.0 already did: a reader's record, the order of
+  the errors, and the record after either quarantine.
+- In `tests/test_fix_edgeless_sections.py`, the record helper and two direct calls now read the section first.
+- 2042 → 2056 passed, 3 skipped.
+- **Checked end to end:** one headless `/burgess:kg-build`, in auto mode with Claude Code 2.1.316 and the plugin
+  loaded from this tree. The scratch project reproduced the field case.
+  - Its source had three sections: a premise, a glossary that restates the premise, and a list of sources.
+  - Its canon already held the premise's edge, `mecanismo defends_against deficit-del-modelo`, as rejected.
+  - The plan offered the glossary and the sources.
+  - The glossary's extractor wrote the judged edge again, and `kg_write` quarantined it as
+    `collapses-into-known-failure`. The extractor then recorded the section, naming the edge in its note.
+  - The sources' extractor recorded its section.
+  - The orchestrator never called the record tool. Its next plan had nothing left to extract and two edgeless
+    sections.
+  - No permission was denied and no shell command ran. The run cost $0.53.
+  - Its report called the judged edge "failed" when the edge was rejected. The report's instructions now say
+    which states each reason covers; that wording was written after the run.
+
+### Docs
+
+- `DECISIONS.md` records the decision.
+- `ARCHITECTURE.md`, `COMMANDS.md` and the skill's `tools.md` (§1.20, §1.24) describe both rules.
+
 ## 0.14.0 — 2026-11-13
 
 Found in the field on 0.13.6. A plain `/burgess:kg-build` on the built canon planned 18 sections again, and the

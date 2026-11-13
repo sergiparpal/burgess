@@ -1034,3 +1034,77 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     scratch document of three sections: an argued paragraph, a glossary and a list of sources. The argued
     section's extractor wrote one `enables` edge. The other two wrote nothing and recorded their sections. The
     next plan had nothing left to extract. No permission was denied and no shell command ran.
+
+## A record of an edgeless section needs a read, and a judged relation leaves its section to record (2026-11-13)
+
+- **Decision:** two rules around `kg_record_edgeless_section`, one in the engine and one in the extractor's
+  contract.
+  - **A record needs a read.** The engine keeps in memory the digest of every section text that `kg_section`
+    served since it started (`KGEngine._sections_read`), leads reads aside. `kg_record_edgeless_section` refuses
+    a section whose current text is not among them, with "no read stands behind the record". The digest it
+    stores is the one that read saw.
+  - **A judged relation is nothing new.** The extractor records a section when every edge it wrote came back
+    QUARANTINED as `collapses-into-known-failure` or `collapses-into-known-verdict`, and names the edge in the
+    note. It neither retries that edge nor renames an end to get past the check.
+  - **The orchestrator never records.** `/burgess:kg-build` says that only the extractor that read a section
+    records it, and that the orchestrator never calls the tool or offers to.
+- **Bugs it fixes** (field report on 0.14.0, its first plain build, 2026-11-13):
+  - **An offer to record unread sections.**
+    - The plan listed 18 sections, last read on 2026-11-07, a day before 0.8.0 added `enables`.
+    - The orchestrator loaded the tool through ToolSearch and offered the user to record all 18 itself. The
+      user did not choose it.
+    - Each record would have paired the section's text with a pack it was never read under. That is the case
+      the vocabulary digest exists to rule out.
+    - When the 18 were read, four of them gave an edge, one of them an `enables` edge.
+  - **A section offered forever.**
+    - Del LLM §3 restates `mecanismo defends_against deficit-del-modelo`. That edge was rejected on 2026-11-09,
+      as vague, from §2's span.
+    - The quarantine left §3 uncovered, and 0.14.0's "not after rejections" left it unrecorded.
+    - The orchestrator's report said that every plan would list it again.
+- **Why the engine checks for a read:** text alone did not hold.
+  - 0.14.0's contract already gave the record to the extractor, and the build command does not declare the
+    tool. The orchestrator found it and offered it anyway.
+  - MCP tells the engine nothing about who calls, so a read is the one fact the engine can tie a record to. The
+    check is cheap and rule-bound.
+  - **Keyed by the text's digest,** so a record attests the text that was read. A source edited between the
+    read and the record waits for a new read.
+  - **Leads reads do not count.** A leads read writes a rejected claim's leads, and the contract already keeps
+    leads mode from recording.
+  - **In memory,** like the write cache. After a restart, a record waits for the extractor to read its section
+    again.
+- **Why the extractor records a judged relation's section:**
+  - A quarantine against a judged edge is final (`retryable: false`). The edge is already in the canon, with
+    its verdict and its own span, so a new read can only propose it again.
+  - Unlike a rejection, nothing the extractor can fix makes the edge writable.
+  - The note names the edge, so the record hides nothing.
+- **Rejected alternatives:**
+  - (a) *Text only:* 0.14.0's text already implied the rule and did not stop the offer.
+  - (b) *Tell the orchestrator from an extractor by the caller:* MCP gives the server no caller identity, and
+    the subagents share their session's server.
+  - (c) *Persist the reads:* a read from another session or another day would then vouch for a record that no
+    read in this run stands behind.
+  - (d) *Count the judged edge as coverage of the section:* coverage is the spans that quote a section. A
+    quarantined edge quotes nothing, and the judged edge's span lies in another section.
+  - (e) *Have `kg_write` record the section when it quarantines a judged edge:* the write does not know the
+    section, and the extractor may still have other relations to write from it. The decision stays the
+    extractor's, as 0.14.0 put it.
+  - 0.14.0's alternative (a), inferring a record from reads, stays rejected. A read is now necessary for a
+    record, not sufficient.
+- **Accepted trade-offs:**
+  - The check cannot tell the orchestrator from an extractor. An orchestrator that called `kg_section` first
+    would pass. The command forbids recording, and such a call would at least be a read of the text.
+  - An engine restart between an extractor's read and its record costs one more read.
+  - A section recorded for a judged relation stays out of the plan if that edge's verdict later changes. Nothing
+    is lost, because the edge keeps its own span, and a re-judgment works on the edge, not on the section.
+- **Pinned in:** `tests/test_fix_edgeless_record_rules.py` (14 tests). Against 0.14.0, 10 of them fail. The 4
+  that pass pin what 0.14.0 already did: a reader's record, the order of the errors, and the record after either
+  quarantine.
+  - **Checked end to end:** one headless `/burgess:kg-build`, in auto mode with Claude Code 2.1.316, on a
+    scratch project that reproduced the field case.
+    - The project had three sections: a premise, a glossary restating it, and a list of sources. Its canon held
+      the premise's edge as rejected.
+    - The glossary's extractor wrote the judged edge again, which was quarantined as
+      `collapses-into-known-failure`. It then recorded its section, naming the edge.
+    - The sources' extractor recorded its section.
+    - The orchestrator never called the record tool, and the next plan had nothing left to extract.
+    - No permission was denied and no shell command ran.

@@ -255,14 +255,25 @@ mcp__plugin_burgess_burgess__kg_record_edgeless_section(source_file="<your sourc
 
 The plan then leaves the section out of later builds, until its text or the pack's types change. Through 0.13.6
 nothing recorded such a section, and every build launched an extractor to read the same text again. Record
-only a section you found no relation in:
+only a section you found nothing new to write in:
 
 - **Not after rejections.** If `kg_write` rejected the edges you wrote, retry them as the retry policy says. A
   section whose edges stay rejected is not edgeless; leave it to the next launch.
+- **A relation the canon already judged is nothing new.** `kg_write` QUARANTINES an edge whose id the canon
+  already holds with a verdict: `collapses-into-known-failure` (rejected or failed) or
+  `collapses-into-known-verdict` (grounded or obsolete). It is final: do not retry it, and do not rename one of
+  its ends to get past the check, which would bring back a claim the canon has already judged under another
+  name. If every edge you wrote came back that way, the section holds nothing new to write: record it, and
+  name the edge's id in the note. (0.14.1: on 0.14.0 a vocabulary section whose only relation the canon had
+  rejected stayed unrecorded, and every plan offered it again.)
 - **Not in leads mode,** and not when you are building a second construction (`/kg-perturb`): neither extracts a
   section of the canon's build.
 - **The engine refuses a section an edge already quotes,** as covered. Report that refusal; nothing was
   recorded and nothing needs fixing.
+- **The engine records only a section it served you** (0.14.1). A record says a read of the section's current
+  text found nothing to write, so the engine refuses one for a section no `kg_section` call served since it
+  started. Your record follows your own read. If the engine restarted in between, call `kg_section` for your
+  section again, then record it.
 
 Say in your report whether you recorded the section, and why it held nothing to write.
 
@@ -321,10 +332,14 @@ no other edge from the section, and no known node redeclared. The next `/kg-grou
      else in it dedups.
    - Any other `retryable=false` **semantic** rejection is **FINAL** — do not loop. Drop the item and report it.
    - DEMOTED items were written (with an axis corrected) — leave them; just report what was stripped.
-   - QUARANTINED items used an undeclared type — fix the type to a pack type if the text supports it, else report
-     and move on.
-5. Under `/kg-build`, a section you wrote no edge from is recorded with `kg_record_edgeless_section` (**A section
-   that states no relation**, above).
+   - QUARANTINED `undeclared-node-type` / `undeclared-edge-type` → you used a type the pack does not declare: fix
+     it to a pack type if the text supports it, else report and move on.
+   - QUARANTINED `collapses-into-known-failure` / `collapses-into-known-verdict` → the canon already holds that
+     edge with a verdict. **FINAL**: do not retry it and do not rename an end to get past it. Report it, with its
+     id (**A section that states no relation**, above, says when that leaves the section to record).
+5. Under `/kg-build`, a section you wrote no edge from is recorded with `kg_record_edgeless_section`, and so is
+   one whose every edge collapsed into an edge the canon already judged (**A section that states no relation**,
+   above).
 6. Move to the next section. When all sections are written, optionally call
    `mcp__plugin_burgess_burgess__kg_metrics` and report `{nodes, edges, edges_by_epistemic_state}` as a final tally.
 

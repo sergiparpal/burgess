@@ -772,6 +772,9 @@ launched by `/burgess:kg-build` extracts from (0.5.0). `source_file` is a basena
 basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of
 extractors asking at once keeps one placeholder per value.
 
+A read without `leads` is what lets its extractor record the section as edgeless (§1.24, 0.14.1): the engine
+keeps the digest of the text it served, in memory, until it stops.
+
 ### 1.21 `mcp__plugin_burgess_burgess__kg_ground_plan(focus="", configured_wave_size="", batch_size=None)`
 
 The `/burgess:kg-ground` plan (0.7.0): what the grounding loop verdicts, in batches for parallel grounders. It
@@ -884,10 +887,18 @@ the plan offered that hub to every later pass, and each attack searched the sour
 
 The mark an extraction leaves on a `/burgess:kg-build` section it wrote no edge from (0.14.0), because nothing
 in the section states a relation the pack's types can carry: a list of sources, a glossary, a checklist. The
-extractor calls it once, when it finishes such a section, whether it wrote nodes or nothing at all.
-`kg_build_plan` (§1.19) then marks the section `edgeless` and leaves it out of the sections to extract. Through
-0.13.6 such a section left nothing behind, so every later build launched an extractor to read the same text
-and find nothing again.
+extractor calls it once, when it finishes such a section, whether it wrote nodes or nothing at all. It also
+calls it when every edge it wrote came back QUARANTINED as `collapses-into-known-failure` or
+`collapses-into-known-verdict` (0.14.1): the canon already holds that relation with a verdict, so the section
+holds nothing new to write, and the note names the edge. `kg_build_plan` (§1.19) then marks the section
+`edgeless` and leaves it out of the sections to extract. Through 0.13.6 such a section left nothing behind, so
+every later build launched an extractor to read the same text and find nothing again.
+
+**A record needs a read (0.14.1).** The engine keeps, in memory, the digest of every section text `kg_section`
+(§1.20) served since it started, leads reads aside. It refuses a record for a section whose current text no
+such read served, so only the extractor that read the section records it. The build's orchestrator reads no
+section and never records one. On 0.14.0 it offered to record 18 sections itself, which no extractor had read
+under the current pack. After an engine restart, a record waits for a new `kg_section` read.
 
 - `source_file`, `section` — the plan's, as for `kg_section` (§1.20).
 - `note` — why the section held nothing to write, in a sentence: up to 500 characters, whitespace collapsed.
@@ -907,8 +918,8 @@ and find nothing again.
   unreadable ledger only offers those sections again, and a damaged line is skipped. Deleting it re-offers
   every recorded section.
 - `ok: false` for a file that is not a configured source file, a section number that is not one of the file's,
-  an empty or overlong note, or a section a span-present edge already quotes (it is covered); nothing is
-  written then.
+  an empty or overlong note, a section whose current text no `kg_section` call served (no read stands behind
+  the record), or a section a span-present edge already quotes (it is covered); nothing is written then.
 
 ---
 

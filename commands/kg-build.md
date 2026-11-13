@@ -134,7 +134,14 @@ a multi-file build the boundary verifies each span against **that file specifica
 to the wrong file is REJECTED `span-not-in-named-source`). The extractor reads its section, emits a single
 complete `kg_write` payload, and reports its dispositions back to you. When its section states no relation the
 pack's types can carry, it writes no edge and records the section with `kg_record_edgeless_section` (0.14.0),
-which takes it out of later plans.
+which takes it out of later plans. It records the section too when every relation the section states is an
+edge the canon already holds with a verdict, which `kg_write` quarantines (0.14.1).
+
+**Only the extractor that read a section records it.** Never call `kg_record_edgeless_section` yourself, and
+never offer the user to: you read no section, and a record says that a read of the section's current text,
+under the current pack, found nothing new to write. The engine refuses a record for a section no `kg_section`
+call served (0.14.1). A section still to extract after its launch is reported, not recorded (the resume probe,
+below).
 
 `kg_section` also lists the nodes already in the canon that the section names (`known_nodes`, 0.6.0), so an
 extractor in a later wave reuses an id another section wrote instead of coining a near-duplicate. Extractors
@@ -184,8 +191,10 @@ kg_write with that payload only (never `source` or `construction`), and return t
 
 If nothing in the section states a relation the pack's types can carry, write no edge, and record that with
 mcp__plugin_burgess_burgess__kg_record_edgeless_section(source_file: "source.md", section: 1, note: "<why, in
-one sentence>"), so later builds do not extract it again. Do not record a section whose edges kg_write
-rejected. Say in your report whether you recorded it.
+one sentence>"), so later builds do not extract it again. If every edge you wrote comes back QUARANTINED as
+collapses-into-known-failure or collapses-into-known-verdict, the canon already holds it with a verdict: do
+not retry it, and record the section too, naming that edge's id in the note. Do not record a section whose
+edges kg_write rejected. Say in your report whether you recorded it.
 """
 )
 ```
@@ -247,8 +256,12 @@ Summarize the build back to the user:
   recorded as holding no edge, which no build extracts again until their text or the pack's types change.
 - **Dispositions** — summed across all section launches: ACCEPTED / DEMOTED / QUARANTINED / REJECTED, and for any
   REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `write-lane-hypothesis`,
-  `self-loop`, `truncated-payload`, `schema-invalid`). Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are
-  extractor errors, not transport; `retryable=true` for TRANSPORT (truncation, schema).
+  `self-loop`, `truncated-payload`, `schema-invalid`). For any QUARANTINED, its reason: an undeclared type
+  (`undeclared-node-type`, `undeclared-edge-type`), or an edge the canon already holds with a verdict
+  (`collapses-into-known-failure`: rejected or failed; `collapses-into-known-verdict`: grounded or obsolete).
+  The reason alone does not tell rejected from failed: to name the edge's state, look it up (`query_graph`).
+  Note `retryable=false` for SEMANTIC rejections (no-span, span-not-in-source) — those are extractor errors, not
+  transport; `retryable=true` for TRANSPORT (truncation, schema).
 - **Node / edge counts** — from `kg_metrics()`: `nodes`, `edges`, and the `edges_by_epistemic_state` breakdown.
 - **Span-support** — every ACCEPTED non-deterministic edge carries a verifiable span by construction (the
   boundary rejects spanless edges). Call this out as the build's grounding guarantee, and surface any DEMOTED
