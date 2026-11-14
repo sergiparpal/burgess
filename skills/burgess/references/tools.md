@@ -506,7 +506,7 @@ candidates through `kg_propose`.
   mechanism ranking is kept and `note` says why (I9).
 
 ```json
-{"mechanism": "bridge", "k": 10, "gate_on": 0, "count": 2, "note": "",
+{"mechanism": "bridge", "k": 10, "gate_on": 0, "unjudged_hypotheses": 0, "count": 2, "note": "",
  "candidates": [
    {"kind": "edge", "mechanism": "bridge", "source": "entropy", "target": "time", "relation": "bridges",
     "label": "", "node_type": "", "score": 0.81, "specificity": 2.1,
@@ -519,6 +519,22 @@ specificity, rationale, section, convergence}` (`provenance` is always `hypothes
 propose lane forces it). `convergence` is **advisory** — the number of *distinct* mechanisms that
 independently proposed the same edge (≥1); a grounding-queue ranking prior, never folded into `score` and
 never written to the canon, harness-gated (`harness.convergence`) before it may reorder grounding.
+
+A `kind:"node"` compression also carries `members` (sorted) and `id`, the id `kg_operate collapse` gives the same
+members (`model.compression_id`). Write it as the star the MDL screen scored: the node under `id`, and one
+`collapses_into` edge from each member to it. Both fields arrived in 0.16.0. Through 0.15.2 the members were
+only in `rationale`, and the language layer had to make an id up.
+
+Since 0.16.0, bridge ranks a pair by the sum of its endpoints' strengths:
+- With the gate on, a strength is `spec_betweenness`.
+- With the gate off, it is `(structural_bridge + 1e-6·degree) × specificity`. Through 0.15.2 there was no
+  specificity factor, so a graph with no structural bridge was ranked by degree alone.
+- A bridge's `rationale` says which of these its strength came from.
+- No node takes more than two slots of a `bridge` or `regroup` slate (`generate.ENDPOINT_CAP`). On the field graph
+  of 2026-11-14 one hub took all ten.
+
+`unjudged_hypotheses` counts the hypothesized edges still `unverified`. They count as live structure, so when it is
+above 0 the ranks behind this slate include earlier proposals, and `note` says to run `/burgess:kg-ground` first.
 
 ### 1.14 `mcp__plugin_burgess_burgess__kg_operate(op, target=None, label="", body="", members=None, k=None)`
 

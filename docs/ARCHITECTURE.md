@@ -274,14 +274,21 @@ asking at once keeps one placeholder per value.
 `kg_generate` runs seven deterministic structural mechanisms over the derived graph (default set:
 `bridge`, `seed`, `compression`; `all` adds the rest):
 
-1. **bridge** — connect strong-but-separate hubs across communities.
+1. **bridge** — connect strong-but-separate hubs across communities. A pair ranks on the sum of its
+   endpoints' strengths: `spec_betweenness` when the gate is on, else `(structural_bridge + 1e-6·degree) ×
+   specificity`. The specificity factor arrived in 0.16.0: before it, a graph with no structural bridge was
+   ranked by degree alone, against §4. No node takes more than two slots of the slate (`ENDPOINT_CAP`), so
+   one hub cannot take them all.
 2. **seed** — non-adjacent pairs with a positive common-neighbour residual `c − E[c|d]`
    ("abnormally connectable for their distance").
 3. **compression** — a dense community earns a proposed `compression` node (+ `collapses_into`
    edges) only when an MDL screen shows a description-length saving and the cluster isn't vague;
-   the label is left blank for the language layer.
+   the label is left blank for the language layer. The candidate carries its `members` and the `id`
+   `kg_operate collapse` would give them (`model.compression_id`), so the language layer writes the
+   scored star, not a lone node.
 4. **regroup** — re-run Leiden at a different resolution; pairs that flip from intra- to
-   cross-community are bridges invisible under the prior partition.
+   cross-community are bridges invisible under the prior partition. Ranked on bridge's endpoint
+   strengths, with the same two-slot cap.
 5. **transplant** — import a hub's dominant relation pattern into the community with the highest
    absorption capacity.
 6. **ensemble** — bridges present in one construction's structure but not a second's (from
@@ -294,8 +301,14 @@ asking at once keeps one placeholder per value.
 7. **periphery** — low-degree sources get a `bridges` edge to their max-connectability anchor —
    the periphery the hub-seeking mechanisms ignore.
 
+An unjudged hypothesized edge is live topology: only `NON_LIVE_STATE_VALUES` are excluded from the ranks.
+So a generation run before `/burgess:kg-ground` ranks over the last one's proposals. `kg_generate` counts
+them in `unjudged_hypotheses` and says so in `note` (0.16.0). That is a warning, not a gate: the inversion
+never gatekeeps generation.
+
 Each candidate carries an advisory `convergence` count — how many distinct mechanisms
-independently proposed the same edge, tallied pre-truncation. It is a grounding-queue ranking
+independently proposed the same edge, tallied pre-truncation. The two-slot cap is part of
+a mechanism's own list, so a pair a mechanism capped out does not count as proposed by it. It is a grounding-queue ranking
 prior, never folded into `score`, and only reorders the queue once `harness convergence` shows
 clean band separation. Candidates route through `kg_propose`; the four endo operations
 (`kg_operate`: collapse/explode/regroup/open) persist through the same lane. `kg_absorption`

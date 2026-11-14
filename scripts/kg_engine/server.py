@@ -2512,7 +2512,22 @@ class KGEngine:
                     "(run /burgess:kg-perturb to supply one)")
         cands = run_generators(G, mechanism, pack=self.pack, corpus=corpus, failures=failures,
                                k=k, second_graph=G2)
+        # 0.16.0: an unjudged hypothesized edge is live topology (only failure memory and `obsolete` are
+        # not), so the ranks this run read include every proposal not yet through /burgess:kg-ground. On the
+        # field graph of 2026-11-14 one generation's 33 proposals turned the gate on, made radar-meta a
+        # structural bridge of 10 communities and raised its betweenness 13-fold. Replayed, the next run
+        # bridged radar-meta to 10 more nodes and seeded pairs whose shared neighbour was an unjudged
+        # compression node. Said here, not gated: generation is never gatekept (the inversion).
+        unjudged = sum(1 for _, _, d in G.edges(data=True)
+                       if d.get("provenance") == Provenance.HYPOTHESIZED.value
+                       and d.get("epistemic_state") == EpistemicState.UNVERIFIED.value)
+        if unjudged:
+            note = ((note + "; ") if note else "") + (
+                f"{unjudged} hypothesized edge(s) are not judged yet and count as graph structure here, so "
+                "these candidates were ranked partly on earlier proposals; run /burgess:kg-ground first to "
+                "rank on the judged graph")
         payload = {"mechanism": mechanism, "k": int(k), "gate_on": gate_on,
+                   "unjudged_hypotheses": unjudged,
                    "count": len(cands), "candidates": [c.to_dict() for c in cands],
                    "note": note}
         use_dpp = dpp
@@ -3387,6 +3402,10 @@ def _register(mcp, engine: KGEngine) -> None:
         one surfaces its own top k, so "all" returns up to seven times k, fewer once duplicates merge.
         READ-ONLY: candidates are proposals (provenance=hypothesized, no span); route them through
         kg_propose. Generate offensively; kg_ground judges later.
+        A compression candidate (kind "node") carries `members` and `id`: write the node under that id
+        and one `collapses_into` edge from each member to it. `unjudged_hypotheses` counts the
+        hypothesized edges not yet judged; they count as structure, so when it is above 0 the slate was
+        ranked partly on earlier proposals and `note` says to run /burgess:kg-ground first.
         For the `ensemble` exo move, supply EITHER `second_construction` (the NAME of an in-session
         second construction built via kg_write(..., construction=…) — projected here, key-free) OR
         `second_graph` (a path to a pre-built graph.json); with neither, ensemble degrades to `regroup`

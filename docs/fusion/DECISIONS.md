@@ -1398,3 +1398,59 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   passes pins the premise: the view's data already carried each edge's provenance.
   - **Checked visually:** a scratch graph with both provenances in each state, screenshotted with headless
     Chromium.
+
+## One node cannot take a generation's slate, and a compression is written as its star (2026-11-14)
+
+- **Decision:**
+  - With the gate off, a node's bridging strength is `(structural_bridge + 1e-6·degree) × specificity`. With the
+    gate on it stays `spec_betweenness`.
+  - No endpoint takes more than `generate.ENDPOINT_CAP` (2) slots of a `bridge` or `regroup` slate. The selection
+    walks the ranked list in order, so the first k it keeps are the same whatever the run's k.
+  - A bridge's rationale names what its strength came from.
+  - `kg_generate` returns `unjudged_hypotheses`, the hypothesized edges still `unverified`. When it is above 0,
+    `note` says the slate was ranked partly on earlier proposals and to run `/burgess:kg-ground` first.
+  - A compression candidate carries `members` and `id`, the id `kg_operate collapse` writes for the same members.
+    The rule moved from `operations` to `model.compression_id`. kg-generator and `/burgess:kg-generate` write the
+    node under that id, with one `collapses_into` edge from each member.
+- **Field run it answers** (0.15.2, 2026-11-14): the first `/burgess:kg-generate` on the field graph, default set,
+  k=10.
+  - All 10 bridges hung off radar-meta. No node was a structural bridge, so the gate-off strength was degree alone,
+    and a pair's score sums its two ends'. The node with the most links paired with the top node of every other
+    community, though its specificity (1.74) was below the graph mean (2.81).
+  - After the write, the run's 33 unjudged proposals had turned the gate on and made radar-meta a bridge of 10
+    communities. Replayed on a copy, the next run bridged radar-meta to ten more nodes, seeded pairs of a
+    compression's members through the unjudged compression node, and proposed compressing each compression again.
+  - The compression candidates carried their members only in `rationale`, and no id. The session read the
+    engine's source to find the collapse id rule and the star shape.
+- **Why weight the fallback by specificity:** §4 says no candidate ranks high merely for being generic. The gate
+  decides whether `spec_betweenness` is trusted, and with it off, the fallback had no generality control at all.
+  A degree leader is confounded by generality just as a betweenness leader is. With no specificity spread the
+  factor is a constant, so the old order stands where specificity says nothing.
+- **Why a cap, and why always:**
+  - A sum of endpoint strengths lets the strongest node pair with every other strong node before any pair
+    without it.
+  - That happens with the gate on as well: the replayed second run had the gate on and gave the same node all ten
+    bridges again.
+  - Two slots let a hub show as a hub and leave the rest of the slate to other pairs.
+  - The cap is inside the mechanism, not applied to the surfaced slate. Above 400 nodes a mechanism runs at the
+    surfaced k, so capping after the cut would leave a short slate.
+- **Why a warning, not a gate:** generation is never gatekept (the inversion, PLAN §1.2). An unjudged proposal is
+  live structure by design: the absorption window reads the degree of a new node, and `kg_agenda` flags a
+  hypothesized-only neighbourhood. The user decides whether to ground first.
+- **Rejected alternatives:**
+  - (a) *Only say it in the rationale.* The slate would stay ten spokes of one hub.
+  - (b) *Weight the pair score by the pair's specificity (the min of its two ends).* That leaves the gate-on and
+    gate-off strengths built differently. A node-level weight mirrors `spec_betweenness`.
+  - (c) *Exclude unjudged hypothesized edges from the ranks.* That changes what live topology means for every
+    structural surface (degree, communities, agenda, absorption). It is a separate decision.
+  - (d) *Have the engine build the star payload itself.* The language layer would still have to add the label,
+    body and notes. With `members` and `id` it builds the star verbatim, as it uses an edge's endpoints verbatim.
+- **Accepted trade-offs:**
+  - A pair that a mechanism capped out does not count toward `convergence` as proposed by it.
+  - Transplant still takes its one hub, by design, and picks it by degree.
+  - A compression is proposed again over its own star once the star is live. Replayed with the four stars grounded,
+    the next compression run proposed compressing each community again, with the compression node among the
+    members. Not addressed here.
+- **Pinned in:** `tests/test_fix_generate_diversity.py` (16 tests). Against 0.15.2, with the old id rule inlined,
+  12 fail. The 4 that pass pin what must not change: the order with no specificity spread, a shorter run keeping
+  what a longer one keeps first, an edge candidate's dict, and the field canon's compression ids.

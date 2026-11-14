@@ -28,7 +28,9 @@ test*, phrased honestly as such.
 A list of candidate dicts from `kg_generate`, each carrying:
 `{kind, mechanism, source, target, relation, label, node_type, score, specificity, rationale, section}`.
 `kind` is `"edge"` (a proposed typed relation between two existing nodes) or `"node"` (a proposed new
-node — a compression or a primitive — whose `label` is **blank**, waiting for you to name it).
+node — a compression or a primitive — whose `label` is **blank**, waiting for you to name it). A
+`kind:"node"` compression also carries `members`, the nodes it collapses, and `id`, the id to write it
+under.
 
 Optionally read `examples/source.md` (or the live corpus) and `mcp__plugin_burgess_burgess__kg_context`
 for the vocabulary and the surrounding ideas — so your phrasing uses the theory's own terms. You read for
@@ -44,11 +46,17 @@ for the vocabulary and the surrounding ideas — so your phrasing uses the theor
 
 2. **Name proposed nodes (compression / primitive) — supply `label` and `body`.** For a `kind:"node"`
    candidate the `label` is blank by design (PLAN §7/§8: the structural layer found a compressible cluster
-   or an opening, the naming is yours). Read the members named in the `rationale`, then give:
+   or an opening, the naming is yours). Read its `members`, then give:
    - a short, *specific* `label` (never a vague umbrella term — a vague compression is exactly the
      generality confound the engine screens against),
    - a one-paragraph `body` stating what the new node compresses or opens and the prediction that would
      *earn its keep* (§7: a compression earns its keep only when it predicts).
+
+   **Write a compression as a star:** the node under the candidate's `id`, and one `collapses_into` edge from
+   each of its `members` to that id (`source` the member, `target` the id). The star is what the MDL screen
+   scored. A node written without it stands alone, and the absorption window reads it as `isolated`. The `id`
+   is the one `kg_operate collapse` gives the same members, so a later collapse lands on this node instead of
+   forking a duplicate. Never make up an id, and never leave a member out.
 
 3. **For transplants, write the "hidden commitments to audit" note (§5).** A transplant candidate imports
    a hub's reorganising relation into another community. Spell out, in the `notes`, the assumptions that
@@ -63,11 +71,17 @@ Assemble ONE `kg_propose` payload. Every item is hypothesized; **never** emit `s
 ```json
 {
   "nodes": [
-    {"id": "fertile-middle", "label": "The fertile middle", "node_type": "compression",
+    {"id": "compression-absorbed-c4d6fb3e", "label": "The fertile middle", "node_type": "compression",
      "provenance": "hypothesized",
      "body": "Compresses {absorbed, isolated, half-life}: a candidate is productive only in the band where it neither renormalises instantly nor stays disconnected. Earns its keep if it predicts which proposals survive grounding."}
   ],
   "edges": [
+    {"source": "absorbed", "target": "compression-absorbed-c4d6fb3e", "relation": "collapses_into",
+     "provenance": "hypothesized", "notes": "compression §7: absorbed collapses into «The fertile middle»"},
+    {"source": "half-life", "target": "compression-absorbed-c4d6fb3e", "relation": "collapses_into",
+     "provenance": "hypothesized", "notes": "compression §7: half-life collapses into «The fertile middle»"},
+    {"source": "isolated", "target": "compression-absorbed-c4d6fb3e", "relation": "collapses_into",
+     "provenance": "hypothesized", "notes": "compression §7: isolated collapses into «The fertile middle»"},
     {"source": "betweenness", "target": "memory-of-failures", "relation": "bridges",
      "provenance": "hypothesized",
      "notes": "seed §3: shared neighbours 3 vs expected 0.4 — abnormally connectable for distance 3."},
@@ -83,7 +97,8 @@ Assemble ONE `kg_propose` payload. Every item is hypothesized; **never** emit `s
 - `relation`/`node_type` MUST be a pack type (`grounds, attacked_by, reconciles_with, bridges,
   collapses_into, confounded_by, approximates, defends_against, projects, survives, enables`; nodes:
   `compression, primitive, claim, metric, operation, failure`) — anything else QUARANTINES.
-- Use the candidate's `source`/`target`/`relation` verbatim. Your contribution is `label`, `body`, `notes`.
+- Use the candidate's `source`/`target`/`relation` verbatim, and a compression's `id` and `members` verbatim
+  in its star. Your contribution is `label`, `body`, `notes`.
 
 ## Procedure
 

@@ -16,12 +16,11 @@ derived graph and parameters, it returns a propose-payload dict; `KGEngine.kg_op
 """
 from __future__ import annotations
 
-import hashlib
 from collections import defaultdict
 
 from .generate import regroup
 from .graphio import node_attr
-from .model import AuthoredBy, Provenance, slug
+from .model import AuthoredBy, Provenance, compression_id, slug
 
 HYP = Provenance.HYPOTHESIZED.value  # the propose-lane provenance, from its enum home (review-r5)
 # Structure emitted by THESE functions is computed in-process from the derived graph — no model wrote it,
@@ -67,12 +66,6 @@ def _as_int(x, default=None):
         return default
 
 
-def _compression_id(members) -> str:
-    h = hashlib.sha1("\x00".join(sorted(members)).encode("utf-8")).hexdigest()[:8]
-    lead = slug(sorted(members)[0]) if members else "cluster"
-    return f"compression-{lead}-{h}"
-
-
 def _community_members(G, cid) -> list:
     return [n for n in G.nodes() if node_attr(G, n, "community", -1) == cid]
 
@@ -109,7 +102,8 @@ def collapse_payload(G, *, target=None, members=None, label="", body=""):
         return None, f"collapse target {target!r} is not in the graph"
     if len(members) < 2:
         return None, "collapse needs at least 2 members"
-    comp_id = _compression_id(members)
+    # the id rule lives in model (0.16.0), so a kg_generate compression candidate carries the same id
+    comp_id = compression_id(members)
     author = _node_author(label, body)
     body = body or ("compression standing in for the cluster {" + ", ".join(sorted(members))
                     + "}; earns its keep only if it predicts (§7)")
