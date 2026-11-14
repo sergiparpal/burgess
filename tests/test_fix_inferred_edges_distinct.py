@@ -102,7 +102,8 @@ def test_the_draw_loop_applies_the_opacity_per_edge_and_resets_it():
 def test_the_legend_shows_the_edge_channel_from_the_palette():
     t = HTML_TEMPLATE
     assert '<div class="ax">provenance — edge line opacity</div>' in t
-    assert '<span class="sw" id="sw-inferred"></span>inferred (lighter, in any state)' in t
+    # 0.15.2 pairs a pale red line with this swatch (tests/test_fix_inferred_legend_red.py)
+    assert '<span class="sw" id="sw-inferred"></span>' in t and "inferred (lighter, in any state)</li>" in t
     assert 'document.getElementById("sw-inferred").style.opacity = PALETTE.edgeAlpha.inferred;' in t
 
 
