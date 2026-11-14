@@ -102,7 +102,8 @@ collapse/explode/regroup/open — you may instead call
 ## Step 4 — record the generation (for the absorption window, §14)
 
 After the propose call returns, append a generation record to the absorption ledger so `kg_absorption`
-can later score how long each new node stays perturbing (fertile vs absorbed vs isolated):
+can later score how long each new node stays perturbing (fertile vs absorbed vs isolated). It scores a
+node once `/burgess:kg-ground` has grounded it, and lists the others apart with their state:
 
 The ledger lives in the engine's derived dir, `${CLAUDE_PLUGIN_DATA}/derived`, which is where
 `kg_absorption` reads it. (Claude Code fills that path in when this command loads. A `${…:-default}` form is

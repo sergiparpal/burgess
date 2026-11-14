@@ -301,3 +301,10 @@ class SourceSet:
                 return span_present_in(span, self._norm[name])
             # unknown named source → lenient any-source fallback
         return any(span_present_in(span, nt) for nt in self._norm.values())
+
+    def files_containing(self, span: str) -> list[str]:
+        """The basenames of the declared sources that hold ``span``, by the same per-file check
+        ``verifies`` makes, in source order. A promotion's span is verified against any source when the
+        item names none, and this says which file it was found in, so the promotion can record it
+        (0.16.1)."""
+        return [name for name, nt in self._norm.items() if span_present_in(span, nt)]

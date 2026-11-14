@@ -305,24 +305,27 @@ def test_empty_kind_is_rejected(engine):
     assert "invalid kind" in out["error"]
 
 
-# ---- note-on-node: documented edge-only; passing it with kind='node' is accepted and ignored --------
-def test_note_on_node_verdict_is_ignored_not_an_error(engine):
-    """A `note` passed on a node verdict is documented edge-only (a Node has no notes field). It is
-    silently ignored — the verdict still succeeds and the node carries no notes attribute."""
+# ---- note-on-node: accepted with kind='node'; kept in the body since 0.16.1 (edge-only and dropped before)
+def test_note_on_node_verdict_is_kept_in_the_body_not_an_error(engine):
+    """A `note` passed on a node verdict is accepted, as it always was. A Node has no notes field, so
+    since 0.16.1 the note is kept in the body as `verdict (<state>): <note>`. Through 0.16.0 it was
+    documented edge-only and dropped, which lost the field reasons for two rejected compression nodes."""
     nid = _seed_hypothesized_node(engine, "comp-note")
     out = engine.kg_ground(nid, "rejected", kind="node", note="vague: true only because generic")
     assert out["ok"] is True
     node = engine.canon.read_node(nid)
-    assert not hasattr(node, "notes")  # Node has no notes field; the note is not persisted there
+    assert not hasattr(node, "notes")  # still no notes field on a Node
+    assert "verdict (rejected): vague: true only because generic" in node.body
 
 
-def test_kg_ground_wrapper_docstring_marks_note_edge_only(engine):
-    """The MCP wrapper docstring must disclaim that `note` is edge-only (the inconsistency the finding
-    flagged — the reference tools.md already documents it as edge-only)."""
+def test_kg_ground_wrapper_docstring_says_where_a_node_note_goes(engine):
+    """The MCP wrapper docstring must say what happens to `note` on a node, as tools.md does (the
+    inconsistency the finding flagged). Since 0.16.1 both say it is kept in the node's body; through
+    0.16.0 both said edge-only."""
     tools = _wrappers(engine)
     doc = (tools["kg_ground"].__doc__ or "").lower()
-    assert "edge-only" in doc
-    assert "note" in doc
+    assert "edge-only" not in doc
+    assert "note" in doc and "body" in doc and "verdict (<state>)" in doc
 
 
 def test_unsubstituted_source_path_placeholder_falls_back_not_taken_literally(tmp_path, monkeypatch):
