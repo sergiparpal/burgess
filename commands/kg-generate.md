@@ -59,14 +59,21 @@ This is a **non-blocking checkpoint**: invite a reply, but never make progress c
 
 Call `mcp__plugin_burgess_burgess__kg_generate(mechanism=<chosen>, k=<k>)` (use
 `mechanism="all"` for the full set; it runs the default set on `"default"`). It returns
-`{mechanism, k, gate_on, count, candidates[], note}`. Each candidate carries
-`{kind, mechanism, source, target, relation, label, node_type, score, specificity, rationale, section, convergence}`.
+`{mechanism, k, gate_on, unjudged_hypotheses, count, candidates[], note}`. Each candidate carries
+`{kind, mechanism, source, target, relation, label, node_type, score, specificity, rationale, section, convergence}`,
+and a `kind:"node"` compression also carries `members` (the nodes it collapses) and `id` (the id to write it
+under, the one `kg_operate collapse` gives the same members).
 `convergence` is **advisory** — the number of *distinct* mechanisms that independently proposed the same edge
 (≥1). It is a **ranking prior for the grounding queue** (which hypotheses to ground first), **never** a score,
 **never** a verdict, and **never** written onto a canon edge; it does not change the slate's `score`/ranking.
 This call is **READ-ONLY** — nothing is written yet. If `count==0`, report that the structure surfaced no
 candidates for the chosen mechanisms (the demo graph is small; try `all`, a larger `k`, or `/burgess:kg-perturb`),
 and stop. Note the `note` (e.g. ensemble degraded to regroup with no second construction).
+
+If `unjudged_hypotheses` is above 0, earlier proposals are still waiting for `/burgess:kg-ground`. They count as
+graph structure, so they shaped the ranks these candidates came from: a second generation feeds on the first.
+Before Step 3, tell the user in one line how many there are and that grounding them first gives a slate ranked
+on the judged graph. Then go on. It is a warning, not a gate: generation is never gatekept (the inversion).
 
 ## Step 3 — phrase & label the candidates (Task → kg-generator)
 
@@ -80,9 +87,11 @@ Task(subagent_type: "kg-generator", description: "Phrase + label candidates", pr
   Here are the structural candidates from kg_generate: <paste candidates[]>.
   For each: (a) phrase it as one falsifiable sentence keeping source/target/relation verbatim;
   (b) for kind:"node" (compression/primitive) supply a SPECIFIC label + a one-paragraph body whose
-  prediction would earn the node its keep (§7); (c) for transplants, write the hidden-commitments-to-audit
-  note (§5). Then assemble ONE kg_propose payload (provenance=hypothesized, NO span, NO verdict) and call
-  kg_propose. Report dispositions + the phrased idea slate. Nothing is judged — these are hypotheses.
+  prediction would earn the node its keep (§7), and write a compression as its star: the node under its
+  `id`, plus one collapses_into edge from each of its `members` to that id; (c) for transplants, write the
+  hidden-commitments-to-audit note (§5). Then assemble ONE kg_propose payload (provenance=hypothesized,
+  NO span, NO verdict) and call kg_propose. Report dispositions + the phrased idea slate. Nothing is
+  judged — these are hypotheses.
 """)
 ```
 
@@ -124,7 +133,10 @@ Present a ranked **idea slate** to the user, one row per accepted candidate:
 
 Then call `mcp__plugin_burgess_burgess__kg_metrics` and report the new
 `edges_by_epistemic_state` — the hypothesized candidates show up under `unverified`. State `gate_on` from
-Step 0 (was the slate ranked by the confound-corrected `spec_betweenness` or the honest fallback?).
+Step 0 (was the slate ranked by the confound-corrected `spec_betweenness` or the honest fallback?). A bridge's
+`rationale` names what its strength came from; "neither end is a structural bridge" means the graph has
+none, and the pair was ranked by degree weighted by specificity. If `unjudged_hypotheses` was above 0, say
+again that this slate was ranked partly on earlier proposals nobody has judged yet.
 
 ## Step 6 — the inversion, made explicit
 
@@ -143,8 +155,10 @@ Optionally chain into `/burgess:kg-ground` restricted to the freshly-proposed hy
   presented as grounded, never carrying a span.
 - **Generation is never gatekept by a quality metric** (the inversion) — it always emits and writes; only
   `/burgess:kg-ground` filters, afterward.
-- **Generality control travels with every mechanism** (§4): structural rankings are spec-weighted, the
-  gate decides whether `spec_betweenness` is trusted, compressions pass an MDL screen.
+- **Generality control travels with every mechanism** (§4): structural rankings are spec-weighted (the
+  bridge fallback too, since 0.16.0), the gate decides whether `spec_betweenness` is trusted, compressions
+  pass an MDL screen. A `bridge` or `regroup` slate gives no node more than two slots, so one hub cannot take
+  the whole slate.
 - **Failure memory binds generation** (§13): the engine drops any candidate whose identity (or its
   reverse) already lives in `failed`/`rejected`.
 - This command **never** calls `kg_ground` and **never** forges a verdict or a span.

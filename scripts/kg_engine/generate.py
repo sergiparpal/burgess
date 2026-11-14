@@ -12,7 +12,8 @@ The design contract (PLAN §1) every generator obeys:
      existing grounding loop (`kg_ground`) is the post-hoc filter.
   3. Generality control travels with every generator (§4): structural rankings are
      specificity-weighted; compression candidates pass an MDL screen. No candidate ranks high merely
-     for being generic.
+     for being generic. That includes the bridge fallback when the gate is off (0.16.0), and a pair
+     ranked on its endpoints' strengths shares the slate: no endpoint takes more than ENDPOINT_CAP slots.
   4. Failure memory binds generation (§13): a candidate whose `(source, relation, target)` (or its
      reverse) is already in `FAILURE_STATES` is dropped on sight.
 
@@ -24,13 +25,13 @@ from __future__ import annotations
 import json
 import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import networkx as nx
 
 from .graphio import node_attr, node_link_graph
-from .model import NON_LIVE_STATE_VALUES, edge_id
+from .model import NON_LIVE_STATE_VALUES, compression_id, edge_id
 
 # The edge epistemic_state string values the generators must treat as NON-live (§1.7). Generators build
 # their adjacency/undirected topology over the SAME non-live-EXCLUDED subgraph that node ranks were
@@ -57,6 +58,14 @@ BRIDGES_RELATION = "bridges"
 
 # The community id meaning "no community" — the sentinel _attr default for a node's "community" attr.
 NO_COMMUNITY = -1
+
+# The most slots one endpoint may take in a slate that ranks a pair by the SUM of its endpoints' strengths
+# (bridge, and regroup with ensemble's degraded path, 0.16.0). A sum lets the strongest node pair with every
+# other strong node before any pair without it. On the field graph of 2026-11-14, 10 of 10 bridges hung off
+# one node. Replayed after those proposals were written, the next run did the same with the gate on. Two
+# lets a hub show up as a hub and leaves the rest of the slate to the other pairs. The cap holds at every k:
+# the selection walks the ranked list in order, so the first k it keeps are the same whatever the run's k.
+ENDPOINT_CAP = 2
 
 # seed (§3) all-pairs BFS size gate (perf #8). At or below this node count `seed` runs the EXACT
 # original code path (unbounded BFS + full O(V^2) pair scan) so small graphs stay byte-identical with
@@ -106,10 +115,19 @@ class Candidate:
     convergence: int = 1  # advisory (§4): # of DISTINCT mechanisms that independently proposed this edge.
     # A RANKING PRIOR for the grounding queue — NEVER a score, NEVER a verdict, NEVER folded into
     # `score` or onto a canon edge (G3/G4). Set in run_generators' dedup pass; node candidates keep 1.
+    # Node candidates only (0.16.0): the members a compression collapses and the id to write it under, the
+    # one `kg_operate collapse` gives the same members (`model.compression_id`). Through 0.15.2 the members
+    # were only in `rationale` and there was no id, so the language layer had to parse the one and invent
+    # the other, and nothing said to write the `collapses_into` star the MDL screen scored.
+    members: list = field(default_factory=list)
+    id: str = ""
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
-        return asdict(self)
+        d = asdict(self)
+        if self.kind != "node":  # an edge candidate's dict is unchanged: its identity is its endpoints
+            del d["members"], d["id"]
+        return d
 
 
 # --------------------------------------------------------------------------- shared helpers
@@ -134,10 +152,18 @@ def _mean_specificity(G) -> float:
 def _bridge_strength(G, n, gate_on: int) -> float:
     """The endpoint's bridging strength under the generality control (PLAN §4). When the gate is ON,
     trust spec_betweenness (the confound-corrected metric); when OFF, fall back to the honest
-    structural-bridge flag, tie-broken by degree — never raw betweenness, which the confound inflates."""
+    structural-bridge flag, tie-broken by degree — never raw betweenness, which the confound inflates.
+
+    The fallback is weighted by the node's specificity, as spec_betweenness weights betweenness (0.16.0).
+    Through 0.15.2 it was not. On the field graph of 2026-11-14 no node was a structural bridge, so the
+    strength was degree alone. A degree leader is confounded by generality just as a betweenness leader
+    is, and the bridge slate paired the node with the most links with the top node of every other
+    community: radar-meta, specificity 1.74 against a graph mean of 2.81. With no IDF spread every node
+    has the same specificity, the weighting is a constant factor, and the order is the old one."""
     if gate_on:
         return float(_attr(G, n, "spec_betweenness", 0.0))
-    return float(_attr(G, n, "structural_bridge", 0)) + 1e-6 * float(_attr(G, n, "degree", 0))
+    structural = float(_attr(G, n, "structural_bridge", 0)) + 1e-6 * float(_attr(G, n, "degree", 0))
+    return structural * float(_attr(G, n, "specificity", 1.0))
 
 
 def _pair_specificity(G, a, b) -> float:
@@ -226,6 +252,25 @@ def _rank(cands: list, k: int) -> list:
     return sorted(cands, key=key)[: max(0, int(k))]
 
 
+def _rank_spread(cands: list, k: int, cap: int = ENDPOINT_CAP) -> list:
+    """`_rank`'s order, keeping a candidate only while both of its endpoints have taken fewer than `cap`
+    slots (see ENDPOINT_CAP). It walks the whole ranked list and decides each candidate on the ones kept
+    before it, so cutting at k keeps exactly what a larger k keeps first. `run_generators` relies on that:
+    it runs a mechanism at a large k for the convergence tally and surfaces the first k."""
+    k = max(0, int(k))
+    kept: list = []
+    slots: dict = defaultdict(int)
+    for c in _rank(cands, len(cands)):
+        if len(kept) >= k:
+            break
+        if slots[c.source] >= cap or slots[c.target] >= cap:
+            continue
+        slots[c.source] += 1
+        slots[c.target] += 1
+        kept.append(c)
+    return kept
+
+
 def _edge_cand(mechanism, source, target, relation, *, score, specificity, rationale, section):
     return Candidate(kind="edge", mechanism=mechanism, source=source, target=target, relation=relation,
                      score=round(float(score), 6), specificity=round(float(specificity), 4),
@@ -235,11 +280,23 @@ def _edge_cand(mechanism, source, target, relation, *, score, specificity, ratio
 # --------------------------------------------------------------------------- the mechanisms (six core + periphery §5)
 
 
+def _bridge_basis(G, u, v, gate_on: int) -> str:
+    """What a bridge pair's strength was computed from, for its rationale. The field session of 2026-11-14
+    read "strength=0.0000 via structural-bridge" as naming radar-meta the graph's only structural bridge,
+    when no node was one and the rank was degree alone (0.16.0)."""
+    if gate_on:
+        return "spec_betweenness"
+    if _attr(G, u, "structural_bridge", 0) or _attr(G, v, "structural_bridge", 0):
+        return "structural-bridge × specificity"
+    return "degree × specificity; neither end is a structural bridge"
+
+
 def bridge(G, *, failures, k=10, adj=None) -> list:
     """§2/§4 — generate FROM the bridges (Swanson literature-based discovery, structurally). Rank
     non-adjacent, cross-community node pairs by the combined bridging strength of their endpoints; the
     strength is generality-controlled (spec_betweenness when the gate is on, structural-bridge/degree
-    otherwise). Connecting two strong-but-separate hubs creates a shortcut the graph lacked."""
+    weighted by specificity otherwise). Connecting two strong-but-separate hubs creates a shortcut the
+    graph lacked. No endpoint takes more than ENDPOINT_CAP slots of the slate (0.16.0)."""
     gate_on, strength = _strength_map(G)
     adj = _resolve_adj(G, adj)
     nodes = list(G.nodes())
@@ -259,12 +316,14 @@ def bridge(G, *, failures, k=10, adj=None) -> list:
                 continue
             spec = _pair_specificity(G, u, v)
             score = su + sv
+            # `:.3g`, not `:.4f`: a fallback strength without a structural bridge is ~1e-5, which `.4f`
+            # printed as 0.0000 (0.16.0)
             cands.append(_edge_cand(
                 "bridge", u, v, BRIDGES_RELATION, score=score, specificity=spec, section="§2/§4",
                 rationale=(f"cross-community bridge: {_attr(G, u, 'label', u)} (c{cu}) ⇄ "
                            f"{_attr(G, v, 'label', v)} (c{_attr(G, v, 'community', NO_COMMUNITY)}); "
-                           f"strength={score:.4f} via {'spec_betweenness' if gate_on else 'structural-bridge'}")))
-    return _rank(cands, k)
+                           f"strength={score:.3g} via {_bridge_basis(G, u, v, gate_on)}")))
+    return _rank_spread(cands, k)
 
 
 def seed(G, *, failures, k=10, und=None, adj=None) -> list:
@@ -321,7 +380,9 @@ def compression(G, *, failures, k=10, und=None) -> list:
     `collapses_into`-links the members, but only when an MDL screen shows a description-length SAVING
     (re-expressing the cluster's internal edges as a star through one new node costs fewer bits) AND the
     cluster is not vague (mean member specificity ≥ the graph-wide mean specificity). The label is left BLANK for the
-    language layer (Stage 6) to name. Members are carried in the rationale."""
+    language layer (Stage 6) to name. The candidate carries its `members` and the `id` to write the node
+    under (0.16.0), so the language layer writes the star the screen scored: the node, and one
+    `collapses_into` edge from each member to it. The rationale still names the members, for reading."""
     und = _resolve_und(G, und)
     mean_spec = _mean_specificity(G)
     by_comm = _members_by_community(G)
@@ -341,12 +402,14 @@ def compression(G, *, failures, k=10, und=None) -> list:
         if member_spec < mean_spec:
             continue  # vague compression rejected (§4 — generality control)
         saved = direct - compressed
+        ms = sorted(members)
         cands.append(Candidate(
             kind="node", mechanism="compression", node_type="compression", label="",
             score=round(saved, 4), specificity=round(member_spec, 4), section="§7",
             rationale=(f"MDL: {e_int} internal edges among {m} members re-express as a star "
                        f"(saves ~{saved:.0f} bits); specificity {member_spec:.2f} ≥ graph mean "
-                       f"{mean_spec:.2f}; collapses: {', '.join(sorted(members))}")))
+                       f"{mean_spec:.2f}; collapses: {', '.join(ms)}"),
+            members=ms, id=compression_id(ms)))
     return _rank(cands, k)
 
 
@@ -393,7 +456,8 @@ def regroup(G, *, failures, k=10, und=None, adj=None, new_comm=_UNSET) -> list:
                 rationale=(f"invisible under the prior partition: {_attr(G, u, 'label', u)} and "
                            f"{_attr(G, v, 'label', v)} share community c{ou} at the stored resolution but "
                            f"split apart when re-partitioned")))
-    return _rank(cands, k)
+    # ranked on the same endpoint-strength sum as bridge, so it shares the slate the same way (0.16.0)
+    return _rank_spread(cands, k)
 
 
 def transplant(G, *, failures, k=10, und=None, adj=None) -> list:
@@ -676,9 +740,9 @@ def _convergence_tally(full: list, degraded_ensemble: bool) -> dict:
 def _dedup_candidates(out: list, mech_by_key: dict) -> list:
     """Dedup EDGE candidates across mechanisms by `_edge_key`, keeping the FIRST occurrence
     (highest-priority mechanism by run order) and stamping its `convergence` from the tally. NODE
-    candidates (e.g. compressions) pass through untouched — their label is blank until Stage 6
-    names them, so they carry no stable identity to dedup on and must not be collapsed by an
-    empty-label key."""
+    candidates (compressions) pass through untouched. Their label is blank until Stage 6 names them, so
+    an empty-label key must not collapse them. They carry an `id` since 0.16.0, but only `compression`
+    emits them, one per community, and communities are disjoint, so no two can share one."""
     seen: set = set()
     deduped: list = []
     for c in out:

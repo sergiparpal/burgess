@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.16.0 — 2026-11-14
+
+Found on the first field `/burgess:kg-generate`, on 0.15.2. The run wrote what it should: 16 candidates became 37
+hypothesized items, all accepted, nothing judged. But its slate, and what the slate did to the graph, showed three
+gaps. Each was checked on a copy of the field canon rebuilt to its state before the run, where 0.15.2 gives back
+the field slate exactly: the same 16 candidates with the same scores.
+
+### Changed
+
+- **One node took the whole bridge slate.** All 10 bridges hung off `radar-meta`, and 11 of the 12 edge candidates
+  touched it.
+  - No node of that graph was a structural bridge: every community was one connected component, about 270 of them.
+  - With the gate off, a node's strength was `structural_bridge + 1e-6·degree`, so the rank was degree alone. A
+    pair scores the sum of its two ends, so the node with the most links (radar-meta, 12) paired with the top node
+    of every other community.
+  - radar-meta's specificity is 1.74 against a graph mean of 2.81: the generic hub §4 is meant to hold back.
+- **The gate-off strength is weighted by specificity,** as `spec_betweenness` weights betweenness:
+  `(structural_bridge + 1e-6·degree) × specificity`. With no specificity spread the factor is a constant and the
+  order is the old one.
+- **No node takes more than two slots** of a `bridge` or `regroup` slate (`generate.ENDPOINT_CAP`).
+  - The cap holds with the gate on too. Replayed after the run's 33 proposals were written, the gate was on, and
+    the next slate gave all ten bridges to radar-meta again.
+  - `regroup` ranks on the same endpoint sums, so it shares its slate the same way. `transplant` keeps its one hub,
+    by design.
+  - The cap is part of a mechanism's own list: a pair a mechanism capped out does not count toward `convergence`
+    as proposed by it.
+  - On the replayed field graph, the default slate's ten bridges now span ten nodes, radar-meta in two of them,
+    and the first pairs it with `specification-gaming` (specificity 4.15). With `all`, radar-meta is in 15 edge
+    candidates instead of 31, ten of them transplant's.
+- **A bridge's rationale names what its strength came from.** The field run printed "strength=0.0000 via
+  structural-bridge", and the session read that as naming radar-meta the graph's only structural bridge. Now it
+  reads "via degree × specificity; neither end is a structural bridge", and the strength has three significant
+  figures.
+- **`kg_generate` says when unjudged proposals shaped its ranks.**
+  - A hypothesized edge is live structure until it is judged. `unjudged_hypotheses` counts them, and `note` says to
+    run `/burgess:kg-ground` first.
+  - On the field graph the run's 33 proposals turned the gate on, made radar-meta a bridge of 10 communities and
+    raised its betweenness 13-fold.
+  - Replayed on 0.15.2, the next run bridged radar-meta to ten more nodes. It seeded ten pairs of a compression's
+    members, linked through the unjudged compression node, and proposed compressing each compression again.
+  - It is a warning, not a gate. `/burgess:kg-generate` tells the user before it writes and again in its report.
+- **A compression candidate carries its `members` and the `id` to write it under.**
+  - Through 0.15.2 the members were only in `rationale` and there was no id. Neither the command nor kg-generator
+    said to write the `collapses_into` star the MDL screen scored, and the agent's example showed a lone node.
+  - The field session read `operations.py` to find the collapse id rule.
+  - The id is the one `kg_operate collapse` writes, and the rule now lives in `model.compression_id`, so a later
+    collapse lands on the same node.
+  - kg-generator and the command now say to write the node under that id, with one `collapses_into` edge from
+    each member. An edge candidate's dict is unchanged.
+
+### Upgrading
+
+- Nothing to do. The field canon is unchanged. Its four compression ids are the ones the moved rule gives.
+- The views carry the 0.15.2 mark, so the first read that projects re-renders them, with the same look.
+- The field run's 33 proposals are still unjudged, so `/burgess:kg-ground` comes next. Until then a new
+  `/burgess:kg-generate` says so.
+
+### Known gap
+
+- **A compression is proposed again over its own star.** Replayed with the four stars grounded, the next
+  compression run proposes compressing each of those communities again, with the compression node among the members
+  (`compression-compression-…`). Not addressed here.
+
+### Tests
+
+- `tests/test_fix_generate_diversity.py` (16 tests):
+  - the gate-off strength is the old one times the node's specificity, and a generic hub no longer wins on its
+    links alone;
+  - with no specificity spread, the order is the old one;
+  - no endpoint takes more than two slots of a bridge slate, with the gate off and on, and a regroup slate shares
+    its slots the same way;
+  - a shorter run keeps what a longer one keeps first, which the convergence tally relies on;
+  - `kg_generate` counts unjudged hypothesized edges and says to ground them, and stops once they are judged;
+  - a compression candidate carries its members and the collapse id, and the star built from it goes through the
+    propose lane;
+  - the moved id rule gives the field canon's ids;
+  - the generator and the command say to write the star, and the generator's example is a real one.
+- Against 0.15.2 the file does not import, since `model.compression_id` is new. With the old id rule inlined, 12 of
+  the 16 fail. The 4 that pass pin what must not change: the order with no specificity spread, a shorter run
+  keeping what a longer one keeps first, an edge candidate's dict, and the field canon's compression ids.
+- 2109 → 2125 passed, 3 skipped.
+- **Field replay:** on a copy of the field canon, rebuilt to its state before the run, 0.15.2 reproduces the field
+  slate, and 0.16.0 gives the slate described above.
+
 ## 0.15.2 — 2026-11-14
 
 Asked for in the field on 0.15.1. Once the update had re-rendered the graph view, the user asked for a pale red line

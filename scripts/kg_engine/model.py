@@ -254,6 +254,18 @@ def edge_id(source: str, relation: str, target: str) -> str:
     return f"e_{slug(source)}__{slug(relation)}__{slug(target)}"
 
 
+def compression_id(members) -> str:
+    """Deterministic identity of a compression node over `members`, in any order. `kg_operate collapse`
+    writes this id, and since 0.16.0 every `kg_generate` compression candidate carries it too. Through
+    0.15.2 the rule lived only in `operations`, which imports `generate`, so a candidate could not carry it.
+    The language layer had to make an id up, and a later collapse of the same members would then fork a
+    duplicate. On the field run of 2026-11-14 the session read the engine's source to find this rule."""
+    ms = sorted(members)
+    h = hashlib.sha1("\x00".join(ms).encode("utf-8")).hexdigest()[:8]
+    lead = slug(ms[0]) if ms else "cluster"
+    return f"compression-{lead}-{h}"
+
+
 # --------------------------------------------------------------------------- dataclasses
 
 

@@ -580,6 +580,23 @@ whether it actually lifts ideation was measured blind — see [`fusion/EXPERIMEN
 If `/burgess:kg-generate` reports `count == 0`, the structure surfaced nothing for those mechanisms. Try
 `all`, a larger `k`, or `/burgess:kg-perturb`. A small graph is the usual cause.
 
+### Ground before you generate again
+
+Proposals nobody has judged yet count as graph structure. So a second `/burgess:kg-generate` before
+`/burgess:kg-ground` ranks its candidates partly on the first one's proposals. The command says so, with the
+count, before it writes anything. It still generates.
+
+On the field graph of 2026-11-14, one generation's 33 proposals made their hub a bridge of ten communities.
+The next run, replayed, would have bridged that hub to ten more nodes and seeded pairs whose only link was an
+unjudged compression.
+
+### One node, two slots
+
+A `bridge` or `regroup` slate gives no node more than two of its places. Both rank a pair by the sum of its
+two ends' strengths, which lets the strongest node pair with every other strong node first. On the field
+graph of 2026-11-14, all ten bridges hung off one node. With the gate off, a node's strength is also weighted
+by its specificity, so a generic hub no longer wins on its number of links alone.
+
 ---
 
 <a id="kg-perturb"></a>
