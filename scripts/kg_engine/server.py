@@ -2679,8 +2679,9 @@ class KGEngine:
             self._refresh_views()
 
     def _refresh_views(self) -> None:
-        """Re-render each view `/kg-view` rendered that the projection has moved past (0.15.0) — and NEVER
-        raise. Through 0.14.5 a view changed only when the user ran `/kg-view` again. On the field project
+        """Re-render each view `/kg-view` rendered that the projection has moved past (0.15.0), or that an
+        older engine rendered (0.15.1) — and NEVER raise. Through 0.14.5 a view changed only when the user
+        ran `/kg-view` again. On the field project
         (2026-11-13) the graph.html in the user's browser was three days and 48 changed canon notes old.
         Now the first projecting read after a change re-renders it: every `/kg-build` and `/kg-ground` ends
         with one (`kg_context`). The rule and its anchor live in `export.refresh_views`.

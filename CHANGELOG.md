@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.15.1 — 2026-11-14
+
+Asked for in the field on 0.15.0. Looking at the graph view, the user asked why it showed no hypothesized or inferred
+nodes and no hypothesized lines. The field canon has none of those, but 35 of its 261 edges are `inferred`, and the
+view drew them exactly like span-present ones.
+
+### Fixed
+
+- **An inferred edge looked like a span-present one.** The line showed the edge's state alone: colour and dash
+  (green solid, red, grey dashed). Only an unverified hypothesized edge had a line of its own (dotted blue). So
+  the provenance axis was invisible on edges, against the view's rule that the three axes sit on independent
+  visual channels.
+- **Now an edge's provenance has its own channel, the line's opacity,** as a node's has its fill's.
+  - An `inferred` edge is drawn lighter (`PALETTE.edgeAlpha.inferred`, 0.4) in every state: a pale green line is
+    a grounded inferred edge, and a pale red one a rejected or failed one. Colour, width and dash stay the
+    state's.
+  - On the field canon that is 19 grounded and 16 rejected edges, judged between 2026-11-07 and 2026-11-09.
+  - In this engine `inferred` does not mean "without a span": `kg_write` verifies a verbatim span on every edge
+    outside the propose lane. It means the extractor judged that the relation joins several sentences rather
+    than being stated in one. It is also the default when an extractor leaves the field out.
+- **A new look waited for the next change to the graph.**
+  - 0.15.0 re-rendered a view only when the projection moved past it.
+  - On the field project the views were rendered at 23:34 on 2026-11-13, by 0.14.5, after the day's last
+    projection. So the lighter inferred edges would have reached them only with the next build or grounding
+    pass.
+  - Each view now records the engine version that rendered it, and a view an older engine rendered is stale too:
+    the first read that projects after an update re-renders it. A view with no mark (before 0.15.1) counts as
+    older.
+  - A view a newer engine rendered is left alone, so two sessions on different versions do not re-render it on
+    every read, each undoing the other.
+  - `graph.html` carries the mark in a `<meta name="generator">`, and `GRAPH_REPORT.md` in an HTML comment on
+    its first line, which a Markdown viewer does not show. `export.rendered_by` reads it from the file's first
+    512 bytes.
+
+### Changed
+
+- **The legend** has a new section, *provenance — edge line opacity*, with a span-present and an inferred
+  swatch painted from the palette.
+- **`/burgess:kg-view`**, the skill's tool reference (§1.17) and ARCHITECTURE describe the edge channel and the
+  re-render after an update.
+
+### Upgrading
+
+- Nothing to do. On the field project the first read that projects after the update re-renders both views (they
+  carry no mark), so reloading the page shows the lighter inferred edges.
+
+### Tests
+
+- `tests/test_fix_inferred_edges_distinct.py` (11 tests):
+  - the template's own `edgeStyle`, run under node for every state with each provenance: an inferred edge is
+    lighter and otherwise identical. The states keep their lines, and an unverified hypothesized edge keeps its
+    dotted blue line at full opacity;
+  - the draw loop sets the opacity per edge and resets it before the nodes;
+  - the legend's new section, painted from the palette;
+  - the view's data carries each edge's provenance;
+  - each view records the version that rendered it;
+  - a view with no mark or an older one (0.15.0, 0.14.5) is re-rendered by the next read, and one a newer
+    engine rendered is left alone;
+  - `/burgess:kg-view`'s description.
+- Against 0.15.0, 10 fail. The one that passes pins the premise: the view's data already carried each edge's
+  provenance.
+- 2095 → 2106 passed, 3 skipped.
+- **Checked visually:** a scratch graph with span-present and inferred edges in each state, rendered and
+  screenshotted with headless Chromium. The inferred lines are visibly lighter, the legend shows the new section,
+  and the states read as before.
+
+### Docs
+
+- `docs/fusion/DECISIONS.md`: *An edge's provenance is its line's opacity, and an older engine's view is
+  stale*, with the rejected alternatives and the gap left open (a judged hypothesized edge still looks like a
+  span-present one).
+
 ## 0.15.0 — 2026-11-13
 
 Asked for in the field on 0.14.5. After a grounding pass, the user asked whether `/burgess:kg-view` had to be run

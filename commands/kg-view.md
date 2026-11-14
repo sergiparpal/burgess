@@ -16,7 +16,8 @@ view, not a source of truth (the canon is the source of truth).
 
 **Once rendered, a view stays current (0.15.0).** The engine re-renders each view this command has rendered on
 the first read that projects the canon after a change. Every `/burgess:kg-build` and `/burgess:kg-ground` ends
-with such a read. The file keeps its path, so reloading the page shows the change. After a change made any
+with such a read. After a plugin update, that read also re-renders a view an older version rendered, so a
+new look reaches it without a change to the graph (0.15.1). The file keeps its path, so reloading the page shows the change. After a change made any
 other way (a merge, `/burgess:kg-diverge`), the next read that projects does it, or this command. A read never
 creates a view: run this command once to create one, and again after deleting one.
 
@@ -35,6 +36,8 @@ creates a view: run this command once to create one, and again after deleting on
        already rejected — matching `projector._live_subgraph`, which excludes them from every rank) · dotted = hypothesized;
      - `authored_by` → **node border**: deterministic · agent · human;
      - `provenance` → **node fill opacity**: span-present (opaque) · inferred (mid) · hypothesized (faint).
+       On edges, an `inferred` edge's line is drawn lighter, whatever its state (0.15.1); its colour and dash
+       stay the state's.
      - **Node size = degree** (the honest advisory). The **bridge highlight** (gold ring) is gate-aware —
        `spec_betweenness` only when the specificity gate earned promotion, else the structural-bridge advisory
        (§1.6); size is never the bridge metric, so the generality confound is never smuggled into it.

@@ -590,7 +590,8 @@ dir. `kind ∈ {html, report, all}` (default `all`).
   inlined). The **three axes are on INDEPENDENT visual channels** (never one "confidence" colour):
   `epistemic_state`→edge line (solid grounded · dashed unverified · **red failed/rejected** · dotted
   hypothesized; failed/rejected are **drawn, never filtered** — §1.7), `authored_by`→node border,
-  `provenance`→node fill opacity. **Node size = degree** (the honest advisory); the bridge highlight is
+  `provenance`→node fill opacity, and an `inferred` edge's line is drawn lighter in any state (0.15.1).
+  **Node size = degree** (the honest advisory); the bridge highlight is
   gate-aware (`spec_betweenness` only when `gate_on=1`, else the structural-bridge advisory — size is never
   the bridge metric).
 - **`GRAPH_REPORT.md`** — headline counts from `kg_metrics` (cannot drift), per-community axis breakdowns
@@ -601,7 +602,8 @@ dir. `kind ∈ {html, report, all}` (default `all`).
   (`projector.py` stays their sole writer). Cannot forge a verdict or bypass span-present. Also: CLI
   `python -m kg_engine.export html|report|all` and the `/burgess:kg-view` command.
 - **A rendered view stays current (0.15.0).** Every read that projects the canon re-renders each view that
-  exists and is older than the projection's `graph.json`: the first such read after a change does it. Every
+  exists and is older than the projection's `graph.json`, or that an older plugin version rendered (0.15.1;
+  each view records its version): the first such read after a change or an update does it. Every
   `/burgess:kg-build` and `/burgess:kg-ground` ends with one (`kg_context`). A read never creates a view, and a
   degraded projection (failed or contended) re-renders none. A render that fails is logged and never fails
   the read.

@@ -23,6 +23,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from . import __version__
 from .atomicio import atomic_write_text as _atomic_write
 from .model import FAILURE_STATE_VALUES
 from .projector import BRIDGE_LIMIT
@@ -38,6 +39,12 @@ _KINDS = ("html", "report", "all")
 # The two views' file names under the derived dir, named once for the builders and the refresh (0.15.0).
 HTML_NAME = "graph.html"
 REPORT_NAME = "GRAPH_REPORT.md"
+# Each view records the engine version that rendered it (0.15.1): graph.html in a `<meta name="generator">`
+# near the top of its head, GRAPH_REPORT.md in an HTML comment on its first line, which a Markdown viewer
+# does not show. `stale_views` reads the mark from the file's first bytes.
+GENERATOR = f"Burgess {__version__}"
+_MARK_BYTES = 512
+_RENDERED_BY = re.compile(r"Burgess (\d+)\.(\d+)\.(\d+)")
 _COMMUNITY_PREVIEW = 8        # community-member preview count (the slice AND the "…"-more threshold must match)
 # The cap on every list the report prints: falsification memory, stale and re-examinable verdicts, and the
 # names in the single-node-communities entry. A list that stops at the cap says how many it leaves out
@@ -158,7 +165,8 @@ def build_html(engine) -> Path:
     # ORIGINAL template and never re-examines replacement text, so neither substitution can corrupt the
     # other's output regardless of what the payload contains.
     _subs = {"__KG_DATA_JSON__": payload,
-             "__KG_FAILURE_STATES_JSON__": json.dumps(sorted(FAILURE_STATE_VALUES))}
+             "__KG_FAILURE_STATES_JSON__": json.dumps(sorted(FAILURE_STATE_VALUES)),
+             "__KG_GENERATOR__": GENERATOR}
     html = re.sub("|".join(re.escape(k) for k in _subs), lambda m: _subs[m.group(0)], HTML_TEMPLATE)
     out = engine.projector.derived / HTML_NAME
     _atomic_write(out, html)
@@ -395,8 +403,9 @@ def _truncate(s: str, n: int = _SPAN_TRUNCATE) -> str:
 def build_report(engine) -> Path:
     """Render GRAPH_REPORT.md and atomically write it under the derived dir. Returns its path."""
     model = _load_render_model(engine)
-    md = _report_md(engine.kg_metrics(), model["nodes"], model["edges"],
-                    model["stale_verdicts"], model["gate_on"], model["reexaminable_verdicts"])
+    md = f"<!-- {GENERATOR} -->\n" + _report_md(
+        engine.kg_metrics(), model["nodes"], model["edges"],
+        model["stale_verdicts"], model["gate_on"], model["reexaminable_verdicts"])
     out = engine.projector.derived / REPORT_NAME
     _atomic_write(out, md)
     return out
@@ -434,22 +443,50 @@ def export(engine, kind: str = "all") -> dict:
 # Only a view that exists is kept current. The user creates a view with /kg-view, and a read never creates
 # one: a project that never asked for a view gets no file in the data dir, and a view the user deleted
 # stays deleted.
+#
+# A view an older engine rendered is stale too (0.15.1). A new version can change how a view looks: 0.15.1
+# draws inferred edges lighter. A view newer than graph.json would keep the old look until the next change
+# to the graph. On the field project the views were rendered at 23:34 on 2026-11-13, by 0.14.5, after the
+# day's last projection. So the mark of the version that rendered each view is compared too, and a view with
+# no mark (rendered before 0.15.1) counts as older. A view a NEWER engine rendered is left alone: two
+# sessions on different versions would otherwise re-render it on every read, each undoing the other.
+
+
+def _version_tuple(text: str) -> "tuple | None":
+    m = _RENDERED_BY.search(text)
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def rendered_by(path: Path) -> "tuple | None":
+    """The engine version that rendered a view, from the mark in its first bytes; None for a view with no
+    mark (rendered before 0.15.1) or one that cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(_MARK_BYTES).decode("utf-8", "ignore")
+    except OSError:
+        return None
+    return _version_tuple(head)
 
 
 def stale_views(engine) -> list:
-    """The views (``html``, ``report``) that exist and are older than the projection's ``graph.json``,
-    in that order. Empty when nothing has been projected yet. Reads three file times, nothing else."""
+    """The views (``html``, ``report``) that exist and are either older than the projection's
+    ``graph.json`` or rendered by an older engine, in that order. Empty when nothing has been projected
+    yet. Reads three file times and the first bytes of each view, nothing else."""
     try:
         projected = engine.projector.graph_path.stat().st_mtime_ns
     except OSError:
         return []
+    current = _version_tuple(GENERATOR)
     stale = []
     for kind, name in (("html", HTML_NAME), ("report", REPORT_NAME)):
+        path = engine.projector.derived / name
         try:
-            if (engine.projector.derived / name).stat().st_mtime_ns < projected:
-                stale.append(kind)
+            behind = path.stat().st_mtime_ns < projected
         except OSError:
             continue  # never rendered, or deleted: /kg-view creates a view, never a read
+        by = rendered_by(path)
+        if behind or by is None or (current is not None and by < current):
+            stale.append(kind)
     return stale
 
 
