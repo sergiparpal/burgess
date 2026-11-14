@@ -1454,3 +1454,60 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_generate_diversity.py` (16 tests). Against 0.15.2, with the old id rule inlined,
   12 fail. The 4 that pass pin what must not change: the order with no specificity spread, a shorter run keeping
   what a longer one keeps first, an edge candidate's dict, and the field canon's compression ids.
+
+## A verdict keeps its reason and its file, and absorption scores only what was grounded (2026-11-14)
+
+- **Decision:**
+  - `harness.absorption_window` scores a tracked node only when the derived graph holds it as `grounded`, with
+    degrees over live edges (`model.NON_LIVE_STATE_VALUES` left out). Every other tracked node goes to
+    `not_scored` with its state, or `absent` when the graph no longer holds it. `harness.absorption` is the scored
+    half. `kg_absorption` returns both, its `tracked` counts both, and its note says how many were not scored.
+  - `kg_ground` keeps a node verdict's `note` in the node's body, as the paragraph `verdict (<state>): <note>`.
+  - A support span records its file. `SourceSet.files_containing` gives the files that hold the span, in source
+    order. An edge that names no declared source takes the first one as its `source_file`, and a promoted node's
+    body gets a `grounding source: <file>` paragraph.
+- **Field run it answers** (0.15.2, 2026-11-14): the `/burgess:kg-ground` that judged the first field
+  generation's 37 items. It grounded 2 of the 33 edges and 2 of the 4 compression nodes, and rejected the rest
+  for no support.
+  - `kg_absorption`, called by the session for its report, scored all four compressions `fertile` at the degree
+    each was born with. Two had been rejected, and so had 19 of their 21 star edges.
+  - The grounders rejected two compression nodes with a reason each. The node branch of `kg_ground` ignored
+    `note`, so the session wrote the reasons into its report and its memory, the only places they survived.
+  - The two grounded star edges had their span and no `source_file`, so they were cited without their document.
+- **Why only grounded nodes:** the window is defined over nodes grounded from a hypothesis (§14).
+  - A rejected node is negative memory, not a perturbation the graph is absorbing.
+  - An unjudged node has not earned a window yet.
+  - Scoring both made a rejected compression read as the productive middle.
+- **Why live edges:** every other structural signal reads live topology: degree, communities, betweenness and
+  the generators' adjacency. A rejected star edge is the graph refusing a member's reduction, not absorbing the
+  node.
+- **Why a lost edge is no growth, not a rebased baseline:** the ledger records only the degree at introduction,
+  not which of those edges were later rejected. A shrunk node reads as no growth, so it stays `fertile` while a
+  live edge remains and turns `isolated` with none.
+- **Why the body for a node's note:** a Node has no notes field, and the body is already where its support goes.
+  Canon keeps a judged node's body when the node is written again, so the reason lasts.
+- **Why the first file:** a span is verbatim in every file that holds it. The first in source order is the file
+  whose excerpt `kg_ground_item` shows, so a later re-judgment reads the excerpt the record names. An edge that
+  names a declared file was verified against that file alone, so it keeps it.
+- **Rejected alternatives:**
+  - (a) *A `notes` field on Node.* That is a canon schema change, touching the merge driver, the reconciler and the
+    projector, to hold one sentence the body already can.
+  - (b) *A `support_file` parameter on `kg_ground`.* The grounder would have to name a file that the engine
+    already finds.
+  - (c) *An absorption status for a rejected or unjudged node.* That folds the epistemic axis into the absorption
+    status, and the axes are never collapsed into one.
+  - (d) *Backfilling the two field star edges' `source_file`.* No command rewrites a past verdict's fields, and
+    both edges verify as before.
+- **Accepted trade-offs:**
+  - The introduced degree still counts edges that were later rejected, so a node has to regain them before growth
+    counts.
+  - Edges promoted before 0.16.1 keep an empty `source_file`.
+  - A span that several files hold is recorded under the first of them.
+  - Two pins in `tests/test_fix_server.py` held the old edge-only note on purpose. They were rewritten to pin the
+    new contract, with the same purpose.
+  - The canon now holds the name of the file a promotion's span came from. The I5 snapshot fixture had given its
+    two arms the same corpus under different file names, so it now names both copies alike, each in its own
+    folder. Its assertion is unchanged.
+- **Pinned in:** `tests/test_fix_absorption_and_verdict_records.py` (14 tests) and the two rewritten pins. Against
+  0.16.0, 11 of the 14 fail, and so do both pins. The 3 that pass pin what must not change: a blank note adds
+  nothing, an edge that names a declared file keeps it, and a citation promotion records no file.

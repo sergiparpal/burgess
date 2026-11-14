@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.16.1 — 2026-11-14
+
+Found on the field `/burgess:kg-ground` that judged the first generation's 37 items, on 0.15.2. The verdicts
+were right: 2 of the 33 proposed edges and 2 of the 4 compression nodes were grounded, and the rest were rejected
+for lack of support. But three things those verdicts should have left behind were missing.
+
+### Fixed
+
+- **`kg_absorption` scored rejected nodes, over rejected edges.**
+  - It read every tracked node and every edge of the derived graph. After the pass, all four compressions came
+    back `fertile` at the degree each was born with (6, 6, 5 and 4), although two of them were rejected, and so
+    were 19 of their 21 star edges.
+  - Now only a tracked node the graph holds as `grounded` is scored, and its degrees count live edges only, as
+    every other structural signal does. An edge lost since the generation counts as no growth.
+  - The other tracked nodes are listed in a new `not_scored` field with their state (`unverified` = not judged
+    yet, `rejected`, `failed`, `obsolete`), or `absent` when the graph no longer holds them, and `note` says how
+    many. `tracked` still counts the whole ledger.
+  - On a copy of the field data, the two grounded compressions are now scored at their one live edge each, and
+    the two rejected ones are listed apart. No command decides anything on these statuses, so only the report
+    changes.
+- **A node verdict's note was dropped.**
+  - `kg_ground` documented `note` as edge-only and ignored it for a node. The grounders rejected two compression
+    nodes with a reason each, and the reasons survived only in the session's report and its memory.
+  - Now the note is kept in the node's body as the paragraph `verdict (<state>): <note>`, after any support the
+    promotion put there. Canon keeps a judged node's body when the node is written again, so the note lasts as
+    an edge's notes do.
+  - The grounder's contract now tells it to give a node the same one-line reason it gives an edge.
+- **A promoted hypothesis did not record which file held its span.**
+  - A hypothesized edge names no source file, so its support span is verified against every source. The two
+    grounded star edges kept the span but not the file, so they were cited without their document.
+  - Now the promotion records the first file that holds the span as the edge's `source_file`. That is the same
+    file whose excerpt `kg_ground_item` shows. An edge that names a declared file keeps it.
+  - A node's body gets a `grounding source: <file>` paragraph after its `grounding span:` one.
+  - Each field span is in one file only: Retirar for the holdout-scenarios edge and for the hidden-check node,
+    Fábricas for the correlated-failures edge.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged.
+- Past verdicts are not rewritten. The two star edges grounded on 2026-11-14 keep an empty `source_file`, and the
+  two rejected compression nodes keep no note. They verify and read as before.
+- `kg_absorption` returns the new shape on its next call.
+- The views carry the 0.16.0 mark, so the first read that projects re-renders them, with the same look.
+
+### Not addressed
+
+- 0.16.0's known gap stands: a compression is proposed again over its own star once the star is live.
+- The adversarial grounder's suggestions for counter-edges outside its hubs are still recorded nowhere. This
+  pass left two, the second time this has happened (the first was the field eval of 2026-11-10).
+  `/burgess:kg-build --leads` reads only the leads of rejected edges.
+
+### Tests
+
+- `tests/test_fix_absorption_and_verdict_records.py` (14 tests):
+  - absorption counts live edges only;
+  - it scores only grounded tracked nodes and lists the rest with their state or `absent`;
+  - a node that lost edges reads as no growth, and as `isolated` once it has none;
+  - the tool path end to end, through `kg_propose` and `kg_ground`, with the note;
+  - a node rejection keeps its note in the body;
+  - a node grounding keeps its span, its file and its note, in that order;
+  - a blank note adds nothing;
+  - the note survives the node being proposed again;
+  - `SourceSet.files_containing` lists the holding files in source order;
+  - a promoted edge records the file of its span, keeps a declared file it names, and replaces an unknown one;
+  - a citation promotion records no file;
+  - a promoted node names its grounding source.
+- Two pins in `tests/test_fix_server.py` held the old contract on purpose: a node's note was ignored, and the
+  wrapper docstring said `note` is edge-only. They now pin the new contract, with the same purpose: a node note is
+  accepted and kept in the body, and the docstring says where it goes.
+- Against 0.16.0, 11 of the 14 new tests fail, and so do both rewritten pins. The 3 that pass pin what must not
+  change: a blank note adds nothing, an edge that names a declared file keeps it, and a citation promotion
+  records no file.
+- The I5 snapshot test (`tests/fusion/test_generate_geometry.py`) gave its two arms the same corpus under two file
+  names. Now that a promotion records its span's file, the two canons differed by that name alone. Each arm now
+  reads a file of the same name in its own folder, and the assertion is unchanged.
+- 2125 → 2139 passed, 3 skipped.
+- **Field replay:** on a copy of the field canon and ledger, 0.16.0 gives back the field output exactly (four
+  `fertile`, degrees 6, 6, 5 and 4), and 0.16.1 gives the result above.
+
 ## 0.16.0 — 2026-11-14
 
 Found on the first field `/burgess:kg-generate`, on 0.15.2. The run wrote what it should: 16 candidates became 37

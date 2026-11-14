@@ -157,11 +157,16 @@ record so the reconciler treats the transition as legitimate.
 - `verdict: str` — one of `VALID_VERDICTS = {grounded, rejected, failed, obsolete}` (lower-cased internally).
 - `kind: str = "edge"` — `edge` or `node`.
 - `note: str = ""` — appended to the edge's `notes` (e.g. the rejection reason `vague` for a generality-confound
-  edge that is "true" only because it is generic/unfalsifiable, §1.6).
+  edge that is "true" only because it is generic/unfalsifiable, §1.6). With `kind="node"` it is kept in the
+  node's body as the paragraph `verdict (<state>): <note>` (0.16.1): a Node has no notes field, and through
+  0.16.0 its note was dropped.
 - `support_span: str = ""` / `support_note: str = ""` — **promotion support** (Stage 8). To move a
   `hypothesized` edge to `grounded` you MUST supply one, and it **upgrades the edge's provenance**:
   `support_span` (a verbatim source substring, span-verified) → `span-present`; `support_note` (an external
   citation, no span) → `inferred`. Ignored for non-hypothesized edges and for any verdict other than `grounded`.
+  A support span also records its file (0.16.1). An edge that names no declared source takes the first file
+  that holds the span as its `source_file`; one that names a declared source keeps it. A node's body gets a
+  `grounding source: <file>` paragraph after its `grounding span:` one.
 - `lead: str = ""` (0.9.0) — with `verdict="rejected"` on an edge only: the edge the rejected span does state
   instead, `"<head-id> <relation> <tail-id>"` (`groundplan.parse_lead`: the ids slugged, the relation a pack
   edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
@@ -557,13 +562,21 @@ stayed perturbing before the graph renormalised, so the slate can prefer the fer
 graph plus the `derived/generations.json` ledger that `/burgess:kg-generate` appends to. No args.
 
 ```json
-{"tracked": 3, "summary": {"fertile": 1, "absorbed": 1, "isolated": 1},
+{"tracked": 4, "summary": {"fertile": 1, "absorbed": 1, "isolated": 0},
  "nodes": {"compression": {"half_life": 2.0, "status": "fertile"}},
- "note": ""}
+ "not_scored": {"compression-gone-1a2b3c4d": "rejected", "compression-new-5e6f7a8b": "unverified"},
+ "note": "2 tracked node(s) not scored: only a node the graph holds as grounded has an absorption window. …"}
 ```
 
 `status ∈ fertile | absorbed | isolated`. With no ledger yet, `tracked` is `0` and `note` explains that
 `/burgess:kg-generate` has not started tracking the window (never an error).
+
+Only a tracked node the graph holds as `grounded` is scored, and its degrees count live edges only: rejected,
+failed and obsolete edges are left out, as in every other structural signal (0.16.1). An edge lost since the
+generation counts as no growth. `not_scored` maps every other tracked node to its state (`unverified` = not
+judged yet, `rejected`, `failed`, `obsolete`) or to `absent` when the graph no longer holds it, and `tracked`
+counts both. Through 0.16.0 every tracked node was scored over every edge, so a rejected compression read
+`fertile`.
 
 ### 1.16 `mcp__plugin_burgess_burgess__kg_agenda(limit=5)`
 

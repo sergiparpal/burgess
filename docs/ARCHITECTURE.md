@@ -140,10 +140,11 @@ folded). The full contract, reason strings and worked examples:
 
 Nodes carry no `collapses-into-*` quarantine — a re-emitted node id is deduped and ACCEPTED. But a
 node already holding a verdict (`grounded`/`rejected`/`failed`/`obsolete`) keeps its **body** across
-that merge: a `Node` has no `span` field, so `kg_ground` restates a promoted node's support *in the
-body*, and an incoming body would otherwise blank the very evidence the verdict rests on
-(`canon._merge_into_existing`). Label and `node_type` still update. To revise a grounded node's
-prose, edit the canon note.
+that merge: a `Node` has no `span` or `notes` field, so `kg_ground` restates a promoted node's support
+*in the body* (`grounding span: …` and the file that holds it, `grounding source: …`, or
+`citation: …`), and since 0.16.1 the verdict's note too (`verdict (<state>): …`). An incoming body
+would otherwise blank the very evidence the verdict rests on (`canon._merge_into_existing`). Label and
+`node_type` still update. To revise a grounded node's prose, edit the canon note.
 
 `kg_propose(payload)` is the **hypothesized write lane**: it forces `provenance=hypothesized`,
 refuses text claims (`propose-lane-text-claim`), requires no span, and preserves
@@ -166,7 +167,11 @@ Only `kg_ground(target_id, verdict, kind, note, support_span, support_note, lead
 states. `verdict ∈ {grounded, rejected, failed, obsolete}`. Promoting a `hypothesized` item to
 `grounded` **requires support**, which upgrades provenance: `support_span` (verbatim, span-verified)
 → `span-present`, or `support_note` (external citation) → `inferred`; neither →
-`hypothesis-needs-support`. A `rejected` edge may carry a `lead` (0.9.0): the edge its span does state
+`hypothesis-needs-support`. A support span also records the file it is in (0.16.1): an edge that names
+no declared source takes the first file that holds the span as its `source_file`, and a node gets a
+`grounding source:` paragraph. A verdict's `note` goes to an edge's `notes`, or to a node's body as
+`verdict (<state>): …` (0.16.1; through 0.16.0 a node's note was dropped). A `rejected` edge may carry a
+`lead` (0.9.0): the edge its span does state
 instead, checked against the pack and appended to the notes as `lead: <head> <relation> <tail>`. It sets
 no state: `/burgess:kg-build --leads` has an extractor write it as an ordinary `unverified` claim, whose notes open
 with `lead (from <rejected-edge-id>)`, and the next `/burgess:kg-ground` judges it. A lead belongs to the rejection
@@ -313,7 +318,9 @@ prior, never folded into `score`, and only reorders the queue once `harness conv
 clean band separation. Candidates route through `kg_propose`; the four endo operations
 (`kg_operate`: collapse/explode/regroup/open) persist through the same lane. `kg_absorption`
 scores, per node grounded from a hypothesis, how long it stayed perturbing before the graph
-renormalized (`fertile | absorbed | isolated`).
+renormalized (`fertile | absorbed | isolated`). Since 0.16.1 it scores only a tracked node the graph
+holds as grounded, and counts live edges only. Every other tracked node is listed in `not_scored`
+with its state, or `absent`.
 
 ## 5. The MCP tool surface (33 tools)
 

@@ -60,7 +60,12 @@ def _build(tmp_path, name):
     proj = tmp_path / name
     proj.mkdir()
     subprocess.run(["git", "-C", str(proj), "init", "-q"], check=True)
-    src = tmp_path / f"{name}-source.md"
+    # Both arms read the same corpus under the same file name, each in its own folder. A promotion
+    # records the file its support span is in (0.16.1), so differently named copies would put a
+    # different `source_file` in each canon for a reason that has nothing to do with the flag.
+    src_dir = tmp_path / f"{name}-src"
+    src_dir.mkdir()
+    src = src_dir / "source.md"
     src.write_text(SOURCE, encoding="utf-8")
     engine = KGEngine(proj, source_path=src, pack_path=PACK)
     engine.kg_write({"edges": [

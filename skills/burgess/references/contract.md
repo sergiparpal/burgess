@@ -136,8 +136,9 @@ Reasons:
 **Nodes have no `collapses-into-*` quarantine** — a re-emitted node id is deduped and ACCEPTED. But a node
 that already carries a verdict (`grounded`/`rejected`/`failed`/`obsolete`) keeps its **body** on that merge:
 a `Node` has no `span` field, so `kg_ground` restates a promoted node's support *in the body*
-(`grounding span: …` / `citation: …`), and an incoming body would otherwise blank the evidence the verdict
-rests on. Label and `node_type` still update. To revise a grounded node's prose, edit the canon note.
+(`grounding span: …` with `grounding source: <file>`, or `citation: …`), and since 0.16.1 the verdict's
+note (`verdict (<state>): …`). An incoming body would otherwise blank the evidence the verdict rests on.
+Label and `node_type` still update. To revise a grounded node's prose, edit the canon note.
 
 The reconciler also **re-quarantines** any out-of-band `epistemic_state` transition (a forged verdict
 edited straight into canon, bypassing `kg_ground`). When the edit forges *over* a `rejected`/`failed`

@@ -16,6 +16,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .graphio import node_link_graph
+from .model import NON_LIVE_STATE_VALUES, EpistemicState
 from .sources import SourceSet, section_corpus
 
 # --------------------------------------------------------------------------- Krippendorff's alpha
@@ -242,7 +243,19 @@ def convergence(history: list[dict]) -> dict:
 # --------------------------------------------------------------------------- absorption window (§14)
 
 
+# Why `absorption_window` leaves a tracked node out when the graph no longer holds it: merged, renamed
+# or deleted since its generation. Not an epistemic state; there is no node left to have one.
+ABSORPTION_ABSENT = "absent"
+
+
 def absorption(graph_data: dict, history: dict, *, now=None, absorb_growth: int = 3) -> dict:
+    """The scored half of `absorption_window`: {node id: {half_life, status, ...}} for the tracked
+    nodes the graph holds as grounded."""
+    return absorption_window(graph_data, history, now=now, absorb_growth=absorb_growth)[0]
+
+
+def absorption_window(graph_data: dict, history: dict, *, now=None,
+                      absorb_growth: int = 3) -> "tuple[dict, dict]":
     """Score how long each grounded-from-hypothesized node stays *perturbing* before the graph
     renormalises around it (§14 — novelty has a half-life). PLAN Stage 5.
 
@@ -251,11 +264,32 @@ def absorption(graph_data: dict, history: dict, *, now=None, absorb_growth: int 
       - **decay**: how fast its neighbourhood densified after introduction. Fast densification ⇒ the
         graph absorbed it quickly ⇒ low remaining novelty (short half-life).
       - **isolation**: whether it stayed disconnected ⇒ infertile.
-    Returns per-node {half_life, status ∈ fertile|absorbed|isolated, ...}. The fertile middle is the
-    productive zone: neither trivially absorbed nor isolated.
+    Returns ``(scored, not_scored)``. ``scored`` maps a node to {half_life, status ∈
+    fertile|absorbed|isolated, ...}. The fertile middle is the productive zone: neither trivially
+    absorbed nor isolated.
+
+    Only a node the graph holds as `grounded` has a window (0.16.1). Every other tracked node goes to
+    ``not_scored`` with the reason: its epistemic state (`unverified` = not judged yet, `rejected`,
+    `failed`, `obsolete`) or `absent` when the graph no longer holds it. A node the graph records no
+    state for, as a hand-built node-link graph may leave it, is scored as before. Degrees count live
+    edges only (`model.NON_LIVE_STATE_VALUES` out, the topology every other structural signal is
+    computed over), so a rejected or failed edge is no longer the graph absorbing a node. An edge lost
+    since the introduction counts as no growth: `densification` is clamped at 0.
+
+    Through 0.16.0 this scored every tracked node over every edge. The field kg-ground of 2026-11-14
+    rejected two of four generated compression nodes and most of their star edges, and all four still
+    came back `fertile` at the degree they were born with.
     """
-    G = node_link_graph(graph_data).to_undirected()
-    deg = dict(G.degree())
+    G = node_link_graph(graph_data)
+    states = {n: d.get("epistemic_state") for n, d in G.nodes(data=True)}
+    if G.is_multigraph():
+        dead = [(u, v, k) for u, v, k, d in G.edges(keys=True, data=True)
+                if d.get("epistemic_state") in NON_LIVE_STATE_VALUES]
+    else:
+        dead = [(u, v) for u, v, d in G.edges(data=True)
+                if d.get("epistemic_state") in NON_LIVE_STATE_VALUES]
+    G.remove_edges_from(dead)
+    deg = dict(G.to_undirected().degree())
     # `history` comes straight from generations.json, which the server passes UNVALIDATED — a record may
     # be a non-dict or carry a non-numeric field. Guard every read so a malformed file degrades to
     # "skip that record" instead of crashing the kg_absorption tool (review-low).
@@ -274,7 +308,14 @@ def absorption(graph_data: dict, history: dict, *, now=None, absorb_growth: int 
         ats = [_as_int(r.get("introduced_at", 0)) for r in history.values()]
         now = (max(ats) + 1) if ats else 1
     out: dict = {}
+    not_scored: dict = {}
     for nid, rec in history.items():
+        if nid not in states:
+            not_scored[nid] = ABSORPTION_ABSENT
+            continue
+        if states[nid] is not None and states[nid] != EpistemicState.GROUNDED.value:
+            not_scored[nid] = states[nid]
+            continue
         d0 = _as_int(rec.get("introduced_degree", 0))
         d1 = int(deg.get(nid, 0))
         t = max(1, _as_int(now) - _as_int(rec.get("introduced_at", 0)))
@@ -296,7 +337,7 @@ def absorption(graph_data: dict, history: dict, *, now=None, absorb_growth: int 
             half_life = round(t / growth, 3) if growth > 0 else None
         out[nid] = {"half_life": half_life, "status": status, "introduced_degree": d0,
                     "current_degree": d1, "densification": growth, "densification_rate": round(rate, 3)}
-    return out
+    return out, not_scored
 
 
 # --------------------------------------------------------------------------- ideation scoring

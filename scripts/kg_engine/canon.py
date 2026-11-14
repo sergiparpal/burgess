@@ -1254,8 +1254,10 @@ class Canon:
         cur.edges = list(by_id.values())
         # Verdict-durability, NODE lane (§1.7, review-r11) — the exact analogue of the edge guard above.
         # A node's grounding evidence lives in its BODY: a Node has no `span` field, so
-        # server._promote_hypothesis_node restates the support as `grounding span: …` / `citation: …`
-        # appended to `node.body`. An ordinary re-emit of the same node id (the same /kg-generate
+        # server._promote_hypothesis_node restates the support as `grounding span: …` (followed by the
+        # `grounding source: …` file since 0.16.1) / `citation: …` appended to `node.body`, and since
+        # 0.16.1 kg_ground appends the verdict's note there as `verdict (<state>): …`, the reason a
+        # rejected node keeps nowhere else. An ordinary re-emit of the same node id (the same /kg-generate
         # mechanism run twice, an extractor restating a node in a later section) is deduped-ACCEPTED by
         # the boundary — nodes have no `_durability_quarantine` — so an unguarded overwrite would leave
         # `epistemic_state: grounded, provenance: span-present` with the span it rests on GONE. The

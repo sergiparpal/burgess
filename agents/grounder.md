@@ -55,9 +55,11 @@ kg_ground(target_id="<node.id>", kind="node", verdict="grounded",
 
 **A pin with no wired edge is still fully groundable — "no edge → can't be grounded" is false.** Grounding
 operates on nodes, not only edges. A Node's promotion support goes in the body (`support_note` → `inferred`,
-or a verbatim `support_span` → `span-present`); a bare novel pin with no support yet is correctly LEFT
-`unverified` (the `[diverge]` triage below), never skipped for lacking an edge. Every verdict call returns
-`{ok, key, from, to, by}` — check `ok:true` and that `from` was `unverified`.
+or a verbatim `support_span` → `span-present`), and so does your `note` on a node verdict (0.16.1): give a
+node the same one-line WHY you give an edge, because it is the only record of the verdict's reason. A bare
+novel pin with no support yet is correctly LEFT `unverified` (the `[diverge]` triage below), never skipped
+for lacking an edge. Every verdict call returns `{ok, key, from, to, by}` — check `ok:true` and that `from`
+was `unverified`.
 
 ## The hypothesized queue — proposals from /kg-generate (PLAN Stage 8)
 

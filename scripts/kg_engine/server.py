@@ -1173,8 +1173,9 @@ class KGEngine:
         lane): it too earns grounding only with support, restated into the node body (a Node has no span
         field). `support_*` are ignored for non-hypothesized items and for any verdict other than `grounded`.
 
-        `note` is appended to the EDGE's `notes` and is **edge-only**: a Node has no notes field, so a
-        `note` passed with `kind='node'` is ignored (the verdict's audit record still captures `by`).
+        `note` is appended to an EDGE's `notes`. A Node has no notes field, so for `kind='node'` the note
+        is added to the node's body as the paragraph `verdict (<state>): <note>` (0.16.1; through 0.16.0
+        it was ignored).
 
         `lead` (0.9.0) goes with a `rejected` edge: the edge its span does state instead, typed
         `<head-id> <relation> <tail-id>` (`groundplan.parse_lead`), which `/kg-build --leads` later has an
@@ -1243,6 +1244,14 @@ class KGEngine:
                         return {"ok": False, "error": err}
                 frm = node.epistemic_state.value
                 node.epistemic_state = state
+                # A node verdict keeps its note (0.16.1). A Node has no notes field, so the note goes in
+                # the body, after any support the promotion put there, as the paragraph
+                # `verdict (<state>): <note>`. Canon keeps a judged node's body when the node is written
+                # again, so the note lasts as an edge's notes do. Through 0.16.0 the note was ignored for
+                # a node: the field kg-ground of 2026-11-14 rejected two generated compression nodes with
+                # a reason each, and both reasons were lost.
+                if note and note.strip():
+                    node.body = self._append_body(node.body, f"verdict ({verdict}): {note.strip()}")
                 key = f"node:{node.id}"
             else:
                 try:
@@ -1349,10 +1358,22 @@ class KGEngine:
         against the edge's named source if it has one, else any declared source — the
         not-in-ANY-source contract is unchanged (support-span-not-in-source); a promotion span just
         has to exist SOMEWHERE. Support lands on the edge's own fields: the span becomes `edge.span`
-        (now citable), a citation is appended to `edge.notes`."""
+        (now citable), a citation is appended to `edge.notes`.
+
+        The span also records its file (0.16.1). An edge that names a declared source was verified
+        against that file alone and keeps it. One that names none, or an unknown file, was verified
+        against any source, so it takes the first file that holds the span, the same file whose
+        excerpt kg_ground_item shows. Through 0.16.0 `source_file` stayed empty, so a promoted
+        hypothesis was cited without its document (the two star edges the field kg-ground of
+        2026-11-14 grounded)."""
         def apply_span(check):
             edge.span = check
             edge.provenance = Provenance.SPAN_PRESENT        # upgraded: now citable
+            sources = self.source_set()                      # memoized; only a span promotion reads it
+            if not sources.has_file(edge.source_file):
+                held = sources.files_containing(check)
+                if held:
+                    edge.source_file = held[0]
         def apply_note(note):
             edge.provenance = Provenance.INFERRED            # upgraded: asserted via external citation
             edge.notes = self._append_note(edge.notes, f"citation: {note}")
@@ -1365,9 +1386,14 @@ class KGEngine:
         """The NODE promotion gate over `_promote_support` (a generated compression node / primitive
         from the propose lane). A Node has no `span`/`notes` field, so the support is restated into
         the node BODY (the only persisted free-text — body prose may restate cited spans) rather
-        than a stray span attr; the span verifies against ANY declared source."""
+        than a stray span attr; the span verifies against ANY declared source. The first file that
+        holds the span follows it as a `grounding source: <file>` paragraph (0.16.1), as an edge
+        records its `source_file`."""
         def apply_span(check):
             node.body = self._append_body(node.body, f"grounding span: {check}")
+            held = self.source_set().files_containing(check)
+            if held:
+                node.body = self._append_body(node.body, f"grounding source: {held[0]}")
             node.provenance = Provenance.SPAN_PRESENT        # upgraded: now citable
         def apply_note(note):
             node.body = self._append_body(node.body, f"citation: {note}")
@@ -2603,8 +2629,13 @@ class KGEngine:
         generation timeline at `derived/generations.json` — a `{generation: int, tracked: {id:
         {introduced_at, introduced_degree, mechanism}}}` ledger the /kg-generate command appends to.
         Returns per-node {half_life, status ∈ fertile|absorbed|isolated} so the slate can prefer the
-        fertile middle. With no ledger yet, returns an empty result with a note (never an error)."""
-        from .harness import absorption
+        fertile middle. With no ledger yet, returns an empty result with a note (never an error).
+
+        Only a tracked node the graph holds as grounded is scored, over live edges (0.16.1,
+        `harness.absorption_window`). `not_scored` maps each other tracked node to its state, or to
+        `absent` when the graph no longer holds it, and the note says how many there are. `tracked`
+        still counts every record in the ledger."""
+        from .harness import absorption_window
         self._ensure_projected()
         try:
             data = json.loads(self.projector.graph_path.read_text(encoding="utf-8")) \
@@ -2621,12 +2652,19 @@ class KGEngine:
                     now = blob.get("generation")
             except (ValueError, OSError):
                 history = {}
-        result = absorption(data, history, now=now)
+        result, not_scored = absorption_window(data, history, now=now)
         summary = {s: sum(1 for v in result.values() if v["status"] == s)
                    for s in ("fertile", "absorbed", "isolated")}
-        return self._with_degraded({"tracked": len(result), "summary": summary, "nodes": result,
-                "note": ("" if history else
-                         "no generations.json yet — run /burgess:kg-generate to start tracking the absorption window")})
+        if not history:
+            note = "no generations.json yet — run /burgess:kg-generate to start tracking the absorption window"
+        elif not_scored:
+            note = (f"{len(not_scored)} tracked node(s) not scored: only a node the graph holds as grounded "
+                    "has an absorption window. not_scored gives each one's state (unverified = not judged "
+                    "yet, absent = no longer in the graph)")
+        else:
+            note = ""
+        return self._with_degraded({"tracked": len(result) + len(not_scored), "summary": summary,
+                                    "nodes": result, "not_scored": not_scored, "note": note})
 
     def kg_operate(self, op: str, *, target: str | None = None, label: str = "", body: str = "",
                    members=None, k: int | None = None) -> dict:
@@ -3270,8 +3308,10 @@ def _register(mcp, engine: KGEngine) -> None:
         through the tool surface (§1.4). To PROMOTE a hypothesized edge OR node to grounded you MUST supply
         support, which upgrades its provenance: `support_span` (a verbatim source substring → span-present)
         or `support_note` (an external citation → inferred); without either, the promotion is refused with
-        `hypothesis-needs-support`. `note` is appended to the edge's `notes` and is **edge-only** — it is
-        ignored for kind='node' (a Node has no notes field). `lead`, with verdict='rejected' only: the edge
+        `hypothesis-needs-support`. `note` is appended to the edge's `notes`; for kind='node' it is kept
+        in the node's body as the paragraph 'verdict (<state>): <note>' (a Node has no notes field), so
+        say why there too. A promotion span also records the source file it is in (an edge's
+        `source_file`, a node's 'grounding source:' paragraph). `lead`, with verdict='rejected' only: the edge
         the span does state instead, as '<head-id> <relation> <tail-id>' (a pack relation; a new node gets a
         new slug id), which `/burgess:kg-build --leads` writes; a bad lead is refused before any state change. A
         verdict that changes an edge's state without a lead withdraws the lead its notes held (`lead: none`,
@@ -3421,7 +3461,10 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_absorption() -> dict:
         """Absorption window (§14): for each grounded-from-hypothesized node, how long it stayed
         perturbing before the graph renormalised — {half_life, status ∈ fertile|absorbed|isolated}.
-        Reads derived/generations.json (written by /burgess:kg-generate). Prefer the fertile middle."""
+        Reads derived/generations.json (written by /burgess:kg-generate). Prefer the fertile middle.
+        Only a tracked node the graph holds as grounded is scored, and degrees count live edges only
+        (rejected, failed and obsolete edges left out). `not_scored` maps every other tracked node to
+        its state (unverified = not judged yet, rejected, failed, obsolete) or to `absent`."""
         return engine.kg_absorption()
 
     @mcp.tool()
