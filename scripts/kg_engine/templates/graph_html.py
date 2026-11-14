@@ -42,6 +42,9 @@ HTML_TEMPLATE = r"""<!doctype html>
   #legend ul { margin: 2px 0 6px; padding-left: 16px; }
   #legend li { margin: 1px 0; }
   .sw { display: inline-block; width: 22px; height: 0; vertical-align: middle; margin-right: 6px; border-top-width: 3px; border-top-style: solid; }
+  .sw-pair { display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .sw-pair .sw { display: block; margin: 0; }
+  .sw-pair .sw + .sw { margin-top: 4px; }
   .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: middle; margin-right: 6px; border: 2px solid #777; }
   #tip { position: fixed; pointer-events: none; background: #222; color: #fff; padding: 6px 8px; border-radius: 6px;
          font-size: 12px; max-width: 320px; display: none; z-index: 5; }
@@ -77,7 +80,7 @@ HTML_TEMPLATE = r"""<!doctype html>
   <div class="ax">provenance — edge line opacity</div>
   <ul>
     <li><span class="sw" id="sw-span-present"></span>span-present (full)</li>
-    <li><span class="sw" id="sw-inferred"></span>inferred (lighter, in any state)</li>
+    <li><span class="sw-pair"><span class="sw" id="sw-inferred"></span><span class="sw" id="sw-inferred-failed"></span></span>inferred (lighter, in any state)</li>
   </ul>
   <div class="ax">size = degree · <span id="bridgelegend"></span></div>
 </div>
@@ -122,8 +125,12 @@ window.__KG_DATA__ = __KG_DATA_JSON__;
     document.getElementById("sw-failed").style.borderTopColor = PALETTE.edge.failed;
     document.getElementById("sw-hypothesized").style.borderTopColor = PALETTE.edge.hypothesized;
     document.getElementById("sw-span-present").style.borderTopColor = PALETTE.edge.grounded;
+    // the inferred item pairs a pale green line with a pale red one under it (0.15.2): "lighter, in any
+    // state" shown on a grounded and on a rejected/failed edge, both at the opacity the canvas draws them at
     document.getElementById("sw-inferred").style.borderTopColor = PALETTE.edge.grounded;
     document.getElementById("sw-inferred").style.opacity = PALETTE.edgeAlpha.inferred;
+    document.getElementById("sw-inferred-failed").style.borderTopColor = PALETTE.edge.failed;
+    document.getElementById("sw-inferred-failed").style.opacity = PALETTE.edgeAlpha.inferred;
     document.getElementById("dot-deterministic").style.borderColor = PALETTE.border.deterministic;
     document.getElementById("dot-agent").style.borderColor = PALETTE.border.agent;
     document.getElementById("dot-human").style.borderColor = PALETTE.border.human;

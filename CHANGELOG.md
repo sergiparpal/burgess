@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.15.2 — 2026-11-14
+
+Asked for in the field on 0.15.1. Once the update had re-rendered the graph view, the user asked for a pale red line
+under the pale green one in the legend's inferred item.
+
+### Changed
+
+- **The legend's inferred item shows both colours an inferred edge is drawn in.** The item says an inferred edge is
+  drawn lighter in any state, but its one swatch was pale green, the grounded colour, while 16 of the field's 35
+  inferred edges are rejected and drawn pale red. A pale red line now sits under the pale green one.
+  - Both lines are painted from the palette at the inferred opacity, which is how the canvas draws an inferred
+    grounded edge and an inferred rejected or failed one.
+  - The span-present item keeps its single full green line.
+
+### Upgrading
+
+- Nothing to do. The views on the field project carry the 0.15.1 mark, so the first read that projects after the
+  update re-renders them, as it did for 0.15.1, and reloading the page shows the new legend.
+
+### Tests
+
+- `tests/test_fix_inferred_legend_red.py` (3 tests):
+  - the item stacks the red line under the green one;
+  - run under node, the template's own `paintLegend` paints both lines with the colour and opacity its
+    `edgeStyle` gives an inferred grounded and an inferred rejected edge;
+  - a view 0.15.1 rendered gets the red line on the next read.
+- Against 0.15.1, all 3 fail. `tests/test_fix_inferred_edges_distinct.py` now pins the inferred swatch and its
+  label separately, since the item holds the pair.
+- 2106 → 2109 passed, 3 skipped.
+- **Checked visually:** the legend of a scratch graph, rendered and screenshotted with headless Chromium, shows the
+  pale red line under the pale green one.
+
 ## 0.15.1 — 2026-11-14
 
 Asked for in the field on 0.15.0. Looking at the graph view, the user asked why it showed no hypothesized or inferred
