@@ -57,7 +57,7 @@ dependencies = [
 # (#53): the request body backend.py sends is identical under SDK 1.17 and 2.6, and none of
 # 2026-10-21's breaking changes (sampling params, `document` blocks in assistant turns, `citations` in
 # user turns) touch a field it sends.
-backend = ["anthropic>=2.4.0,<3"]
+backend = ["anthropic>=2.6.0,<3"]
 # Test + dev tooling.
 dev = ["pytest>=9.2.0"]
 # Optional `lightrag` ideation-experiment arm (§Stage 8): a real, published GraphRAG baseline
