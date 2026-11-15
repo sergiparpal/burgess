@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.18.1 — 2026-11-15
+
+Found on the field re-judge of the one generated edge that had grounded, on 0.18.0. The user gave one grounder
+only the edge's id, but the grounder's contract carried that very edge's pair, with a reading of it, as an
+example.
+
+### Fixed
+
+- **The grounder's example of a proposal's passage that states another relation comes from the demo corpus.**
+  - 0.18.0 illustrated its "No lead" rule with `§5 states andamiaje-rivaliza-con-fine-tuning attacked_by
+    o1-sin-prompting, not bridges`. That is the field pair of the one generated edge still standing, and the
+    reading of it that a re-judge was about to test.
+  - The re-judge rejected the edge `wrong-relation` with that lead. The grounder reported that its note "names
+    the same attacked_by edge as the contract's own example for this pair".
+  - The lead's own grounding, next, would have read a contract asserting that the source states it.
+  - Now the example is the proposal `generality-confound bridges specificity` against `examples/source.md`, whose
+    §1 states `generality-confound attacked_by specificity`. The contract's other examples use the same corpus.
+  - No agent-facing text names that field pair.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged.
+- The re-judge's verdict stands. Rejecting `bridges` holds on its own: the passage never makes the head the node
+  that joins two communities.
+- The lead `andamiaje-rivaliza-con-fine-tuning attacked_by o1-sin-prompting` is pending. Its own
+  `/burgess:kg-ground`, after `/burgess:kg-build --leads` writes it, is the independent test of `attacked_by`.
+  Run both on 0.18.1.
+- The views carry the 0.18.0 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_neutral_proposal_example.py` (3 tests):
+  - the example is a proposal against the demo corpus, with the demo ids the contract's other examples use;
+  - the demo source states the example's relation in its §1;
+  - no agent-facing text names the field pair.
+- Against 0.18.0, 2 of the 3 fail. The one that passes pins the premise: the demo source's §1 states the example.
+- 2190 → 2193 passed, 3 skipped.
+
 ## 0.18.0 — 2026-11-15
 
 Found on the field `/burgess:kg-ground` that judged the fourth generation, on 0.17.1: 40 proposals in four

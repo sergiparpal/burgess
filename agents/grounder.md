@@ -100,8 +100,9 @@ in place without support.
   from the node bodies, and `get_node` an end to read its edges' spans.
 - **No lead.** A proposal takes no `lead`: `/kg-build --leads` writes a lead from the rejected edge's span, a
   proposal has none, and `kg_ground` refuses one. When a passage states another relation between the two
-  ends, reject the proposal `no-support` and name that edge in the note, as in `no-support: §5 states
-  andamiaje-rivaliza-con-fine-tuning attacked_by o1-sin-prompting, not bridges`.
+  ends, reject the proposal `no-support` and name that edge in the note. For the proposal
+  `generality-confound bridges specificity` against `examples/source.md`, that note is `no-support: §1 states
+  generality-confound attacked_by specificity, not bridges`.
 
 (Through 0.17.1 a proposal came with its two nodes and no source text. On the field graph of 2026-11-15 one
 grounder judged its twelve proposals on that alone, while three others looked the ends up themselves.)
