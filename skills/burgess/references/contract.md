@@ -22,9 +22,10 @@ the twenty-two core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (th
 (the mark an attack with no counter-edge leaves), `kg_write`, `kg_ground`, `kg_rename`, `kg_merge` (deliberate node-merge with edge dedup), `kg_metrics`, `kg_status`,
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
-`kg_export` (read-only human-facing render) (plus the four generative-layer tools `kg_propose` (§5a),
-`kg_generate`, `kg_operate`, `kg_absorption` — see the generative-layer references) — twenty-six in all.
-The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-three; they
+`kg_export` (read-only human-facing render) (plus the five generative-layer tools `kg_propose` (§5a),
+`kg_generate`, `kg_operate`, `kg_absorption`, and `kg_record_generation`, the record a /burgess:kg-generate run
+leaves in the absorption ledger — see the generative-layer references) — twenty-seven in all.
+The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-four; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---

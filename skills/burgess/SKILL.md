@@ -88,7 +88,7 @@ afterward. The portico moved from the door of imagination to after generation.
 | --- | --- | --- |
 | `/burgess:kg-build` | `kg-extractor` | `kg_build_plan`, `kg_section`, `kg_write`, `kg_record_edgeless_section` |
 | `/burgess:kg-ground` | `kg-grounder`, `kg-adversarial-grounder` | `kg_ground_plan`, `kg_ground_item`, `kg_ground`, `kg_write`, `kg_record_attack` |
-| `/burgess:kg-generate` | `kg-generator` | `kg_generate`, `kg_propose`, `kg_operate`, `kg_absorption`, `kg_context` |
+| `/burgess:kg-generate` | `kg-generator` | `kg_generate`, `kg_propose`, `kg_operate`, `kg_absorption`, `kg_record_generation`, `kg_context` |
 | `/burgess:kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`), `kg_propose` |
 | `/burgess:kg-query` | (none; direct reads) | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `kg_context` |
 | `/burgess:kg-view` | (none; direct render) | `kg_export` |
@@ -104,15 +104,16 @@ queue in batches, `kg_ground_item` — one queued item's evidence for a grounder
 adversarial attack leaves when it writes no counter-edge, `kg_write`, `kg_ground`, `kg_rename`,
 `kg_merge`, `kg_metrics`, `kg_status`, `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` — the
 read-only grounded-only associative chain, `kg_context`, `kg_agenda` — the read-only structural agenda,
-`kg_export` — the read-only human-facing render) plus the four **generative-layer** tools (`kg_propose` — the
+`kg_export` — the read-only human-facing render) plus the five **generative-layer** tools (`kg_propose` — the
 hypothesized write lane; `kg_generate` — the discovery mechanisms; `kg_operate` — the §8 endo operations;
-`kg_absorption` — the §14 absorption window) make **twenty-six** graph tools, and the seven
+`kg_absorption` — the §14 absorption window; `kg_record_generation` — the record a /burgess:kg-generate run
+leaves in that window's ledger) make **twenty-seven** graph tools, and the seven
 **divergence-surface** tools (`kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
 `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` — the
 /burgess:kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse monitor over project-local,
 session-ephemeral state under `.kg/diverge/`, plus the EXPLICIT pin-materialization door into the
 hypothesized lane; advisory ordering only, below the grounding boundary, never a verdict path) make
-**thirty-three** tools in total. These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`,
+**thirty-four** tools in total. These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`,
 etc. are slash commands.
 
 ## Core invariants — non-negotiable, enforced by the boundary

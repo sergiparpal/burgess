@@ -145,7 +145,14 @@ def test_the_annotator_finds_each_rows_document_in_a_folder_source():
 
 
 def test_kg_generate_keeps_its_ledger_where_the_engine_reads_it():
-    assert 'DERIVED="${CLAUDE_PLUGIN_DATA}/derived"' in _read(GENERATE)
+    # Since 0.17.0 the engine writes the ledger itself, through kg_record_generation, at the path
+    # kg_absorption reads (tests/test_fix_generation_ledger_and_compression_filter.py), so the command
+    # names the tool and computes no path. Through 0.16.1 this pinned the command's
+    # DERIVED="${CLAUDE_PLUGIN_DATA}/derived" line: the 0.11.4 fix for a ledger written where the
+    # engine never looked.
+    text = _read(GENERATE)
+    assert "mcp__plugin_burgess_burgess__kg_record_generation(" in text
+    assert "DERIVED=" not in text and "generations.json" not in text
 
 
 # --------------------------------------------------------------------------- engine_python.mjs

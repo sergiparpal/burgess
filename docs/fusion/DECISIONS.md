@@ -1511,3 +1511,67 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_absorption_and_verdict_records.py` (14 tests) and the two rewritten pins. Against
   0.16.0, 11 of the 14 fail, and so do both pins. The 3 that pass pin what must not change: a blank note adds
   nothing, an edge that names a declared file keeps it, and a citation promotion records no file.
+
+## Compression offers nothing an earlier generation proposed, and the absorption ledger is the engine's (2026-11-15)
+
+- **Decision:**
+  - `generate._compression_skip` leaves out a community that passed the §7 screens in two cases:
+    - a live compression node among its members was already proposed over at least half of the other members,
+      each of which has a `collapses_into` edge into it, in any state;
+    - its id, a function of its members (`model.compression_id`), is already a node of the graph, in any state.
+  - `generate.compression_skips` reports both cases from the same walk. `kg_generate` returns them as
+    `compression_skipped` whenever compression runs, and names them in `note`.
+  - `kg_record_generation(nodes)` is a new tool, making 34. It advances the generation counter of
+    `derived/generations.json` and tracks each node a run's `kg_propose` accepted, at its live degree in the
+    canon. It skips, with the reason, an id the canon lacks, one already tracked, a node that is not a
+    hypothesized proposal, and an entry with no mechanism. It writes atomically under the writer lease and
+    refuses a file it cannot read as a ledger.
+  - `/burgess:kg-generate` Step 4 calls the tool. The command holds no Bash and says it needs no shell.
+- **Field run it answers** (0.16.1, 2026-11-15): the second field `/burgess:kg-generate`, default set, k=10.
+  - Compression offered four candidates. Two came back under the ids of the two compressions rejected the day
+    before. The other two each held a compression grounded that day, with 6 of 7 and 5 of 5 of the other
+    members already proposed into it.
+  - The session dropped the first pair by hand, citing failure memory, and wrote a rule in its memory to do so
+    every run. It wrote the second pair: 2 nodes and 14 star edges that re-ask rejected memberships against new
+    ids.
+  - The ledger step was the run's one Bash call. It writes outside the project, so it waited nine hours for the
+    user's approval. The first field run had needed 12 approvals.
+- **Why the id rule:** the same id is the same proposal.
+  - A rejected one is failure memory. The boundary would quarantine its star edges as known failures, and the
+    canon would keep the judged body.
+  - A grounded or unjudged one is already proposed.
+- **Why "proposed over at least half":**
+  - What made the nested compressions redundant is that their stars asked memberships already asked. The old
+    node's `collapses_into` edges, in any state, are exactly those questions.
+  - At half, a new star would ask as many old questions as new ones.
+  - Only a live node counts, because a rejected compression stands for nothing.
+- **Why not any compression node in the community:** the first draft did that.
+  - The same field graph, with its 24 unjudged proposals live, had two clusters of 21 and 18 members that had
+    merged round the old compressions, which had been proposed over a handful of them.
+  - The draft left out both. That would stop compression from ever summarising a cluster that grew round an
+    earlier one.
+- **Why a tool and not a better shell snippet:** the ledger is engine state that the engine reads.
+  - A session-written script writes it from outside the engine. It drifts: two runs, two scripts. Writing outside
+    the project always asks the user.
+  - It follows `kg_record_attack` (0.10.0) and `kg_record_edgeless_section` (0.14.0): a record the language layer
+    asks the engine to keep.
+- **Rejected alternatives:**
+  - (a) *Leave compression nodes out of a community's members and screen the rest.* The rest is the old
+    compression's member set, so it would offer the same cluster again under a new id.
+  - (b) *Let the language layer drop them, as the field session did.* The engine holds the ids, and a rule kept
+    in a session's memory drifts from release to release.
+  - (c) *Have `kg_propose` record the generation itself.* The propose lane also serves `/burgess:kg-diverge` pins
+    and `kg_operate`, and a generation is one `/burgess:kg-generate` run.
+- **Accepted trade-offs:**
+  - A candidate over a grown cluster holds the old compression as a member. Its star then asks whether the old
+    compression reduces to the new one.
+  - A compression proposed over exactly half of the other members still holds the community.
+  - The check counts star edges in any state, so a member whose membership was rejected counts as asked.
+  - Two pins were rewritten. One held the command's ledger path, which is now the engine's. The other counted 33
+    tools.
+- **Pinned in:** `tests/test_fix_generation_ledger_and_compression_filter.py` (20 tests) and the two rewritten
+  pins.
+  - Against 0.16.1, 18 of the 20 fail, and both pins. The grown-cluster test fails there only because
+    `compression_skips` is new.
+  - The 2 that pass pin what must not change: the fixture's baseline, and a rejected compression node not
+    holding its community.

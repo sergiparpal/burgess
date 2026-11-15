@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.17.0 — 2026-11-15
+
+Found on the second field `/burgess:kg-generate`, on 0.16.1. The 0.16.0 cap and star contract held: the ten
+bridges spread over eleven nodes, and all 26 written items were accepted. But compression offered four
+candidates and none of them was new, and the run's one shell step waited nine hours for the user.
+
+### Changed
+
+- **Compression offers nothing an earlier generation proposed.**
+  - Two candidates came back under the exact ids, so with the exact members, of the two compressions the field
+    `/burgess:kg-ground` had rejected the day before. `compression` took the failure memory but never read it.
+    The session dropped both by hand and wrote itself a rule to check every later run.
+  - The other two each held a compression grounded the day before, together with nearly every member it had been
+    proposed over. Their 14 star edges asked again memberships the grounders had rejected against the older
+    node: the known gap 0.16.0 recorded.
+  - Now compression leaves out a candidate whose id is already a node, in any state. It also leaves out a
+    community that a live compression node was already proposed over: at least half of the community's other
+    members have a `collapses_into` edge into it, in any state.
+  - A cluster that grew round an old compression can still be compressed, with the old node as a member.
+    Leaving out every community that held a compression node would have blocked, on the field graph with its 24
+    unjudged proposals live, two clusters of 21 and 18 members that had merged round the old nodes.
+  - `kg_generate` returns what it left out as `compression_skipped`: `already_compressed` lists the compression
+    nodes, and `already_proposed` gives each existing id with its state. `note` names them. The command hands
+    the kg-generator every candidate returned.
+- **A new tool, `kg_record_generation`, records a run in the absorption ledger.** The surface is now 34 tools.
+  - Step 4 of `/burgess:kg-generate` was a sketch, so each session wrote its own merge script and ran it through
+    the Bash tool. That writes outside the project, so it asked the user every time. The first field run took 12
+    approvals, and the second run's one approval waited nine hours.
+  - The tool advances the generation counter and tracks each node the run's `kg_propose` accepted, at its live
+    degree, in the file `kg_absorption` reads. It skips, with the reason, an id the canon lacks, one already
+    tracked, and a node that is not a proposal. It leaves a ledger it cannot read untouched.
+  - `/burgess:kg-generate` holds no Bash any more, and says it needs no shell or file access, as
+    `/burgess:kg-build` and `/burgess:kg-ground` do.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and the field ledger (generation 2, six tracked) is the shape the tool
+  extends.
+- The two nested compressions the second field run wrote stay. The next `/burgess:kg-ground` judges them with
+  the other 24 items.
+- The views carry the 0.16.1 mark, so the first read that projects re-renders them, with the same look.
+- The Windows session's note says to drop rejected compression ids by hand before `kg_propose`. The engine does
+  that now.
+
+### Tests
+
+- `tests/test_fix_generation_ledger_and_compression_filter.py` (20 tests):
+  - compression still offers the fixture's specific cluster under the id of its members;
+  - it leaves out a community a live compression was proposed over, grounded or unjudged, and reports the node;
+  - a cluster that grew round an old compression is still offered, with the old node as a member;
+  - a rejected compression node does not hold its community;
+  - a candidate whose id is already a node is not offered again, whatever the node's state;
+  - `kg_generate` returns `compression_skipped` and names it in `note`, only when compression runs;
+  - `kg_record_generation` starts the ledger where `kg_absorption` reads it, extends one, keeps what it tracks,
+    skips what is not a new proposal, advances the clock with no node, counts live edges only, leaves an
+    unreadable ledger alone and extends the bare record shape;
+  - a recorded node is scored once it is grounded;
+  - the MCP wrapper takes an optional map;
+  - the command records the run through the engine, holds no shell, and hands on every candidate.
+- Two pins were rewritten. `tests/test_fix_field_eval_experiment.py` held the command's `DERIVED=…` ledger line,
+  the 0.11.4 fix for a ledger written where the engine never looked; it now holds the tool call and no path.
+  `tests/fusion/test_diverge_surface.py` counts 34 tools.
+- Against 0.16.1, 18 of the 20 new tests fail, and so do both pins. The grown-cluster test fails there only
+  because `compression_skips` is new: 0.16.1 offered that cluster too. The 2 that pass pin what must not change:
+  the fixture's baseline, and a rejected compression node not holding its community.
+- 2139 → 2159 passed, 3 skipped.
+- **Field replay:** on a copy of the field canon stripped back to its state before the run, 0.16.1 gives the
+  field slate: the same 14 candidates and scores. 0.17.0 gives the same 10 bridges and no compression, with all
+  four in `compression_skipped`. On the copy's current state, with the run's 24 proposals live, both versions
+  offer the two larger clusters, and only 0.16.1 offers the rejected id again.
+
 ## 0.16.1 — 2026-11-14
 
 Found on the field `/burgess:kg-ground` that judged the first generation's 37 items, on 0.15.2. The verdicts
