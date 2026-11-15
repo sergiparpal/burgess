@@ -1184,7 +1184,9 @@ class KGEngine:
         `<head-id> <relation> <tail-id>` (`groundplan.parse_lead`), which `/kg-build --leads` later has an
         extractor write. It is appended to the notes as `lead: <head> <relation> <tail>`, after `note`. A
         lead that is malformed, names a relation the pack does not declare, joins a node to itself, or
-        repeats the rejected edge is refused before any state change, like an unsupported promotion.
+        repeats the rejected edge is refused before any state change, like an unsupported promotion. So
+        is a lead on an edge with no span, such as a proposal (0.18.0): `--leads` writes a lead from the
+        rejected edge's span, and that edge has none.
         A lead belongs to the rejection that recorded it (0.11.1): a verdict that changes the edge's state
         and records no lead of its own withdraws the lead the notes hold, by appending `lead: none` after
         `note`, and returns it as `lead_withdrawn`.
@@ -1266,6 +1268,16 @@ class KGEngine:
                 edge = next(e for e in node.edges if e.id == target_id)
                 if triple and edge_id(*triple) == edge.id:  # decided before any state change, like the gate below
                     return {"ok": False, "error": "lead: it repeats the edge being rejected"}
+                # A lead is written from the rejected edge's span (`_lead_section`), so an edge with none, a
+                # proposal, has no passage to give it (0.18.0). Through 0.17.1 such a lead was taken and then
+                # sat in `/kg-build --leads`'s `leads_unlocated`, told its span had left the source. Since
+                # 0.18.0 a grounder reads a proposal against the passages where its ends meet, so it may well
+                # find another relation stated there, and the note is where that goes.
+                if triple and not (edge.span and edge.span.strip()):
+                    return {"ok": False, "error": "lead: this edge has no span, so /burgess:kg-build --leads "
+                                                  "would have no passage to write the lead from. Reject it "
+                                                  "without a lead, and name in the note the edge the passage "
+                                                  "states"}
                 # the hypothesized→grounded promotion gate: a span-less proposal earns grounding only with
                 # support, which upgrades its provenance. Decided BEFORE any state change so a refusal leaves
                 # the edge untouched (no audit record, no write).
@@ -1414,11 +1426,13 @@ class KGEngine:
         than a stray span attr; the span verifies against ANY declared source. The first file that
         holds the span follows it as a `grounding source: <file>` paragraph (0.16.1), as an edge
         records its `source_file`."""
+        from .groundplan import GROUNDING_SOURCE_MARK, GROUNDING_SPAN_MARK
+
         def apply_span(check):
-            node.body = self._append_body(node.body, f"grounding span: {check}")
+            node.body = self._append_body(node.body, f"{GROUNDING_SPAN_MARK}{check}")
             held = self.source_set().files_containing(check)
             if held:
-                node.body = self._append_body(node.body, f"grounding source: {held[0]}")
+                node.body = self._append_body(node.body, f"{GROUNDING_SOURCE_MARK}{held[0]}")
             node.provenance = Provenance.SPAN_PRESENT        # upgraded: now citable
         def apply_note(note):
             node.body = self._append_body(node.body, f"citation: {note}")
@@ -2335,7 +2349,9 @@ class KGEngine:
         span still verifies against its file now (the engine's own check, so a stale span shows as false),
         its two endpoint nodes, and `context`, the excerpt of the source section that holds the span
         (``groundplan.span_excerpt``: the paragraph and its neighbours, at most 3000 characters; rows cut out
-        of a long table keep the table's header rows, 0.8.0). For a node:
+        of a long table keep the table's header rows, 0.8.0). An edge with no span, a proposal, has no
+        `context` and gets `shared_context` instead (0.18.0, ``_shared_context``): the source sections where
+        both its ends are discussed, with excerpts, and the sections where each end is. For a node:
         the node and its incident edges. All free text leaves through the SESSION scrub, the same as
         kg_section, so a support span the grounder copies back to kg_ground, placeholders included, restores
         and verifies. Read-only."""
@@ -2386,6 +2402,7 @@ class KGEngine:
                         break
                 if context:
                     break
+        shared = None if has_span else self._shared_context(e, nodes, scrub)
         return {"ok": True, "kind": "edge",
                 "edge": {"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
                          "provenance": e.provenance.value, "authored_by": e.authored_by.value,
@@ -2394,7 +2411,77 @@ class KGEngine:
                          "span": scrub(e.span), "notes": scrub(e.notes)},
                 "span_in_source": self.source_set().verifies(e.span, e.source_file) if has_span else None,
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
-                "context": context}
+                "context": context, "shared_context": shared}
+
+    def _shared_context(self, edge, nodes: dict, scrub) -> dict:
+        """What a grounder judges an edge with no span against (0.18.0): the source sections where both of
+        its ends are discussed.
+
+        An end is discussed where the span of one of its live edges lies (``_span_section``: the edge's
+        named file, else the first configured file that holds it), and, for a node promoted from a
+        proposal, where its own grounding span lies (``groundplan.grounding_spans``). A rejected, failed or
+        obsolete edge does not count: its claim about the node does not stand. ``sections`` holds the
+        sections where a span of each end lies, at most ``SHARED_SECTIONS``, nearest pair first
+        (``nearest_pair``: the fewest paragraphs between a span of one end and a span of the other), each with
+        ``pair_excerpts``' excerpts. ``sections_total`` counts every such section, and
+        ``source_node_sections`` / ``target_node_sections`` list where each end is, in source order, at most
+        ``END_SECTIONS`` each, with their totals. So an empty ``sections`` says two things apart: an end with
+        no section is one the engine cannot place, and two ends that each have sections but share none are
+        never discussed together.
+
+        Through 0.17.1 a proposal came with its two nodes and no source text, so whether it was judged
+        against the source depended on its grounder. On the field graph of 2026-11-15 three grounders
+        looked the ends up with get_node and kg_context, and a fourth judged its twelve proposals on what
+        kg_ground_item gave. The one proposal that grounded that day was found in the section where both of
+        its ends are discussed."""
+        from .groundplan import END_SECTIONS, SHARED_SECTIONS, grounding_spans, nearest_pair, pair_excerpts
+
+        texts = self.source_set().texts
+        rank = {name: i for i, name in enumerate(texts)}
+        ends = (slug(edge.source), slug(edge.target))
+        spans: "dict[str, list[tuple[str, str, str]]]" = {end: [] for end in ends}
+        for m in nodes.values():
+            for x in m.edges:
+                if (x.id == edge.id or x.epistemic_state.value in NON_LIVE_STATE_VALUES
+                        or not (x.span and x.span.strip())):
+                    continue
+                touched = (slug(x.source), slug(x.target))
+                for end in spans:
+                    if end in touched:
+                        spans[end].append((x.id, x.span, x.source_file))
+        cache: dict = {}
+        where: "dict[str, dict[tuple[int, int], tuple[str, object, list[str]]]]" = {}
+        for end in spans:
+            node = nodes.get(end)
+            own = [("", span, name) for span, name in grounding_spans(node.body if node is not None else "")]
+            found: "dict[tuple[int, int], tuple[str, object, list[str]]]" = {}
+            for _id, span, name in own + sorted(spans[end]):
+                hit = self._span_section(span, name, texts, cache)
+                if hit is not None:
+                    fname, s = hit
+                    found.setdefault((rank[fname], s.index), (fname, s, []))[2].append(span)
+            where[end] = found
+        a, b = ends
+
+        def entry(fname: str, s) -> dict:
+            return {"source_file": fname, "section": s.index,
+                    "title": scrub(s.title) if s.title else "(whole file)"}
+
+        shared = []
+        for key in set(where[a]) & set(where[b]):
+            fname, s, spans_a = where[a][key]
+            pair = nearest_pair(s.text, spans_a, where[b][key][2])
+            shared.append(((pair is None, pair[0] if pair else 0, key), fname, s, pair))
+        shared.sort(key=lambda row: row[0])
+        sections = []
+        for _order, fname, s, pair in shared[:SHARED_SECTIONS]:
+            excerpts = pair_excerpts(s.text, pair[1], pair[2]) if pair is not None else []
+            sections.append({**entry(fname, s), "excerpts": [scrub(x) for x in excerpts]})
+        return {"sections": sections, "sections_total": len(shared),
+                "source_node_sections": [entry(*where[a][k][:2]) for k in sorted(where[a])][:END_SECTIONS],
+                "source_node_sections_total": len(where[a]),
+                "target_node_sections": [entry(*where[b][k][:2]) for k in sorted(where[b])][:END_SECTIONS],
+                "target_node_sections_total": len(where[b])}
 
     def _known_nodes(self, text: str) -> dict:
         """``{known_nodes, known_nodes_more}`` for kg_section (0.6.0): the canon nodes whose name `text`
@@ -2450,10 +2537,17 @@ class KGEngine:
         """``(file, section)`` holding a rejected edge's span, by the rule ``kg_ground_plan`` orders spans
         with (its named file, else any configured file); None when the span verifies in no section, which
         happens once the source changed under it. ``cache`` keeps each file's normalized sections."""
-        if not (edge.span and edge.span.strip()):
+        return KGEngine._span_section(edge.span, edge.source_file, texts, cache)
+
+    @staticmethod
+    def _span_section(span: str, source_file: str, texts: dict, cache: dict) -> "tuple[str, object] | None":
+        """``(file, section)`` holding ``span``: the section of ``source_file`` when that is a configured
+        file, else of the first configured file that holds it; None when no section does. ``cache`` keeps
+        each file's normalized sections across calls."""
+        if not (span and span.strip()):
             return None
-        name = SourceSet._key(edge.source_file) if edge.source_file else ""
-        nspan = normalize_text(edge.span)
+        name = SourceSet._key(source_file) if source_file else ""
+        nspan = normalize_text(span)
         for fname in ([name] if name in texts else list(texts)):
             if fname not in cache:
                 cache[fname] = [(s, normalize_text(s.text)) for s in plan_sections(texts[fname])[1]]
@@ -3466,7 +3560,8 @@ def _register(mcp, engine: KGEngine) -> None:
         say why there too. A promotion span also records the source file it is in (an edge's
         `source_file`, a node's 'grounding source:' paragraph). `lead`, with verdict='rejected' only: the edge
         the span does state instead, as '<head-id> <relation> <tail-id>' (a pack relation; a new node gets a
-        new slug id), which `/burgess:kg-build --leads` writes; a bad lead is refused before any state change. A
+        new slug id), which `/burgess:kg-build --leads` writes from the rejected edge's span; a bad lead, or one
+        on an edge with no span (a proposal), is refused before any state change. A
         verdict that changes an edge's state without a lead withdraws the lead its notes held (`lead: none`,
         returned as `lead_withdrawn`). A verdict that keeps an edge's state re-confirms it: the edge keeps
         the time it entered that state, and its lead."""
@@ -3547,8 +3642,12 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_ground_item(target_id: str, kind: str = "edge") -> dict:
         """Everything needed to judge ONE queued item, so a grounder never reads a file. For an edge: its
         fields and span, `span_in_source` (does the span still verify now), its two endpoint nodes, and
-        `context`, the excerpt of the source that holds the span. For a node (`kind="node"`): the node and
-        its incident edges. Text is egress-scrubbed with the session's placeholders. Read-only."""
+        `context`, the excerpt of the source that holds the span. An edge with no span (a proposal) gets
+        `shared_context` instead: up to 3 source sections where both its ends are discussed, located by the
+        spans of their live edges, each with excerpts (`sections`, nearest pair first), and the sections
+        where each end is discussed (`source_node_sections`, `target_node_sections`). For a node
+        (`kind="node"`): the node and its incident edges. Text is egress-scrubbed with the session's
+        placeholders. Read-only."""
         return engine.kg_ground_item(target_id, kind)
 
     @mcp.tool()

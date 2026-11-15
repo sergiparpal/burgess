@@ -350,7 +350,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   `verdict_at`, when it entered its state, which a re-verdict that keeps the state keeps, 0.10.2),
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
-  reads no file), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
+  reads no file; for an edge with no span, a proposal, the source sections where both its ends are
+  discussed, located by the spans of their live edges, 0.18.0), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
   edges by what they say, edgeless nodes included), `get_node`,
   `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`

@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.18.0 — 2026-11-15
+
+Found on the field `/burgess:kg-ground` that judged the fourth generation, on 0.17.1: 40 proposals in four
+batches, 39 rejected for no support and one grounded. `kg_ground_item` gave a proposal its two nodes and no
+source text, so how a proposal was judged depended on its grounder. Three grounders looked the ends up with
+`get_node` and `kg_context`, and the fourth judged its twelve proposals on the nodes alone.
+
+### Added
+
+- **A proposal comes with the passages where its ends meet.**
+  - For an edge with no span, `kg_ground_item` returns `shared_context` in place of `context`. Its `sections`
+    are the source sections where both ends are discussed, at most three, each with excerpts. It also lists
+    where each end is discussed (`source_node_sections`, `target_node_sections`, at most 12 each), with totals.
+  - An end is discussed where the span of one of its live edges lies: in the edge's named file, or else in the
+    first configured file that holds the span. A node promoted on a support span is also where that span lies.
+    Rejected, failed and obsolete edges do not count.
+  - The nearest pair comes first: the section with the fewest paragraphs between a span of one end and a span
+    of the other. A section's excerpts fit in 3000 characters together. When the passage from one span to the
+    other fits, it is one excerpt, widened with its neighbours; otherwise each span gets up to 1500 characters.
+  - So an empty `sections` means one of two things. Either both ends are discussed but never together, or an
+    end could not be placed. The grounder's contract tells the two apart.
+  - Replayed on a copy of the field canon, the 104 rejected proposals split into 19 with a shared section, 61
+    whose ends are both discussed but never together, and 24 star edges into a compression node with no span
+    edge.
+  - For the one proposal that grounded, `andamiaje-rivaliza-con-fine-tuning bridges o1-sin-prompting` (its own
+    span left out), it returns the section «2. Los mecanismos…» with the passage that holds its support span.
+  - A call takes about 55 ms, against 18 ms for an edge with a span. It returns at most about 6800 characters.
+- **The grounder judges a proposal against it.**
+  - The contract says how. Support from the source is a span copied from the excerpts that states the
+    relation. A citation from outside the source still goes in `support_note`.
+  - Reject `no-support` when both ends have sections and none is shared, unless such a citation supports it.
+  - When an end has no section, judge from the node bodies and `get_node`.
+  - The `/burgess:kg-ground` batch prompt names `shared_context`.
+
+### Changed
+
+- **A lead on an edge with no span is refused.**
+  - `/burgess:kg-build --leads` writes a lead from the rejected edge's span. A lead on a proposal therefore sat
+    in `leads_unlocated`, which reported its span as gone from the source.
+  - Now `kg_ground` refuses such a lead before any state change. When a proposal's passage states another
+    relation, the grounder rejects it `no-support` and names that edge in the note.
+  - No field proposal carries a lead.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and the new field is read-only.
+- The views carry the 0.17.1 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_hypothesis_shared_context.py` (17 tests):
+  - a proposal gets the section where both ends are discussed, as one passage when the spans are near;
+  - ends never discussed together share no section, and each end's list says where it is;
+  - an end with no span edge is not placed;
+  - only live edges place an end;
+  - an existing edge between the two ends places both;
+  - an edge with a span keeps its `context` and gets no `shared_context`;
+  - a node promoted on a support span is placed by it;
+  - the excerpts leave through the session scrub, and restore;
+  - at most three sections, nearest pair first, and at most twelve per end;
+  - the pure helpers: the gap between two spans, one passage or one excerpt each, the promotion paragraphs,
+    and the span check's own matching;
+  - a lead on an edge with no span is refused before anything changes;
+  - the grounder's contract, the batch prompt, the tools reference and the MCP description name the new field.
+- Against 0.17.1, all 17 fail: the field and its helpers are new there, and 0.17.1 took a lead on a
+  proposal.
+- 2173 → 2190 passed, 3 skipped.
+
 ## 0.17.1 — 2026-11-15
 
 Found on the field `/burgess:kg-ground` that judged the second generation, on 0.17.0. 25 of its 26 items were

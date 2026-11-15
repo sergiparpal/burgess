@@ -17,6 +17,9 @@ new has come since; and an excerpt cut out of a long table keeps the table's hea
 
 0.10.0: an attack that writes no counter-edge is recorded too, so the plan stops offering that hub as well.
 
+0.18.0: an edge with no span, a proposal, is judged against the source sections where both its ends are
+discussed, found by the spans of their other edges (`nearest_pair`, `pair_excerpts`).
+
 Pure stdlib + `model`/`buildplan`; no I/O. `KGEngine.kg_ground_plan` / `kg_ground_item` assemble around these.
 """
 from __future__ import annotations
@@ -81,6 +84,14 @@ _PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 _TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
 # The line an excerpt puts between a table's header and the rows it kept, when it skipped rows in between.
 TABLE_GAP = "…"
+# What kg_ground_item shows for an edge with no span (0.18.0): the sections that hold a span of each end, the
+# nearest pair of those spans first. Each section's excerpts fit in EXCERPT_CHARS together, so one proposal
+# brings at most three excerpts' worth of text, and each end's own list names at most END_SECTIONS sections.
+SHARED_SECTIONS = 3
+END_SECTIONS = 12
+# The paragraphs a node's promotion on a support span writes into its body (0.16.1): the span, then its file.
+GROUNDING_SPAN_MARK = "grounding span: "
+GROUNDING_SOURCE_MARK = "grounding source: "
 
 
 def clamp_batch_size(value) -> int:
@@ -257,6 +268,32 @@ def node_star_batches(items: list, ends: dict, size: int) -> "list[list]":
     return out
 
 
+def _paragraphs(text: str) -> "list[str]":
+    """The blank-line separated paragraphs of `text` that hold anything, the unit an excerpt is cut in."""
+    return [p for p in _PARAGRAPH_BREAK.split(text) if p.strip()]
+
+
+def _window(units: "list[str]", sep: str, widths, nspan: str) -> "tuple[int, int] | None":
+    """`(lo, hi)` of the first run of `units` that holds the normalized span `nspan`, the narrowest width of
+    `widths` first; None when no run does."""
+    for width in widths:
+        for i in range(len(units) - width + 1):
+            if span_present_in(nspan, normalize_text(sep.join(units[i:i + width]))):
+                return i, i + width
+    return None
+
+
+def _widen(units: "list[str]", sep: str, lo: int, hi: int, cap: int, floor: int = 0) -> "tuple[int, int]":
+    """`(lo, hi)` grown one unit at a time on either side while the joined run stays within `cap`."""
+    while True:
+        grew = False
+        for nlo, nhi in ((lo - 1, hi), (lo, hi + 1)):
+            if floor <= nlo and nhi <= len(units) and len(sep.join(units[nlo:nhi])) <= cap:
+                lo, hi, grew = nlo, nhi, True
+        if not grew:
+            return lo, hi
+
+
 def span_excerpt(text: str, span: str, max_chars: int = EXCERPT_CHARS) -> "str | None":
     """The part of `text` (one source section) that holds `span`, with its neighbours as context, at most
     `max_chars` long; None when the span is not in the section.
@@ -275,34 +312,17 @@ def span_excerpt(text: str, span: str, max_chars: int = EXCERPT_CHARS) -> "str |
     if not span or not span.strip() or not text:
         return None
     nspan = normalize_text(span)
-
-    def window(units: "list[str]", sep: str, widths) -> "tuple[int, int] | None":
-        for width in widths:
-            for i in range(len(units) - width + 1):
-                if span_present_in(nspan, normalize_text(sep.join(units[i:i + width]))):
-                    return i, i + width
-        return None
-
-    def widen(units: "list[str]", sep: str, lo: int, hi: int, cap: int, floor: int = 0) -> "tuple[int, int]":
-        while True:
-            grew = False
-            for nlo, nhi in ((lo - 1, hi), (lo, hi + 1)):
-                if floor <= nlo and nhi <= len(units) and len(sep.join(units[nlo:nhi])) <= cap:
-                    lo, hi, grew = nlo, nhi, True
-            if not grew:
-                return lo, hi
-
-    paragraphs = [p for p in _PARAGRAPH_BREAK.split(text) if p.strip()]
-    found = window(paragraphs, "\n\n", (1, 2, 3))
+    paragraphs = _paragraphs(text)
+    found = _window(paragraphs, "\n\n", (1, 2, 3), nspan)
     if found is None:
         return None
     lo, hi = found
     core = "\n\n".join(paragraphs[lo:hi])
     if len(core) <= max_chars:
-        lo, hi = widen(paragraphs, "\n\n", lo, hi, max_chars)
+        lo, hi = _widen(paragraphs, "\n\n", lo, hi, max_chars)
         return "\n\n".join(paragraphs[lo:hi])
     lines = core.split("\n")
-    found = window(lines, "\n", range(1, min(len(lines), 12) + 1))
+    found = _window(lines, "\n", range(1, min(len(lines), 12) + 1), nspan)
     if found is None:  # the span runs across more lines than a window covers: hand back the head of the core
         return core[:max_chars]
     lo, hi = found
@@ -313,9 +333,9 @@ def span_excerpt(text: str, span: str, max_chars: int = EXCERPT_CHARS) -> "str |
         # room for the rows once the header, a gap line and their line breaks are counted
         room = max_chars - len("\n".join(top)) - len(TABLE_GAP) - 2
         if len("\n".join(lines[lo:hi])) <= room:
-            lo, hi = widen(lines, "\n", lo, hi, room, floor=body)
+            lo, hi = _widen(lines, "\n", lo, hi, room, floor=body)
             return "\n".join(top + ([TABLE_GAP] if lo > body else []) + lines[lo:hi])
-    lo, hi = widen(lines, "\n", lo, hi, max_chars)
+    lo, hi = _widen(lines, "\n", lo, hi, max_chars)
     excerpt = "\n".join(lines[lo:hi])
     return excerpt if len(excerpt) <= max_chars else excerpt[:max_chars]
 
@@ -331,3 +351,76 @@ def _table_head(lines: "list[str]", i: int) -> "tuple[int, int] | None":
     if first + 2 <= i and _TABLE_RULE.match(lines[first + 1]):
         return first, first + 2
     return None
+
+
+def grounding_spans(body: "str | None") -> "list[tuple[str, str]]":
+    """`(span, file)` for each support span a node was promoted on, read from the paragraphs the promotion
+    writes into its body: `grounding span: <span>`, then `grounding source: <file>` (0.16.1). `file` is ""
+    when no such paragraph follows, as on a node promoted through 0.16.0."""
+    paragraphs = [p.strip() for p in _paragraphs(body or "")]
+    out = []
+    for i, p in enumerate(paragraphs):
+        if not p.startswith(GROUNDING_SPAN_MARK):
+            continue
+        span = p[len(GROUNDING_SPAN_MARK):].strip()
+        after = paragraphs[i + 1] if i + 1 < len(paragraphs) else ""
+        name = after[len(GROUNDING_SOURCE_MARK):].strip() if after.startswith(GROUNDING_SOURCE_MARK) else ""
+        if span:
+            out.append((span, name))
+    return out
+
+
+def nearest_pair(text: str, spans_a: "list[str]", spans_b: "list[str]") -> "tuple[int, str, str] | None":
+    """`(gap, span_a, span_b)`: the span of each list that lies nearest a span of the other in `text`, one
+    source section, with `gap` the number of paragraphs between them (0 when they share a paragraph or touch).
+    A span sits where `span_excerpt` finds it, in the narrowest run of one to three paragraphs that holds it.
+    Between pairs as near, two spans that share a paragraph win over two that only touch, and then the earlier
+    span of each list. None when a list has no span that sits in such a run."""
+    paragraphs = _paragraphs(text)
+    runs = [(i, i + width, normalize_text("\n\n".join(paragraphs[i:i + width])))
+            for width in (1, 2, 3) for i in range(len(paragraphs) - width + 1)]
+
+    def placed(spans: "list[str]") -> "list[tuple[str, int, int]]":
+        out = []
+        for span in spans:
+            nspan = normalize_text(span)
+            hit = next(((lo, hi) for lo, hi, norm in runs if span_present_in(nspan, norm)), None)
+            if nspan and hit is not None:
+                out.append((span, *hit))
+        return out
+
+    best, best_key = None, None
+    in_b = placed(spans_b)
+    for sa, la, ha in placed(spans_a):
+        for sb, lb, hb in in_b:
+            apart = max(la, lb) - min(ha, hb)    # below 0: the runs share a paragraph; 0: they touch
+            key = (max(0, apart), apart >= 0)
+            if best_key is None or key < best_key:
+                best, best_key = (key[0], sa, sb), key
+    return best
+
+
+def pair_excerpts(text: str, span_a: str, span_b: str, max_chars: int = EXCERPT_CHARS) -> "list[str]":
+    """The excerpts of `text`, one source section, that show both spans, within `max_chars` together. When
+    the paragraphs from one span to the other fit, that passage is the one excerpt, widened with its
+    neighbours as `span_excerpt` widens. Otherwise each span gets its own `span_excerpt` of half the room,
+    `span_a`'s first, and one excerpt that already holds the other span is kept alone."""
+    na, nb = normalize_text(span_a), normalize_text(span_b)
+    if na == nb:
+        one = span_excerpt(text, span_a, max_chars)
+        return [one] if one is not None else []
+    paragraphs = _paragraphs(text)
+    wa = _window(paragraphs, "\n\n", (1, 2, 3), na) if na else None
+    wb = _window(paragraphs, "\n\n", (1, 2, 3), nb) if nb else None
+    if wa is not None and wb is not None:
+        lo, hi = min(wa[0], wb[0]), max(wa[1], wb[1])
+        if len("\n\n".join(paragraphs[lo:hi])) <= max_chars:
+            lo, hi = _widen(paragraphs, "\n\n", lo, hi, max_chars)
+            return ["\n\n".join(paragraphs[lo:hi])]
+    half = max_chars // 2
+    ea, eb = span_excerpt(text, span_a, half), span_excerpt(text, span_b, half)
+    if ea is not None and span_present_in(nb, normalize_text(ea)):
+        return [ea]
+    if eb is not None and span_present_in(na, normalize_text(eb)):
+        return [eb]
+    return [x for x in (ea, eb) if x is not None]

@@ -384,7 +384,9 @@ never re-proposed, surfaced forever in the falsification counters.
 batches, one grounder per batch, several at once (the `extract_wave_size` option). After any pins and
 proposals, the claims the extractor marked weak go first, so a pass you stop early has judged them. Each grounder
 fetches the evidence for its items itself (`kg_ground_item`): the claim, whether its quoted text is
-still in your source, and the paragraph around it. Through 0.6.1 the orchestrator pulled the whole
+still in your source, and the paragraph around it. A proposal has no quoted text, so its grounder gets the
+passages where both of its ends are discussed instead, and, when no section discusses the two together,
+that fact itself. Through 0.6.1 the orchestrator pulled the whole
 queue at once, and on a large graph read it back with scripts, which in auto mode stopped on
 permission prompts.
 
