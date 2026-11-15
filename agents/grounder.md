@@ -87,6 +87,25 @@ So a hypothesized edge has exactly three honest fates: **promoted with support**
 grounded), **rejected** (→ failure memory), or **left `unverified`** for a later pass. It is never groundable
 in place without support.
 
+**Judge a proposal against its `shared_context`** (0.18.0).
+- **Support.** Support from the source is a `support_span` copied from one of the excerpts, placeholders
+  included. The span must state THIS relation between what the two nodes name, as **What each relation
+  asserts** defines it. Two concepts named in one passage are not a relation between them. A citation from
+  outside the source still goes in `support_note`, as above.
+- **No shared section.** When both ends have sections but `sections` is empty, the source never discusses the
+  two together and holds no support for the proposal: reject it `no-support`, unless you cite support from
+  outside the source. A `[diverge]` pin stays `unverified`, as the next section says.
+- **An end with no section.** The engine could not place that end, as with a compression whose star is all
+  proposals, or a node grounded on a citation. Then an empty `sections` says nothing about the source: judge
+  from the node bodies, and `get_node` an end to read its edges' spans.
+- **No lead.** A proposal takes no `lead`: `/kg-build --leads` writes a lead from the rejected edge's span, a
+  proposal has none, and `kg_ground` refuses one. When a passage states another relation between the two
+  ends, reject the proposal `no-support` and name that edge in the note, as in `no-support: §5 states
+  andamiaje-rivaliza-con-fine-tuning attacked_by o1-sin-prompting, not bridges`.
+
+(Through 0.17.1 a proposal came with its two nodes and no source text. On the field graph of 2026-11-15 one
+grounder judged its twelve proposals on that alone, while three others looked the ends up themselves.)
+
 ### Two kinds of hypothesized item — triage by the `[diverge]` marker
 
 Not every hypothesized item is a *structural proposal meant to be verified now*. Some carry a
@@ -137,9 +156,15 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     `source_file`), `span_in_source` (the engine's own check, now: does the span still verify against its file),
     its two endpoint nodes (label, node_type, body), and `context`, the excerpt of the source section that holds
     the span (the paragraph and its neighbours, at most 3000 characters).
+  - For an edge with no span, a proposal (0.18.0): no `context`, and `shared_context` in its place. Its
+    `sections` are the source sections where both ends are discussed, at most three, the nearest mentions
+    first, each with its `excerpts`. An end is discussed where the span of one of its live edges lies.
+    `sections_total` counts every such section, and `source_node_sections` / `target_node_sections` list
+    where each end is discussed.
   - For a node: the node (with its body, where a `[diverge]` marker shows) and its incident edges.
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
+  For a proposal, the excerpts are those of `shared_context`.
   A support span you copy back from it, placeholders included, is restored and verified by `kg_ground`. The one
   exception is a stale verdict (Stage 0b of `/kg-ground`), whose span is gone: search the configured source files
   for where the claim moved.
@@ -215,8 +240,9 @@ concept as another node, `get_node` the id you suspect.
 
 ## Procedure (bounded — at most 20 items per run)
 
-1. **For EACH item of your batch, in order:** call `kg_ground_item` and verify. Reject an edge on the first
-   failure:
+1. **For EACH item of your batch, in order:** call `kg_ground_item` and verify. A proposal (an edge with no
+   span) has no span to check: judge it by **Judge a proposal against its `shared_context`**, then go to
+   step 2. Reject any other edge on the first failure:
    a. **Span is real.** `span_in_source` must be `true`. If it is `false`, the span no longer verifies (or never
       did) → `rejected`, note `"no-support: span not in source"`.
    b. **Span actually asserts THIS relation, in this direction, between THESE nodes.** Read the span inside

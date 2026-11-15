@@ -1620,3 +1620,55 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_node_with_its_star.py` (14 tests).
   - Against 0.17.0, 11 fail.
   - The 3 that pass pin a proposal into a live node, in both states, and a text edge into a rejected node.
+
+## A proposal is judged against the passages where its ends meet (2026-11-15)
+
+- **Decision:**
+  - For an edge with no span, `kg_ground_item` returns `shared_context`: the source sections where both of its
+    ends are discussed, at most three, nearest pair first, each with excerpts, and the sections where each end
+    is discussed, at most twelve each, with totals.
+  - An end is discussed where the span of one of its live edges lies. A node promoted on a support span is also
+    where that span lies (`groundplan.grounding_spans`).
+  - Sections are ranked by the fewest paragraphs between a span of one end and a span of the other
+    (`groundplan.nearest_pair`). A section's excerpts fit in 3000 characters together (`groundplan.pair_excerpts`).
+  - `kg_ground` refuses a lead on an edge with no span.
+  - The grounder's contract says how to judge a proposal against `shared_context`.
+- **Field run it answers** (0.17.1, 2026-11-15): the `/burgess:kg-ground` of the fourth field generation.
+  - 40 proposals in four batches: 39 rejected for no support, one grounded.
+  - Three grounders looked the ends up with `get_node` and `kg_context`. The fourth judged its twelve proposals
+    on what `kg_ground_item` gave, the two nodes and no source text.
+  - The proposal that grounded was promoted on a span of the one section where both of its ends are discussed.
+- **Why the spans of the ends' edges:**
+  - A span is verbatim and checked at the boundary, so it says where the source discusses a node. A label is a
+    paraphrase, and a search for it finds the word, not the concept.
+  - The engine already holds them. Placing an end costs a pass over the canon's edges and the source's sections.
+- **Why live edges only:**
+  - A rejected edge's claim about the node does not stand, so its span need not be about that node.
+- **Why the nearest pair first, and three sections:**
+  - A relation between two concepts is stated where both are named, so the closest two mentions are the likeliest
+    support.
+  - A hub is discussed in nine sections of the field corpus. Three sections of 3000 characters keep a batch of
+    twelve proposals within a grounder's reading.
+- **Why refuse a lead on an edge with no span:**
+  - `/burgess:kg-build --leads` writes a lead from the rejected edge's span. A proposal has none, so its lead went
+    to `leads_unlocated`, reported as a span that had left the source.
+  - With passages to read, a grounder may find another relation between a proposal's ends. Until such a lead can
+    be written, the note is where it goes.
+- **Rejected alternatives:**
+  - (a) *Let the grounder read or search the source for a proposal.* That brings back the file reads 0.7.0 took
+    out, and the judging still depends on how hard a grounder looks.
+  - (b) *Search the source for the two nodes' labels.* A label is the extractor's paraphrase, so the search
+    misses the concept and finds the word.
+  - (c) *Excerpt every section where either end is discussed.* That is too much text for a batch: one hub alone
+    is discussed in nine sections.
+  - (d) *Record the passage's span on a rejected proposal, so its lead can be written.* That puts a span on a
+    `hypothesized` edge through the verdict path. It needs a decision of its own.
+- **Accepted trade-offs:**
+  - A section that discusses both ends where neither has an edge is not found. The engine knows a concept's place
+    only through its spans.
+  - An end with no live span edge, as with most compression nodes, is not placed. The grounder falls back to the
+    node bodies and `get_node`.
+  - A call on a proposal takes about 40 ms more.
+  - Another relation found in a proposal's passage is kept only in a note until (d) is decided.
+- **Pinned in:** `tests/test_fix_hypothesis_shared_context.py` (17 tests).
+  - Against 0.17.1, all 17 fail.

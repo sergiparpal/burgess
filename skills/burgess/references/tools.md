@@ -174,7 +174,9 @@ record so the reconciler treats the transition as legitimate.
   edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
   `lead: <head> <relation> <tail>`, and echoed as `"lead"` in the return. `/burgess:kg-build --leads` writes it (§1.19).
   A malformed lead, an undeclared relation, a self-loop, a lead that repeats the rejected edge, or a lead with
-  another verdict or `kind="node"` is refused before any state change. A lead belongs to the rejection that
+  another verdict or `kind="node"` is refused before any state change. So is a lead on an edge with no span,
+  such as a proposal (0.18.0): `--leads` writes a lead from the rejected edge's span, and that edge has none.
+  Name the edge in the note instead. A lead belongs to the rejection that
   recorded it (0.11.1): a verdict that changes an edge's state and records no lead of its own withdraws the
   lead the notes held, by appending `lead: none` after `note`, and returns it as `"lead_withdrawn"`. A verdict
   that keeps the state keeps the lead, and a lead it records replaces the old one.
@@ -914,6 +916,32 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
   It is the paragraph and its neighbours, at most 3000 characters, and for a long table the rows around the
   span under the table's header and rule rows, with a `…` line where rows were skipped (0.8.0: before, a row
   reached the grounder without the header that names its columns).
+- `shared_context` — for an edge with no span, a proposal, in place of `context` (0.18.0); `null` for an edge
+  with a span. It holds the source sections where both ends are discussed. An end is discussed where the span
+  of one of its live edges lies (its named file, else the first configured file that holds it), and a node
+  promoted on a support span is also where that span lies. A rejected, failed or obsolete edge does not count.
+
+  ```json
+  "shared_context": {
+    "sections": [{"source_file": "doc.md", "section": 2, "title": "Mecanismos",
+                  "excerpts": ["…the passage from one end's span to the other's…"]}],
+    "sections_total": 1,
+    "source_node_sections": [{"source_file": "doc.md", "section": 2, "title": "Mecanismos"}],
+    "source_node_sections_total": 1,
+    "target_node_sections": [{"source_file": "doc.md", "section": 2, "title": "Mecanismos"},
+                             {"source_file": "doc.md", "section": 4, "title": "Costes"}],
+    "target_node_sections_total": 2}
+  ```
+
+  - `sections` lists at most 3 sections, nearest pair first: the fewest paragraphs between a span of one end
+    and a span of the other. `sections_total` counts them all.
+  - Each section's `excerpts` fit in 3000 characters together. When the paragraphs from one span to the other
+    fit, they are one excerpt, widened with their neighbours. Otherwise each span gets its own excerpt of up to
+    1500 characters.
+  - `source_node_sections` and `target_node_sections` list where each end is discussed, in source order, at
+    most 12 each, with their totals.
+  - An empty `sections` means one of two things. If both ends have sections, the source never discusses the
+    two together. If an end has none, the engine could not place it.
 - For `kind="node"`: `{node, edges}`, the node with its body (where a `[diverge]` marker shows) and up to 20
   incident edges.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
