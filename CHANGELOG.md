@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.17.1 — 2026-11-15
+
+Found on the field `/burgess:kg-ground` that judged the second generation, on 0.17.0. 25 of its 26 items were
+rejected for no support, and those verdicts were right. The 26th was a star edge, grounded on an outside citation
+into a compression node that another grounder rejected in the same second.
+
+### Fixed
+
+- **A proposed node is judged in one batch with its star.**
+  - `kg_ground_plan` put the queued nodes first and cut the queue every 12 items, with the edges in id order. One
+    generated compression sat in batch 1 and its six star edges in all three batches.
+  - The batches ran in parallel. Batch 1 rejected the node, and at the same time batch 3 grounded
+    `varios-llm-… collapses_into` that node, citing Knight & Leveson 1986 and Eckhardt & Lee 1985 (the second one
+    from outside the corpus).
+  - The new "claim" also brought `varios-llm-…` back into the hubs, and the adversarial grounder found nothing new
+    there.
+  - Now a queued node goes in one batch with the queued edges that touch it, and any queued node they reach, nodes
+    first (`groundplan.node_star_batches`). Such a unit is never split. It starts a new batch when it does not
+    fit, and is a batch of its own when it is larger than the batch size. A queue with no node is cut as before.
+  - The grounder's contract tells it to judge the node first.
+- **A proposal into a node that does not stand is not promoted.**
+  - `kg_ground` now refuses to ground a `hypothesized` edge whose source or target is a rejected, failed or
+    obsolete node, with a span or a citation alike. The refusal is `hypothesis-into-non-live-node`, naming the
+    node and its state, and the grounder rejects the edge instead.
+  - An edge with a span is judged on its span, as before.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged.
+- The edge grounded on 2026-11-15 into the rejected node stays grounded until it is judged again. The session that
+  ran the pass offered to have one grounder re-judge it. Rejecting it needs no support, so the new rule does not
+  stand in the way.
+- The views carry the 0.17.0 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_node_with_its_star.py` (14 tests):
+  - a node and the edges that touch it stay in one batch, and two queued nodes an edge joins share one;
+  - a queue with no node is cut as before;
+  - a unit larger than a batch is a batch of its own;
+  - `kg_ground_plan` keeps the field's shape whole: two compressions, stars of 8 and 6, and 10 bridges whose ids
+    sort first;
+  - a proposal into a rejected, failed or obsolete node is refused, a citation included, and can be rejected;
+  - a proposal into a live node still promotes;
+  - an edge with a span into a rejected node is not refused;
+  - the grounder judges a node before its star, and the command says a node comes with its star.
+- Against 0.17.0, 11 of the 14 fail. The batching tests that fail there only because `node_star_batches` is new
+  include the one that pins that a queue with no node is cut as before. The 3 that pass pin what must not
+  change: a proposal into a live node, in both states, and a text edge into a rejected node.
+- 2159 → 2173 passed, 3 skipped.
+
 ## 0.17.0 — 2026-11-15
 
 Found on the second field `/burgess:kg-generate`, on 0.16.1. The 0.16.0 cap and star contract held: the ten

@@ -388,6 +388,11 @@ still in your source, and the paragraph around it. Through 0.6.1 the orchestrato
 queue at once, and on a large graph read it back with scripts, which in auto mode stopped on
 permission prompts.
 
+A proposed node comes in one batch with the proposals that touch it, such as a compression with its star,
+so one grounder judges them together. Once a proposed node is rejected, no proposal into it is grounded.
+On 2026-11-15 two grounders running in parallel rejected a compression and grounded an edge into it in the
+same second.
+
 **Each hub is attacked once.** The adversarial grounder marks every counter-argument it writes with
 the hub it attacks, and the next pass moves on to the next hubs down the list. When it finds nothing to
 write against a hub, it records the attack and the question that would settle the hub, and that record

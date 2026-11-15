@@ -44,7 +44,11 @@ Find what is actually pending before spending any subagent budget.
      It holds every `unverified` edge and every `unverified` HYPOTHESIZED node. A materialized `/burgess:kg-diverge`
      pin is such a node, often with **no incident edge at all**, and it is groundable *as a node*: "no edge →
      can't be grounded" is false. The order is already decided: pins, then the other hypotheses, then the
-     edges their extractor marked weak, then the rest, each group in source order. Keep it.
+     edges their extractor marked weak, then the rest, each group in source order. Keep it. Since 0.17.1
+     a queued node comes in one batch with the queued edges that touch it, node first, so one grounder judges
+     a generated compression together with its star. A batch can then run past `batch_size`. Keep each
+     batch whole. (On 0.17.0 two grounders running in parallel rejected a compression and grounded an edge
+     into it in the same second.)
    - `queue`: the counts, including `weak_edges` and `extractor_nodes_not_queued`. The extractor's own nodes
      are not queued: each names a concept the text uses, and the claims about it are its edges, which are
      queued. `leads_pending` (0.9.0) counts the leads rejected claims carry that no edge has taken yet: they

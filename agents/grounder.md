@@ -255,6 +255,10 @@ concept as another node, `get_node` the id you suspect.
    `support_note="<external citation>"` if the support is off-source); if it is a `[diverge]`-lineage pin with no
    support yet, **leave it `unverified`** (triage — a novel idea has no in-source span by construction); only a
    non-`[diverge]` node with no support is `rejected`. "No edge → can't be grounded" is false — ground the node.
+   Your batch also holds the queued edges that touch the node, such as a compression's star, so judge the node
+   first. A proposal into a node that is rejected, failed or obsolete is not promoted: `kg_ground` refuses it
+   with `hypothesis-into-non-live-node`. Reject that edge `no-support`, because what it reduces to does not
+   stand (0.17.1).
 4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation /
    wrong-node), K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason.
    For each `wrong-relation` or `wrong-node` rejection, name the edge its span does state, the lead you passed

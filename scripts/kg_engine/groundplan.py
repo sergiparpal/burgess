@@ -193,6 +193,70 @@ def batches(items: list, size: int) -> "list[list]":
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
+def node_star_batches(items: list, ends: dict, size: int) -> "list[list]":
+    """The queue in batches of `size` that keep each queued node with the queued edges that touch it
+    (0.17.1).
+
+    `items` is the plan's queue in its order, as `{"id", "kind"}` dicts, and `ends` maps each queued edge
+    id to its two node ids. A queued node, the queued edges that touch it, and any other queued node those
+    edges reach make one unit, its nodes first. A unit is never split: it joins the current batch when it
+    fits, else it starts the next one, and a unit larger than `size` is a batch of its own. The rest is
+    packed in queue order, as `batches` packs it, so a queue with no node comes out exactly as `batches`
+    cuts it.
+
+    Through 0.17.0 the queue was cut every `size` items. On the field graph of 2026-11-15 a generated
+    compression sat in one batch and its star edges in all three. Two grounders judged it at the same time:
+    one rejected the node while another grounded an edge into it."""
+    parent = {it["id"]: it["id"] for it in items if it["kind"] == "node"}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    touched = {it["id"]: [n for n in ends.get(it["id"], ()) if n in parent]
+               for it in items if it["kind"] == "edge"}
+    for nodes in touched.values():
+        for a, b in zip(nodes, nodes[1:]):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+    def unit_of(it):
+        if it["kind"] == "node":
+            return find(it["id"])
+        nodes = touched.get(it["id"])
+        return find(nodes[0]) if nodes else None
+
+    members: dict = {}
+    for it in items:
+        key = unit_of(it)
+        if key is not None:
+            members.setdefault(key, []).append(it)
+    units, emitted = [], set()
+    for it in items:
+        key = unit_of(it)
+        if key is None:
+            units.append([it])
+        elif key not in emitted:
+            emitted.add(key)
+            unit = members[key]
+            units.append([m for m in unit if m["kind"] == "node"] + [m for m in unit if m["kind"] != "node"])
+    out, cur = [], []
+    for unit in units:
+        if cur and len(cur) + len(unit) > size:
+            out.append(cur)
+            cur = []
+        cur.extend(unit)
+        if len(cur) >= size:
+            out.append(cur)
+            cur = []
+    if cur:
+        out.append(cur)
+    return out
+
+
 def span_excerpt(text: str, span: str, max_chars: int = EXCERPT_CHARS) -> "str | None":
     """The part of `text` (one source section) that holds `span`, with its neighbours as context, at most
     `max_chars` long; None when the span is not in the section.
