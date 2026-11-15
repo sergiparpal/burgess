@@ -1172,6 +1172,9 @@ class KGEngine:
         The same gate applies to a hypothesized NODE (a compression node / primitive from the propose
         lane): it too earns grounding only with support, restated into the node body (a Node has no span
         field). `support_*` are ignored for non-hypothesized items and for any verdict other than `grounded`.
+        A hypothesized edge into a node in a non-live state (rejected, failed, obsolete) is not promoted:
+        `hypothesis-into-non-live-node`, naming the node and its state (0.17.1). The node's verdict settles
+        its star, so such an edge is rejected instead.
 
         `note` is appended to an EDGE's `notes`. A Node has no notes field, so for `kind='node'` the note
         is added to the node's body as the paragraph `verdict (<state>): <note>` (0.16.1; through 0.16.0
@@ -1267,6 +1270,13 @@ class KGEngine:
                 # support, which upgrades its provenance. Decided BEFORE any state change so a refusal leaves
                 # the edge untouched (no audit record, no write).
                 if edge.provenance == Provenance.HYPOTHESIZED and state == EpistemicState.GROUNDED:
+                    # A proposal into a node that is not live is not promoted (0.17.1): the node's verdict
+                    # settles its star. On the field graph of 2026-11-15 one grounder rejected a generated
+                    # compression while another, in a parallel batch, grounded an edge into it.
+                    dead = self._non_live_end(edge)
+                    if dead:
+                        return {"ok": False, "error": "hypothesis-into-non-live-node",
+                                "node": dead[0], "node_state": dead[1]}
                     promoted_to, err = self._promote_hypothesis(edge, support_span, support_note)
                     if err:
                         return {"ok": False, "error": err}
@@ -1352,6 +1362,21 @@ class KGEngine:
             apply_note(support_note.strip())
             return Provenance.INFERRED.value, None
         return None, "hypothesis-needs-support"
+
+    def _non_live_end(self, edge) -> "tuple[str, str] | None":
+        """`(node id, state)` of the first end of `edge` that is a node in a non-live state (rejected, failed
+        or obsolete), or None. A missing or unreadable end is not one: the promotion gate only stops a
+        proposal into a node that was judged not to stand (0.17.1)."""
+        for end in (slug(edge.source), slug(edge.target)):
+            if not self.canon.exists(end):
+                continue
+            try:
+                node = self.canon.read_node(end)
+            except Exception:  # noqa: BLE001 — an unreadable note is reported by other paths, not here
+                continue
+            if node.epistemic_state.value in NON_LIVE_STATE_VALUES:
+                return end, node.epistemic_state.value
+        return None
 
     def _promote_hypothesis(self, edge, support_span: str, support_note: str):
         """The EDGE promotion gate over `_promote_support`. Source-aware (R4): the span verifies
@@ -2132,6 +2157,10 @@ class KGEngine:
         (`e_<source>__<relation>__<target>`), and each grounder fetches what it judges with
         `kg_ground_item`.
 
+        A queued node goes in one batch with the queued edges that touch it, node first, and a unit larger
+        than `batch_size` is a batch of its own (0.17.1, `groundplan.node_star_batches`). So one grounder
+        judges a generated compression together with its star.
+
         `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
         channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
         1–20, default 12.
@@ -2148,7 +2177,7 @@ class KGEngine:
         attack's own counter-edges included, so every pass offered the same hubs again (field report on
         0.7.0). Read-only; it never projects."""
         from .groundplan import (ATTACK_RECORDED, DEFAULT_BATCH_SIZE, DIVERGE_MARK, already_attacked,
-                                 attacked_hub, batches as chunk, clamp_batch_size, focus_matches, is_weak)
+                                 attacked_hub, clamp_batch_size, focus_matches, is_weak, node_star_batches)
 
         size = clamp_batch_size(batch_size) if batch_size not in (None, "") else DEFAULT_BATCH_SIZE
         cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
@@ -2175,6 +2204,7 @@ class KGEngine:
 
         seen: "set[str]" = set()
         items: "list[tuple[tuple, str, str]]" = []
+        ends: "dict[str, tuple[str, str]]" = {}   # queued edge -> its two nodes, to batch a node with its star
         degree: "Counter[str]" = Counter()        # live claims per node
         newest_claim: "dict[str, str]" = {}       # node -> when its latest grounded claim was grounded
                                                   # (verdict_at; a re-confirmation keeps it, 0.10.2)
@@ -2203,6 +2233,7 @@ class KGEngine:
                 weak_edges += weak
                 items.append(((0 if pinned else 1, 0 if hypothesized else 1, 0 if weak else 1, position(e), e.id),
                               e.id, "edge"))
+                ends[e.id] = (slug(e.source), slug(e.target))
         skipped = 0
         for n in nodes:
             if n.epistemic_state != EpistemicState.UNVERIFIED or n.id not in in_focus:
@@ -2213,7 +2244,10 @@ class KGEngine:
             pinned = DIVERGE_MARK in (n.body or "")
             items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
         items.sort(key=lambda row: row[0])
-        planned = chunk([{"id": i, "kind": k} for _, i, k in items], size)
+        # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
+        # grounder judges a generated compression and its star together, instead of parallel grounders
+        # rejecting the node while grounding an edge into it.
+        planned = node_star_batches([{"id": i, "kind": k} for _, i, k in items], ends, size)
         # attacks that wrote no counter-edge (0.10.0), each counted like a counter-edge judged at its time
         for hub, times in self._hub_attacks().items():
             attacks.setdefault(hub, []).extend((ATTACK_RECORDED, at) for at in times)
@@ -3426,7 +3460,8 @@ def _register(mcp, engine: KGEngine) -> None:
         through the tool surface (§1.4). To PROMOTE a hypothesized edge OR node to grounded you MUST supply
         support, which upgrades its provenance: `support_span` (a verbatim source substring → span-present)
         or `support_note` (an external citation → inferred); without either, the promotion is refused with
-        `hypothesis-needs-support`. `note` is appended to the edge's `notes`; for kind='node' it is kept
+        `hypothesis-needs-support`. A hypothesized edge into a rejected, failed or obsolete node is refused
+        with `hypothesis-into-non-live-node`: reject it instead. `note` is appended to the edge's `notes`; for kind='node' it is kept
         in the node's body as the paragraph 'verdict (<state>): <note>' (a Node has no notes field), so
         say why there too. A promotion span also records the source file it is in (an edge's
         `source_file`, a node's 'grounding source:' paragraph). `lead`, with verdict='rejected' only: the edge
@@ -3500,7 +3535,8 @@ def _register(mcp, engine: KGEngine) -> None:
         batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` for the adversarial grounder
         (the nodes with the most live claims, leaving out the `attacked_hubs` an earlier pass attacked, with a
         counter-edge or a `kg_record_attack` record, and nothing grounded since). Order: [diverge] pins, other
-        hypotheses, edges marked weak, the rest. Pass
+        hypotheses, edges marked weak, the rest. A queued node shares one batch with the queued edges that
+        touch it, node first, so one grounder judges a compression and its star. Pass
         the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node it names) and the
         `extract_wave_size` option as the command text carries it. `queue.leads_pending` counts the leads
         rejected claims carry that `/burgess:kg-build --leads` has yet to write. Read-only."""

@@ -187,7 +187,10 @@ record so the reconciler treats the transition as legitimate.
 A promoted hypothesis adds `"provenance_upgraded_to": "span-present" | "inferred"` to the success return.
 On failure: `{"ok": false, "error": "invalid verdict 'maybe'"}` / `"invalid kind 'Node'; expected node|edge"` / `"node not found"` / `"edge not found"`.
 Promotion-specific refusals: `hypothesis-needs-support` (grounding a `hypothesized` edge with neither
-`support_span` nor `support_note`), `support-span-not-in-source`, `support-span-too-short`.
+`support_span` nor `support_note`), `support-span-not-in-source`, `support-span-too-short`, and
+`hypothesis-into-non-live-node` (0.17.1). The last one refuses grounding a `hypothesized` edge whose source or
+target is a node in a rejected, failed or obsolete state, with any support. It returns `"node"` and
+`"node_state"`, and the edge is rejected instead. An edge with a span is judged on its span, whatever its nodes.
 For an edge, also sets `verdict_by` (always `agent` via this tool — a human verdict cannot be forged
 through the tool surface) and `verdict_at`. A verdict that keeps the edge's state (0.10.2) re-confirms it and
 leaves both as they are, so they record who put the edge in its state and when. Its `note` and `lead` are
@@ -843,6 +846,14 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   extractor marked weak (`confidence: AMBIGUOUS`, or a `confidence_score` under 0.5; counted in
   `queue.weak_edges`), then the other text edges. Inside each group the order is the source's (file, then the
   section that holds the span), so one batch covers contiguous text.
+- **A node comes with its star (0.17.1):**
+  - A queued node goes in one batch with the queued edges that touch it, and any queued node those edges reach
+    (`groundplan.node_star_batches`), nodes first.
+  - Such a unit is never split. It starts a new batch when it does not fit, and is a batch of its own when it is
+    larger than `batch_size`.
+  - A queue with no node is cut as before.
+  - On 0.17.0 a generated compression and its star edges sat in three batches judged in parallel, and one
+    grounder rejected the node while another grounded an edge into it.
 - **An item is `{id, kind}`:** an edge id already names its endpoints and relation
   (`e_<source>__<relation>__<target>`); the grounder fetches the rest with `kg_ground_item`.
 - `focus` — the command's typed `$ARGUMENTS`: keeps the items that touch a node it names (every content word

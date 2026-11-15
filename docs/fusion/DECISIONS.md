@@ -1575,3 +1575,48 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     `compression_skips` is new.
   - The 2 that pass pin what must not change: the fixture's baseline, and a rejected compression node not
     holding its community.
+
+## A proposed node is judged with its star, and a proposal into a node that does not stand is not promoted (2026-11-15)
+
+- **Decision:**
+  - `groundplan.node_star_batches` builds the plan's batches.
+    - A queued node, the queued edges that touch it, and any queued node those edges reach make one unit, with
+      its nodes first.
+    - A unit is never split. It starts a new batch when it does not fit, and is a batch of its own when it is
+      larger than the batch size.
+    - A queue with no node is cut exactly as `batches` cuts it.
+  - The promotion gate refuses to ground a `hypothesized` edge whose source or target node is rejected, failed or
+    obsolete. The refusal is `hypothesis-into-non-live-node`, naming the node and its state.
+  - The grounder's contract says to judge a node before its star.
+- **Field run it answers** (0.17.0, 2026-11-15): the `/burgess:kg-ground` of the second field generation.
+  - 25 of the 26 items were rejected for no support, all correctly.
+  - The plan's batches split one compression's star across all three batches. In the same second, batch 1
+    rejected the node and batch 3 grounded `varios-llm-… collapses_into` it, on an outside citation (Knight &
+    Leveson 1986, which is in the corpus, and Eckhardt & Lee 1985, which is not).
+  - That grounded edge made `varios-llm-…` a hub again, and the adversarial grounder found nothing new.
+- **Why batch by node:**
+  - A compression is a proposal of a node and its star. The star's edges mean nothing if the node does not stand.
+  - Judged in parallel, the node and its edges come apart. Judged by one grounder, the node's verdict reaches its
+    edges.
+  - Nodes first, because the batch order is the order a grounder works in.
+- **Why refuse the promotion, not cascade the node's verdict:**
+  - Verdicts are set item by item, through `kg_ground` only. A node's rejection setting its edges' states would
+    be a verdict nobody issued.
+  - The refusal keeps every verdict explicit. The grounder rejects the edge itself, with a note.
+- **Why only proposals:**
+  - An edge with a span states its relation in the source. If such an edge points into a rejected node, the
+    conflict is the node's verdict to revisit, not the span's.
+- **Rejected alternatives:**
+  - (a) *Cascade a node's rejection to its incoming proposals.* That is a verdict nobody issued.
+  - (b) *Refuse to reject a node that has grounded edges into it.* The node may truly not stand, and the edge may
+    be the mistake, as on the field graph.
+  - (c) *Run batches holding nodes before the others.* That needs two waves and still splits a star longer than
+    a batch.
+- **Accepted trade-offs:**
+  - A unit larger than the batch size makes one longer batch.
+  - An edge grounded into a node that is rejected later, in the same batch, is not caught. The contract's "node
+    first" order is what prevents it.
+  - The field edge grounded on 2026-11-15 stays grounded until it is re-judged.
+- **Pinned in:** `tests/test_fix_node_with_its_star.py` (14 tests).
+  - Against 0.17.0, 11 fail.
+  - The 3 that pass pin a proposal into a live node, in both states, and a text edge into a rejected node.

@@ -167,12 +167,13 @@ Only `kg_ground(target_id, verdict, kind, note, support_span, support_note, lead
 states. `verdict ∈ {grounded, rejected, failed, obsolete}`. Promoting a `hypothesized` item to
 `grounded` **requires support**, which upgrades provenance: `support_span` (verbatim, span-verified)
 → `span-present`, or `support_note` (external citation) → `inferred`; neither →
-`hypothesis-needs-support`. A support span also records the file it is in (0.16.1): an edge that names
-no declared source takes the first file that holds the span as its `source_file`, and a node gets a
-`grounding source:` paragraph. A verdict's `note` goes to an edge's `notes`, or to a node's body as
-`verdict (<state>): …` (0.16.1; through 0.16.0 a node's note was dropped). A `rejected` edge may carry a
-`lead` (0.9.0): the edge its span does state
-instead, checked against the pack and appended to the notes as `lead: <head> <relation> <tail>`. It sets
+`hypothesis-needs-support`. A proposal into a node that is rejected, failed or obsolete is not promoted
+(`hypothesis-into-non-live-node`, 0.17.1): the node's verdict settles its star. A support span also
+records the file it is in (0.16.1): an edge that names no declared source takes the first file that
+holds the span as its `source_file`, and a node gets a `grounding source:` paragraph. A verdict's
+`note` goes to an edge's `notes`, or to a node's body as `verdict (<state>): …` (0.16.1; through
+0.16.0 a node's note was dropped). A `rejected` edge may carry a `lead` (0.9.0): the edge its span
+does state instead, checked against the pack and appended to the notes as `lead: <head> <relation> <tail>`. It sets
 no state: `/burgess:kg-build --leads` has an extractor write it as an ordinary `unverified` claim, whose notes open
 with `lead (from <rejected-edge-id>)`, and the next `/burgess:kg-ground` judges it. A lead belongs to the rejection
 that recorded it (0.11.1): a verdict that changes the edge's state and records no lead of its own appends
@@ -343,7 +344,7 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   nodes the section names, so the extractor can reuse their ids, and on request its pending leads
   with their spans), `kg_ground_plan` (the `/burgess:kg-ground`
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
-  grounders, plus the wave size and the hubs no adversarial pass has attacked since their last grounded
+  grounders, a queued node in one batch with the queued edges that touch it (0.17.1), plus the wave size and the hubs no adversarial pass has attacked since their last grounded
   claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge and from the
   attack ledger `kg_record_attack` writes, and the count of pending leads; a claim's time is its
   `verdict_at`, when it entered its state, which a re-verdict that keeps the state keeps, 0.10.2),
