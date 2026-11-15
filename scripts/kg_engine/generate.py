@@ -375,20 +375,62 @@ def seed(G, *, failures, k=10, und=None, adj=None) -> list:
     return _rank(cands, k)
 
 
-def compression(G, *, failures, k=10, und=None) -> list:
-    """§7 — new NODES, not new edges. Detect dense communities and propose a `compression` node that
-    `collapses_into`-links the members, but only when an MDL screen shows a description-length SAVING
-    (re-expressing the cluster's internal edges as a star through one new node costs fewer bits) AND the
-    cluster is not vague (mean member specificity ≥ the graph-wide mean specificity). The label is left BLANK for the
-    language layer (Stage 6) to name. The candidate carries its `members` and the `id` to write the node
-    under (0.16.0), so the language layer writes the star the screen scored: the node, and one
-    `collapses_into` edge from each member to it. The rationale still names the members, for reading."""
-    und = _resolve_und(G, und)
+COMPRESSION_NODE_TYPE = "compression"
+COLLAPSES_RELATION = "collapses_into"
+# Why `_compression_screen` leaves out a community the MDL and specificity screens passed (0.17.0).
+ALREADY_COMPRESSED = "already-compressed"
+ALREADY_PROPOSED = "already-proposed"
+
+
+def _compression_skip(G, members: list):
+    """Why a community that passed the §7 screens is not a new compression, or None (0.17.0).
+
+    - `(ALREADY_COMPRESSED, [ids])`: a live compression node among its members was already proposed over
+      at least half of the other members, each of which has a `collapses_into` edge into it, in any
+      state. A new compression would ask those memberships again. A compression node in a non-live state
+      (rejected, failed, obsolete) stands for nothing, and one proposed over fewer members does not hold
+      the community: a cluster that grew round an old compression can still be compressed.
+    - `(ALREADY_PROPOSED, id)`: its id, a function of its members alone, is already a node of the graph,
+      in any state. Rejected, it is failure memory; grounded or not yet judged, it is already proposed.
+
+    Through 0.16.1 neither was checked. The second field `/burgess:kg-generate` (2026-11-15) offered four
+    compressions: two held a compression grounded the day before, together with nearly every member it
+    had been proposed over, and the other two came back under the ids of the two it had rejected. The
+    session dropped the second pair by hand and wrote the first, whose star edges asked again memberships
+    already rejected against the older node. Checking for any compression node in the community instead
+    left out, on the same graph with its unjudged proposals live, two larger clusters that had merged
+    round one."""
+    member_set = set(members)
+    covering = []
+    for c in members:
+        if (_attr(G, c, "node_type") != COMPRESSION_NODE_TYPE
+                or _attr(G, c, "epistemic_state") in _NON_LIVE_VALUES):
+            continue
+        incoming = G.in_edges(c, data=True) if G.is_directed() else G.edges(c, data=True)
+        asked = set()
+        for u, v, d in incoming:
+            other = v if u == c else u
+            if other != c and other in member_set and d.get("relation") == COLLAPSES_RELATION:
+                asked.add(other)
+        if 2 * len(asked) >= len(member_set) - 1:
+            covering.append(c)
+    if covering:
+        return ALREADY_COMPRESSED, sorted(covering)
+    cid = compression_id(members)
+    if cid in G:
+        return ALREADY_PROPOSED, cid
+    return None
+
+
+def _compression_screen(G, und):
+    """Every community that passes the §7 screens, as `(members sorted, internal edges, bits saved, mean
+    member specificity, graph mean specificity, skip)`, where `skip` is `_compression_skip`'s answer.
+    `compression` and `compression_skips` share this one walk, so a candidate and the report of what was
+    left out cannot disagree."""
     mean_spec = _mean_specificity(G)
     by_comm = _members_by_community(G)
     N = max(G.number_of_nodes(), 2)
     bits = math.log2(N)
-    cands: list = []
     for cid, members in by_comm.items():
         if cid == NO_COMMUNITY or len(members) < 3:
             continue
@@ -401,16 +443,52 @@ def compression(G, *, failures, k=10, und=None) -> list:
         member_spec = sum(float(_attr(G, u, "specificity", mean_spec)) for u in members) / m
         if member_spec < mean_spec:
             continue  # vague compression rejected (§4 — generality control)
-        saved = direct - compressed
         ms = sorted(members)
+        yield ms, e_int, direct - compressed, member_spec, mean_spec, _compression_skip(G, ms)
+
+
+def compression(G, *, failures, k=10, und=None) -> list:
+    """§7 — new NODES, not new edges. Detect dense communities and propose a `compression` node that
+    `collapses_into`-links the members, but only when an MDL screen shows a description-length SAVING
+    (re-expressing the cluster's internal edges as a star through one new node costs fewer bits) AND the
+    cluster is not vague (mean member specificity ≥ the graph-wide mean specificity). The label is left BLANK for the
+    language layer (Stage 6) to name. The candidate carries its `members` and the `id` to write the node
+    under (0.16.0), so the language layer writes the star the screen scored: the node, and one
+    `collapses_into` edge from each member to it. The rationale still names the members, for reading.
+
+    It leaves out a community a live compression node was already proposed over, and a candidate whose
+    id is already a node (0.17.0, `_compression_skip`); `compression_skips` reports both."""
+    und = _resolve_und(G, und)
+    cands: list = []
+    for ms, e_int, saved, member_spec, mean_spec, skip in _compression_screen(G, und):
+        if skip:
+            continue
         cands.append(Candidate(
             kind="node", mechanism="compression", node_type="compression", label="",
             score=round(saved, 4), specificity=round(member_spec, 4), section="§7",
-            rationale=(f"MDL: {e_int} internal edges among {m} members re-express as a star "
+            rationale=(f"MDL: {e_int} internal edges among {len(ms)} members re-express as a star "
                        f"(saves ~{saved:.0f} bits); specificity {member_spec:.2f} ≥ graph mean "
                        f"{mean_spec:.2f}; collapses: {', '.join(ms)}"),
             members=ms, id=compression_id(ms)))
     return _rank(cands, k)
+
+
+def compression_skips(G, *, und=None) -> dict:
+    """What `compression` left out, for `kg_generate` to report (0.17.0): `already_compressed`, the live
+    compression nodes whose communities it did not compress again, and `already_proposed`, each existing
+    node a candidate's id named, with that node's state."""
+    und = _resolve_und(G, und)
+    compressed: set = set()
+    proposed: dict = {}
+    for *_screened, skip in _compression_screen(G, und):
+        if not skip:
+            continue
+        why, what = skip
+        if why == ALREADY_COMPRESSED:
+            compressed.update(what)
+        else:
+            proposed[what] = _attr(G, what, "epistemic_state") or ""
+    return {"already_compressed": sorted(compressed), "already_proposed": dict(sorted(proposed.items()))}
 
 
 def regroup(G, *, failures, k=10, und=None, adj=None, new_comm=_UNSET) -> list:
@@ -701,6 +779,13 @@ def _resolve_mechanisms(mechanism: str) -> list:
     if mechanism in _DISPATCH:
         return [mechanism]
     return list(DEFAULT_SET)
+
+
+def resolve_mechanisms(mechanism: str) -> list:
+    """The mechanisms `run_generators(G, mechanism)` runs, by `_resolve_mechanisms`'s one rule. Public so
+    `kg_generate` can tell whether compression ran, and report what it left out, without restating the
+    rule (0.17.0)."""
+    return _resolve_mechanisms(mechanism)
 
 
 def _edge_key(c) -> tuple:

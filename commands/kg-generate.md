@@ -1,7 +1,7 @@
 ---
 description: Generate hypothesized idea candidates from the graph's structure (bridge|seed|compression|regroup|transplant|ensemble|periphery), phrase them via the language layer, and write them to the hypothesized lane — then hand off to /burgess:kg-ground as the filter.
 argument-hint: "[mechanism-set] [k]"
-allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_operate, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_absorption
+allowed-tools: Task, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_operate, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_absorption, mcp__plugin_burgess_burgess__kg_record_generation
 ---
 
 # /burgess:kg-generate — the generative layer (PLAN Stages 3–6)
@@ -12,6 +12,14 @@ rests on **the inversion** (PLAN §1.2): **generate offensively, judge defensive
 is NEVER gatekept by a quality metric — every candidate is written `hypothesized`/`unverified`. The
 *existing* grounding loop (`/burgess:kg-ground`) is the filter, applied **after**. The portico that used to stand
 at the door of imagination is moved to after generation.
+
+**This command needs no shell and no file access.** Do not run Bash, do not `Read` or `Grep` the canon, the
+source, the plugin's files or saved tool output, and do not write helper scripts: `kg_generate` gives you the
+candidates, the kg-generator reads what its phrasing needs, and `kg_record_generation` records the run. In auto
+mode Claude Code ignores a command's permission to use Bash, so every shell command would wait on its
+classifier, or on the user. If a step seems to need a shell or a file, stop and report it instead of working
+around it. (Through 0.16.1 the ledger of Step 4 needed a shell: the second field run's write waited nine hours
+for the user's approval.)
 
 ## Advisory DPP ordering (FUSION Stage 5 — `divergence.dpp`, default off)
 
@@ -59,10 +67,18 @@ This is a **non-blocking checkpoint**: invite a reply, but never make progress c
 
 Call `mcp__plugin_burgess_burgess__kg_generate(mechanism=<chosen>, k=<k>)` (use
 `mechanism="all"` for the full set; it runs the default set on `"default"`). It returns
-`{mechanism, k, gate_on, unjudged_hypotheses, count, candidates[], note}`. Each candidate carries
+`{mechanism, k, gate_on, unjudged_hypotheses, count, candidates[], note}`, plus `compression_skipped` when
+compression ran. Each candidate carries
 `{kind, mechanism, source, target, relation, label, node_type, score, specificity, rationale, section, convergence}`,
 and a `kind:"node"` compression also carries `members` (the nodes it collapses) and `id` (the id to write it
 under, the one `kg_operate collapse` gives the same members).
+
+Compression never offers a community that a live compression node was already proposed over (at least half
+of the other members already have a `collapses_into` edge into it, in any state), nor a candidate whose `id`
+is already a node, judged or not. `compression_skipped` lists both: `already_compressed` (those compression
+nodes) and `already_proposed` (each existing id, with its state), and `note` names them. So hand the
+kg-generator every candidate returned: the engine has already left out what an earlier generation proposed.
+(Through 0.16.1 it did not, and the second field run's session dropped two rejected ids by hand.)
 `convergence` is **advisory** — the number of *distinct* mechanisms that independently proposed the same edge
 (≥1). It is a **ranking prior for the grounding queue** (which hypotheses to ground first), **never** a score,
 **never** a verdict, and **never** written onto a canon edge; it does not change the slate's `score`/ranking.
@@ -101,24 +117,17 @@ collapse/explode/regroup/open — you may instead call
 
 ## Step 4 — record the generation (for the absorption window, §14)
 
-After the propose call returns, append a generation record to the absorption ledger so `kg_absorption`
-can later score how long each new node stays perturbing (fertile vs absorbed vs isolated). It scores a
-node once `/burgess:kg-ground` has grounded it, and lists the others apart with their state:
+After the propose call returns, record the run in the absorption ledger so `kg_absorption` can later score
+how long each new node stays perturbing (fertile vs absorbed vs isolated). It scores a node once
+`/burgess:kg-ground` has grounded it, and lists the others apart with their state.
 
-The ledger lives in the engine's derived dir, `${CLAUDE_PLUGIN_DATA}/derived`, which is where
-`kg_absorption` reads it. (Claude Code fills that path in when this command loads. A `${…:-default}` form is
-never filled in: through 0.11.3 this line left the path to the Bash tool's own environment, where Claude Code
-sets no plugin variables, and fell back to a `.kg-data/derived` folder inside the project, where the engine
-never looks.)
-
-```bash
-DERIVED="${CLAUDE_PLUGIN_DATA}/derived"; mkdir -p "$DERIVED"
-GEN="$DERIVED/generations.json"
-# best-effort: bump the generation counter and add each newly-proposed node id with its current degree
-# (read from kg_context advisory or query_graph). Shape: {"generation": N, "tracked": {id: {introduced_at, introduced_degree, mechanism}}}
-[ -f "$GEN" ] || printf '{"generation":0,"tracked":{}}\n' > "$GEN"
-# (merge new entries with the chosen mechanism; introduced_at = the new generation counter)
-```
+Call `mcp__plugin_burgess_burgess__kg_record_generation(nodes={"<node id>": "<mechanism>", …})` once, with every
+node the kg-generator's `kg_propose` ACCEPTED (its `details`), each mapped to the mechanism of the candidate it
+came from, usually `compression`. Call it even when the run wrote no node: the generation counter still
+advances, and it is the clock every tracked node's window is read against. The engine records each node at its
+live degree in the generation it opens, in the ledger `kg_absorption` reads, and returns
+`{ok, generation, tracked, recorded, skipped}`. A `skipped` entry says why (not in the canon, already tracked,
+not a proposal); report it, and record nothing by other means.
 
 This step is best-effort — never block the slate on it.
 
@@ -137,7 +146,9 @@ Then call `mcp__plugin_burgess_burgess__kg_metrics` and report the new
 Step 0 (was the slate ranked by the confound-corrected `spec_betweenness` or the honest fallback?). A bridge's
 `rationale` names what its strength came from; "neither end is a structural bridge" means the graph has
 none, and the pair was ranked by degree weighted by specificity. If `unjudged_hypotheses` was above 0, say
-again that this slate was ranked partly on earlier proposals nobody has judged yet.
+again that this slate was ranked partly on earlier proposals nobody has judged yet. If `compression_skipped`
+names anything, say in a line what compression left out and why, and give the generation `kg_record_generation`
+recorded.
 
 ## Step 6 — the inversion, made explicit
 
@@ -161,5 +172,7 @@ Optionally chain into `/burgess:kg-ground` restricted to the freshly-proposed hy
   pass an MDL screen. A `bridge` or `regroup` slate gives no node more than two slots, so one hub cannot take
   the whole slate.
 - **Failure memory binds generation** (§13): the engine drops any candidate whose identity (or its
-  reverse) already lives in `failed`/`rejected`.
+  reverse) already lives in `failed`/`rejected`, and any compression whose id is already a node or whose
+  community a live compression node was already proposed over (0.17.0).
+- **No shell.** The ledger is the engine's: `kg_record_generation` writes it (0.17.0).
 - This command **never** calls `kg_ground` and **never** forges a verdict or a span.

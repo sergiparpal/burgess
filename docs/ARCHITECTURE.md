@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (33 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (34 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -320,9 +320,15 @@ clean band separation. Candidates route through `kg_propose`; the four endo oper
 scores, per node grounded from a hypothesis, how long it stayed perturbing before the graph
 renormalized (`fertile | absorbed | isolated`). Since 0.16.1 it scores only a tracked node the graph
 holds as grounded, and counts live edges only. Every other tracked node is listed in `not_scored`
-with its state, or `absent`.
+with its state, or `absent`. Since 0.17.0 `kg_record_generation` writes the ledger it reads.
 
-## 5. The MCP tool surface (33 tools)
+Since 0.17.0 compression offers nothing an earlier generation proposed. It leaves out a community a
+live compression node was already proposed over (at least half of the other members already have a
+`collapses_into` edge into it, in any state), and a candidate whose id (a function of its members) is
+already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
+2026-11-15 all four compression candidates were of these kinds.
+
+## 5. The MCP tool surface (34 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -358,7 +364,7 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   view stays current (0.15.0): every projecting read re-renders each view that exists and is older than
   `graph.json` or was rendered by an older engine (0.15.1), unless the projection is degraded. A read never
   creates a view. An `inferred` edge is drawn lighter in any state (0.15.1).
-- **Write/ground (8):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
+- **Write/ground (9):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
   `kg_rename` (strict), `kg_merge` (deliberate merge; negative information sticky), `kg_operate`,
   `kg_record_attack` (0.10.0: an adversarial attack that wrote no counter-edge, with its falsifying
   question, so the plan stops offering that hub; it writes only the attack ledger and sets no state),
@@ -367,7 +373,10 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   plan stops offering it while both are unchanged; since 0.14.1 also a section whose every relation is an
   edge the canon already holds with a verdict, and only a section whose current text `kg_section` served
   since the engine started; it refuses a covered section, writes only the edgeless-section ledger and sets
-  no state).
+  no state), `kg_record_generation` (0.17.0: one `/burgess:kg-generate` run, which advances the absorption
+  ledger's generation counter and tracks each node the run proposed at its live degree, so the command needs no
+  shell; it writes only `derived/generations.json`, refuses a file it cannot read as a ledger, and sets no
+  state).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (7):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`.

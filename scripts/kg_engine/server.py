@@ -2503,12 +2503,16 @@ class KGEngine:
         `/kg-generate` routes the candidates through the propose lane (`kg_propose`). Generate
         offensively; grounding judges later.
 
+        When compression runs, the payload carries `compression_skipped` (0.17.0): the live compression
+        nodes whose communities it did not compress again, and the existing nodes candidates' ids named,
+        with their states (`generate._compression_skip`). `note` names them.
+
         FUSION Stage 5: when `dpp` is true (default: the pack's `divergence.dpp` flag, shipped OFF),
         the SAME candidate set is reordered by hybrid-descriptor DPP (one semantic axis + graph-
         structural axes, judge-bounded quality) and a `divergence_advisory` block labels the slate.
         Purely advisory (I5): never adds/drops/mutates a candidate; grounding output is snapshot-
         proven bit-identical flag on vs off; any advisory failure keeps the donor ordering (I9)."""
-        from .generate import run_generators
+        from .generate import compression_skips, resolve_mechanisms, run_generators
         self._ensure_projected()
         G = self.projector.load_graph()
         corpus = self.projector._corpus()
@@ -2556,6 +2560,23 @@ class KGEngine:
                    "unjudged_hypotheses": unjudged,
                    "count": len(cands), "candidates": [c.to_dict() for c in cands],
                    "note": note}
+        # 0.17.0: compression leaves out a community a live compression node was already proposed over and a
+        # candidate whose id is already a node (generate._compression_skip). Said here, so a run that
+        # offers no compression is not read as finding no dense community, and so nobody drops by hand
+        # what the engine already dropped (the second field run's session did, 2026-11-15).
+        if "compression" in resolve_mechanisms(mechanism):
+            skipped = compression_skips(G)
+            payload["compression_skipped"] = skipped
+            parts = []
+            if skipped["already_compressed"]:
+                parts.append("communities a live compression node was already proposed over ("
+                             + ", ".join(skipped["already_compressed"]) + ")")
+            if skipped["already_proposed"]:
+                parts.append("candidates whose id is already a node ("
+                             + ", ".join(f"{i}: {s}" for i, s in skipped["already_proposed"].items()) + ")")
+            if parts:
+                payload["note"] = ((payload["note"] + "; ") if payload["note"] else "") + \
+                    "compression left out " + " and ".join(parts)
         use_dpp = dpp
         if use_dpp is None:
             from .advisory_geometry import pack_dpp_default
@@ -2665,6 +2686,103 @@ class KGEngine:
             note = ""
         return self._with_degraded({"tracked": len(result) + len(not_scored), "summary": summary,
                                     "nodes": result, "not_scored": not_scored, "note": note})
+
+    # Longest mechanism name the absorption ledger takes; the names are short words (`compression`).
+    MAX_LEDGER_MECHANISM_CHARS = 40
+
+    def kg_record_generation(self, nodes=None) -> dict:
+        """Record one `/kg-generate` run in the absorption ledger (0.17.0): advance the generation counter
+        and track each node the run proposed, so `kg_absorption` can later score how long it stayed
+        perturbing (§14).
+
+        ``nodes`` maps each node id the run's `kg_propose` ACCEPTED to the mechanism that proposed it
+        (``{"compression-…-1772d76d": "compression"}``). Call it once per run, after the write, even with no
+        node: the counter still advances, and it is the clock every tracked window is read against. A
+        recorded node gets ``{introduced_at: <the new generation>, introduced_degree: <its live degree now>,
+        mechanism}``. The degree counts the node's live edges in the canon (rejected, failed and obsolete
+        ones left out), as `kg_absorption` counts it in the projection. An id the canon lacks, one already
+        tracked, a node that is not a proposal (its provenance is not `hypothesized`) and an entry with no
+        mechanism are skipped with the reason; the rest are recorded.
+
+        The ledger is ``derived/generations.json``, the file `kg_absorption` reads, rewritten whole and
+        atomically under the writer lease. A file this engine cannot read as a ledger is left as it is, and
+        nothing is recorded. It sets no state: no node, edge or verdict changes.
+
+        Through 0.16.1, Step 4 of `/kg-generate` was a sketch the session completed with a script of its own
+        run through the Bash tool. That writes outside the project, so it asked the user every time: the
+        second field run's write waited nine hours for the approval (2026-11-15)."""
+        from collections import Counter
+        from .atomicio import atomic_write_text
+        if nodes is None:
+            nodes = {}
+        if not isinstance(nodes, dict):
+            return {"ok": False, "error": "nodes maps each node id the run proposed to the mechanism that "
+                                          "proposed it, e.g. {\"<id>\": \"compression\"}"}
+        if not self._try_writer_lease():
+            return {"ok": False, "error": self._LOCKED_ERROR}
+        try:
+            path = self.projector.derived / "generations.json"
+            generation, tracked = 0, {}
+            if path.exists():
+                try:
+                    blob = json.loads(path.read_text(encoding="utf-8"))
+                except (ValueError, OSError) as e:
+                    return {"ok": False, "error": self._scrub_error(
+                        f"derived/generations.json is not a ledger this engine can read ({e}); nothing "
+                        "recorded, and the file is left as it is")}
+                if isinstance(blob, dict) and "tracked" in blob:
+                    generation, tracked = blob.get("generation", 0), blob["tracked"]
+                elif isinstance(blob, dict):
+                    # The bare {id: record} shape kg_absorption also reads: its clock is its newest record.
+                    tracked = blob
+                    generation = max((r.get("introduced_at", 0) for r in blob.values() if isinstance(r, dict)),
+                                     default=0)
+                else:
+                    tracked = None  # a list, a string, a number: not a ledger
+                if not (isinstance(tracked, dict) and isinstance(generation, int)
+                        and not isinstance(generation, bool) and generation >= 0):
+                    return {"ok": False, "error": "derived/generations.json is not a ledger this engine can "
+                                                  "extend ({generation: int, tracked: {id: record}}); nothing "
+                                                  "recorded, and the file is left as it is"}
+            new_generation = generation + 1
+            live_degree: Counter = Counter()
+            for e in self.canon.all_edges():
+                if e.epistemic_state.value not in NON_LIVE_STATE_VALUES:
+                    live_degree[slug(e.source)] += 1
+                    live_degree[slug(e.target)] += 1
+            recorded: dict = {}
+            skipped: dict = {}
+            for raw_id, raw_mechanism in nodes.items():
+                nid = slug(str(raw_id))
+                mechanism = " ".join(str(raw_mechanism or "").split())
+                if not mechanism or len(mechanism) > self.MAX_LEDGER_MECHANISM_CHARS:
+                    skipped[nid] = "give the mechanism that proposed it, in a word"
+                elif nid in tracked:
+                    since = tracked[nid].get("introduced_at") if isinstance(tracked[nid], dict) else None
+                    skipped[nid] = f"already tracked since generation {since}"
+                elif not self.canon.exists(nid):
+                    skipped[nid] = "not in the canon"
+                else:
+                    try:
+                        node = self.canon.read_node(nid)
+                    except Exception as e:  # noqa: BLE001 — one unreadable note must not stop the record
+                        skipped[nid] = self._scrub_error(f"unreadable: {e}")
+                        continue
+                    if node.provenance != Provenance.HYPOTHESIZED:
+                        skipped[nid] = f"not a proposal: its provenance is {node.provenance.value}"
+                    else:
+                        recorded[nid] = {"introduced_at": new_generation,
+                                         "introduced_degree": live_degree.get(nid, 0),
+                                         "mechanism": mechanism}
+            ledger = {"generation": new_generation, "tracked": {**tracked, **recorded}}
+            try:
+                atomic_write_text(path, json.dumps(ledger, ensure_ascii=False, indent=2) + "\n")
+            except OSError as e:
+                return {"ok": False, "error": self._scrub_error(f"generation not recorded: {e}")}
+        finally:
+            self.canon.release_lock()
+        return self._scrub_egress({"ok": True, "generation": new_generation, "tracked": len(ledger["tracked"]),
+                                   "recorded": recorded, "skipped": skipped})
 
     def kg_operate(self, op: str, *, target: str | None = None, label: str = "", body: str = "",
                    members=None, k: int | None = None) -> dict:
@@ -3446,6 +3564,11 @@ def _register(mcp, engine: KGEngine) -> None:
         and one `collapses_into` edge from each member to it. `unjudged_hypotheses` counts the
         hypothesized edges not yet judged; they count as structure, so when it is above 0 the slate was
         ranked partly on earlier proposals and `note` says to run /burgess:kg-ground first.
+        Compression never offers a community a live compression node was already proposed over (at
+        least half of its other members have a collapses_into edge into it), nor a
+        candidate whose id is already a node (judged or not): when compression runs,
+        `compression_skipped` lists both ({already_compressed: [ids], already_proposed: {id: state}})
+        and `note` names them. Hand on every candidate returned; there is nothing left to drop.
         For the `ensemble` exo move, supply EITHER `second_construction` (the NAME of an in-session
         second construction built via kg_write(..., construction=…) — projected here, key-free) OR
         `second_graph` (a path to a pre-built graph.json); with neither, ensemble degrades to `regroup`
@@ -3466,6 +3589,18 @@ def _register(mcp, engine: KGEngine) -> None:
         (rejected, failed and obsolete edges left out). `not_scored` maps every other tracked node to
         its state (unverified = not judged yet, rejected, failed, obsolete) or to `absent`."""
         return engine.kg_absorption()
+
+    @mcp.tool()
+    @_tool_result
+    def kg_record_generation(nodes: dict[str, str] | None = None) -> dict:
+        """Record one /burgess:kg-generate run in the absorption ledger that kg_absorption reads
+        (derived/generations.json): advance the generation counter and track each node the run's
+        kg_propose ACCEPTED, given as {"<node id>": "<mechanism that proposed it>"}, at its current live
+        degree. Call it once per run, after the write, even with no node (the counter still advances). An
+        id the canon lacks, one already tracked, a node whose provenance is not hypothesized and an entry
+        with no mechanism are skipped with the reason. Returns {ok, generation, tracked, recorded,
+        skipped}. Writes only the ledger: no node, edge or verdict changes."""
+        return engine.kg_record_generation(nodes)
 
     @mcp.tool()
     @_tool_result

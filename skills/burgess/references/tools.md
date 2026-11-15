@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-six graph tools (§1), then the seven divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-seven graph tools (§1), then the seven divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,22 +17,24 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-six** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-seven** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
 the `/burgess:kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), the `/burgess:kg-ground` pair
 `kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22), `kg_record_attack` (§1.23), the mark an
-adversarial attack leaves when it writes no counter-edge, and `kg_record_edgeless_section` (§1.24), the mark an
-extraction leaves on a section it wrote no edge from.
-The seven **divergence-surface** tools (§1B) complete the server's **thirty-three**.
+adversarial attack leaves when it writes no counter-edge, `kg_record_edgeless_section` (§1.24), the mark an
+extraction leaves on a section it wrote no edge from, and `kg_record_generation` (§1.25), the record a
+`/burgess:kg-generate` run leaves in the absorption ledger.
+The seven **divergence-surface** tools (§1B) complete the server's **thirty-four**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
 Mutation tools (`kg_write`, `kg_propose`, `kg_ground`, `kg_rename`, `kg_merge`) write the **canon** (human-editable Markdown,
 the single source of truth) — `kg_propose` (§1.12) is the hypothesized write lane and `kg_operate` (§1.14) writes
 through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
-`kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+`kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon, and
+`kg_record_generation` (§1.25) only the absorption ledger in the derived dir. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -541,6 +543,19 @@ Since 0.16.0, bridge ranks a pair by the sum of its endpoints' strengths:
 `unjudged_hypotheses` counts the hypothesized edges still `unverified`. They count as live structure, so when it is
 above 0 the ranks behind this slate include earlier proposals, and `note` says to run `/burgess:kg-ground` first.
 
+Since 0.17.0, compression offers nothing an earlier generation proposed:
+- It leaves out a community that a live compression node was already proposed over: a member whose
+  `node_type` is `compression`, in any state but rejected, failed or obsolete, into which at least half of the
+  other members already have a `collapses_into` edge, in any state. A new compression would ask those
+  memberships again. A cluster that grew round an old compression, which was proposed over fewer of its
+  members, can still be compressed, with the old node as a member.
+- It leaves out a candidate whose `id` is already a node, judged or not. The id is a function of the members,
+  so it is the same proposal: rejected, it is failure memory; grounded or unjudged, it is already proposed.
+- When compression runs, the payload carries `compression_skipped`, `{"already_compressed": [<the live
+  compression nodes>], "already_proposed": {"<id>": "<its state>"}}`, and `note` names them.
+- On the field graph of 2026-11-15 all four compression candidates were of these kinds. Two held a compression
+  grounded the day before, and two came back under the ids of the two it had rejected.
+
 ### 1.14 `mcp__plugin_burgess_burgess__kg_operate(op, target=None, label="", body="", members=None, k=None)`
 
 The **four §8 endo operations** (PLAN Stage 4), each persisting its result **through the propose lane**
@@ -559,7 +574,8 @@ Returns the `kg_propose` shape with `{ok: true, op, info}` merged in. On a bad o
 
 The **§14 absorption window** (PLAN Stage 5). For each node grounded *from* a hypothesis, scores how long it
 stayed perturbing before the graph renormalised, so the slate can prefer the fertile middle. Reads the derived
-graph plus the `derived/generations.json` ledger that `/burgess:kg-generate` appends to. No args.
+graph plus the `derived/generations.json` ledger that `/burgess:kg-generate` records each run in, through
+`kg_record_generation` (§1.25). No args.
 
 ```json
 {"tracked": 4, "summary": {"fertile": 1, "absorbed": 1, "isolated": 0},
@@ -956,6 +972,37 @@ under the current pack. After an engine restart, a record waits for a new `kg_se
 - `ok: false` for a file that is not a configured source file, a section number that is not one of the file's,
   an empty or overlong note, a section whose current text no `kg_section` call served (no read stands behind
   the record), or a section a span-present edge already quotes (it is covered); nothing is written then.
+
+### 1.25 `mcp__plugin_burgess_burgess__kg_record_generation(nodes=None)`
+
+The record a `/burgess:kg-generate` run leaves in the absorption ledger (0.17.0), the file `kg_absorption`
+(§1.15) reads. It advances the generation counter and tracks each node the run proposed. The command calls it once
+per run, after the kg-generator's `kg_propose`, even when the run wrote no node: the counter is the clock every
+tracked node's window is read against.
+
+- `nodes: dict | None` — each node id the run's `kg_propose` ACCEPTED, mapped to the mechanism that proposed
+  it: `{"compression-compression-…-1772d76d": "compression"}`.
+
+```json
+{"ok": true, "generation": 3, "tracked": 7,
+ "recorded": {"compression-a-1a2b3c4d": {"introduced_at": 3, "introduced_degree": 5, "mechanism": "compression"}},
+ "skipped": {"compression-old-5e6f7a8b": "already tracked since generation 1"}}
+```
+
+- A recorded node gets `{introduced_at, introduced_degree, mechanism}`: the generation this call opens, and the
+  node's live degree now, counted in the canon over its edges that are not rejected, failed or obsolete, as
+  `kg_absorption` counts the degree it compares with.
+- `skipped` gives the reason for each id left out: `not in the canon`, `already tracked since generation N`,
+  `not a proposal: its provenance is …` (only a hypothesized node is a generation's), or a missing mechanism.
+- The ledger is `derived/generations.json`, `{"generation": N, "tracked": {id: record}}`, rewritten whole and
+  atomically under the writer lease. The bare `{id: record}` shape `kg_absorption` also reads is extended, with
+  its newest `introduced_at` as the counter.
+- `ok: false`, with nothing recorded and the file left as it is, for a ledger this engine cannot read or extend,
+  for `nodes` that is not a map, or while another writer holds the lease.
+- It sets no state: no node, edge or verdict changes.
+- Through 0.16.1 the command's Step 4 was a sketch. Each session wrote its own merge script and ran it through
+  the Bash tool, which writes outside the project and so asks the user every time: on 2026-11-15 the second
+  field run's write waited nine hours for the approval.
 
 ---
 
@@ -1458,6 +1505,7 @@ errors}`.
 | generate structural idea candidates (read-only) | `kg_generate(mechanism=?, k=?, second_graph=?, dpp=?, second_construction=?)` |
 | run a §8 endo operation (collapse/explode/regroup/open) | `kg_operate(op, …)` |
 | score the §14 absorption window | `kg_absorption()` |
+| record a `/burgess:kg-generate` run in the absorption ledger | `kg_record_generation(nodes)` |
 | start/resume a divergence session for a brief | `kg_diverge_init(project, axes=?, session=?)` |
 | run one divergence cycle (embed → slate → monitor) | `kg_diverge_ingest(project, candidates, …)` |
 | record a pin / discard / A-vs-B answer | `kg_diverge_remember(project, event)` |

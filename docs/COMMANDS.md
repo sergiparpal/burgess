@@ -597,6 +597,21 @@ two ends' strengths, which lets the strongest node pair with every other strong 
 graph of 2026-11-14, all ten bridges hung off one node. With the gate off, a node's strength is also weighted
 by its specificity, so a generic hub no longer wins on its number of links alone.
 
+### A compression is proposed once
+
+Compression offers nothing an earlier generation proposed. It skips a cluster that a live compression was
+already proposed over, most of the cluster's members having been asked about already, and a cluster whose
+compression already exists under its id, grounded, rejected or not yet judged. A cluster that grew well
+beyond an old compression can still be compressed. The command says what it left out. On the field graph of 2026-11-15, all four compression candidates
+were of these kinds: two would have compressed a compression grounded the day before, and two came back under
+the ids of the two rejected that day.
+
+### No shell
+
+The command records each run in the absorption ledger through the engine, so it runs no shell command and
+never asks you to approve one. Through 0.16.1 that step was a script the session ran itself. It wrote outside
+the project, so it asked every time, and on 2026-11-15 the run waited nine hours for the answer.
+
 ---
 
 <a id="kg-perturb"></a>
@@ -1073,7 +1088,7 @@ measured on two field runs. That cost is why the judge is opt-in.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **33 MCP tools** exposed by the `burgess`
+The nine slash commands are a thin language layer over **34 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 
