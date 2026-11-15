@@ -1672,3 +1672,28 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Another relation found in a proposal's passage is kept only in a note until (d) is decided.
 - **Pinned in:** `tests/test_fix_hypothesis_shared_context.py` (17 tests).
   - Against 0.17.1, all 17 fail.
+
+## A contract example never names a pending field claim (2026-11-15)
+
+- **Decision:**
+  - The grounder's "No lead" example is a proposal against `examples/source.md`: `generality-confound bridges
+    specificity`, whose §1 states `generality-confound attacked_by specificity`.
+  - No agent-facing text names the field pair 0.18.0 used.
+- **Field run it answers** (0.18.0, 2026-11-15): the one-edge re-judge of
+  `andamiaje-rivaliza-con-fine-tuning bridges o1-sin-prompting`.
+  - The orchestrator gave the grounder only the id. The contract's example gave it the pair and a reading:
+    `§5 states … attacked_by …, not bridges`.
+  - The grounder rejected the edge with that lead, and said its note matched the contract's example.
+- **Why:** every grounder of a corpus reads the contract. An example drawn from a claim of that corpus that is
+  still pending pre-decides it, for the re-judge and for the lead's grounding after it.
+- **Where the line is:**
+  - A field case already decided, and generalized into a rule, may still illustrate the rule. Examples are the
+    relation table's Spanish passages, and the lead `tests-protegidos defends_against manipulacion-de-tests`,
+    which is grounded on the field graph.
+  - A pending claim may not.
+- **Rejected alternatives:**
+  - (a) *Re-run the re-judge.* Rejecting `bridges` holds without the example. The lead's own grounding, on a clean
+    contract, tests `attacked_by`.
+  - (b) *Remove every field-derived example.* The decided ones carry rules the field taught, and none of them
+    pre-decides anything pending.
+- **Pinned in:** `tests/test_fix_neutral_proposal_example.py` (3 tests). Against 0.18.0, 2 fail.
