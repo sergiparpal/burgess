@@ -20,6 +20,9 @@ export const STAMP_NAME = "install.stamp"; // content hash of pyproject, less it
 // ...and BESIDE it: the background worker's log (bootstrap's LOG_NAME), named in the launcher's
 // still-provisioning message so the user knows where to watch the build.
 export const PROVISION_LOG_NAME = "provision.log";
+// ...and the last failed build's record (bootstrap's FAILED_NAME, 0.19.2): JSON {at, error}, removed once a
+// provision succeeds. The launcher reads it to tell a build that failed from one still running.
+export const PROVISION_FAILED_NAME = "provision.failed";
 
 // Drop empty / whitespace / unsubstituted ${...} / bare-sentinel env values so an unset var never
 // sends us to a bogus path. (Mirror of kg_engine.envconfig.clean.)
