@@ -35,6 +35,8 @@ section out of every later build.)
 - Under `/kg-build`: a `section` number and `title`, whose text you fetch with `kg_section` (below).
 - Under `/kg-build --leads`: a section and the leads grounders recorded for it, which you write and nothing
   else (see **Leads mode**).
+- Under `/kg-perturb`: a second construction to build, its name and its source document, section by section
+  (see **Building a second construction**, below).
   Invoked directly: a path to a **scrubbed** source document (PII/secrets already redacted by the scrub pass).
 - The **basename** of the file the section came from, to record in `edge.source_file` (e.g. `source.md`).
   With a **multi-file** build (the orchestrator hands you one file at a time from a directory/glob of
@@ -79,6 +81,16 @@ counts the ones past the cap. They are how your section joins what other section
   node_type, label and body, which fills it in. Link to it like any known node either way.
 - **What the list does not show, you create.** A concept missing from it may exist under another name or past
   the cap, and you cannot look it up.
+
+**Building a second construction (`/kg-perturb`, 0.19.0).** You write into a separate canon, named by the
+`construction` and `source` your prompt gives, and you fetch each section with
+`kg_section(source_file, section, construction=…, source=…)`, the same two values you pass on every
+`kg_write`. Start at section 1; `of` says how many sections the document has. The `text` is the second
+document's section, and its `known_nodes` are the graph's own nodes the section names. The rules above hold,
+with one change: for the same concept, write the graph's id, and declare that node in `nodes[]` with a label
+and body from your text. The construction starts empty, so the declaration fills in that canon, never the
+graph's. The step that crosses the two constructions pairs them by id alone, so an id you coin for a concept
+the graph already holds leaves every edge on it uncompared.
 
 Either way, cite spans **only** from your section's text — never `Read` the file off disk to pull in,
 or "recall", a sibling section's prose. This is the span-isolation non-negotiable the orchestrator relies
@@ -316,6 +328,7 @@ no other edge from the section, and no known node redeclared. The next `/kg-grou
 
 ## Procedure
 1. Get your text. Under `/kg-build`: `kg_section(source_file, section)` → its `text` is your one section.
+   Under `/kg-perturb`: `kg_section(source_file, section, construction=…, source=…)`, one section at a time.
    Inline text in your prompt: that is your one section. Direct invocation with a path: `Read` the scrubbed
    source and note the section headers (`##`).
 2. For the **current section**:
@@ -328,8 +341,9 @@ no other edge from the section, and no known node redeclared. The next `/kg-grou
       node slugs, and **copy the verbatim span** that states it.
    c. Assemble ONE payload with `complete: true` and call `mcp__plugin_burgess_burgess__kg_write` with that
       payload and nothing else (add an `idempotency_key` only when re-sending the same payload). Never pass
-      `construction` or `source`: they route a write to `/kg-perturb`'s second construction, and `source`
-      without `construction` is refused before anything is written.
+      `construction` or `source` unless you are building a second construction: they route a write to
+      `/kg-perturb`'s second construction, and `source` without `construction` is refused before anything is
+      written.
 3. Read the return: `{dispositions, details[], written_nodes[], rolled_back, receipt, error}` (`receipt` is
    a deterministic hash of the payload's target ids — same payload → same receipt). Report the
    `dispositions` counts (ACCEPTED / DEMOTED / QUARANTINED / REJECTED) and any DEMOTED/QUARANTINED/REJECTED

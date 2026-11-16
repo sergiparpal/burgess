@@ -154,7 +154,8 @@ items:
 For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>", kind: "<edge|node>") and
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
 of the source (for an edge with no span, a proposal: shared_context, the source sections where both its ends
-are discussed). Do not read files. Then apply ONE verdict with
+are discussed, and, for a proposal from /burgess:kg-perturb, passage, the span a second reading of the source
+wrote it from, with its excerpt). Do not read files. Then apply ONE verdict with
 mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), per your contract:
   - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction,
     between what the two nodes name, as your contract's relation table defines it, and the relation is
@@ -165,10 +166,10 @@ mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), pe
     narrower or broader than one of the nodes (`wrong-node`); or the edge is true only by being vague
     (`vague`). For `wrong-relation` and `wrong-node`, pass the edge the span does state as kg_ground's
     `lead`: "<head-id> <relation> <tail-id>".
-  - a hypothesized item is grounded only with support (a support_span copied from the context or from
-    shared_context's excerpts, placeholders included, or a support_note); a [diverge]-pinned item without
-    support stays unverified. A proposal takes no lead: when a passage states another relation between its
-    ends, reject it no-support and name that edge in the note.
+  - a hypothesized item is grounded only with support (a support_span copied from the context, from
+    shared_context's excerpts or from its passage, placeholders included, or a support_note); a
+    [diverge]-pinned item without support stays unverified. A proposal takes no lead: when a passage states
+    another relation between its ends, reject it no-support and name that edge in the note.
 Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
 only verdict channel. Report a per-item table: id, kind, verdict, reason.
 """

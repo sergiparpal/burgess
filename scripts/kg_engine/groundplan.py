@@ -92,6 +92,16 @@ END_SECTIONS = 12
 # The paragraphs a node's promotion on a support span writes into its body (0.16.1): the span, then its file.
 GROUNDING_SPAN_MARK = "grounding span: "
 GROUNDING_SOURCE_MARK = "grounding source: "
+# A second reading's passage (0.19.0). `/kg-perturb` crosses a second construction of a source against the
+# graph, and an `ensemble` candidate keeps the edge that construction wrote, with the span it wrote it from.
+# `kg_propose` checks that span against the configured sources and, when it holds there, opens the proposal's
+# notes with the segment `passage: {"span": …, "source_file": …}` (JSON, so a span holding ` | ` or quotes
+# cannot cut it short). Only the engine writes it: `kg_propose` drops an opening passage segment it was handed.
+# `kg_ground_item` reads it back and shows the grounder the excerpt around it. Through 0.18.1 the candidate was
+# always `bridges` and carried no text: the field test of 2026-11-16 re-read a source the graph was built from,
+# and the one relation the re-reading found that the graph lacked (`tcp-ip-frente-a-osi grounds
+# regla-de-centralizacion`) reached the grounder as a bridge with no passage, and was rejected `no-support`.
+PASSAGE_MARK = "passage: "
 
 
 def clamp_batch_size(value) -> int:
@@ -184,6 +194,49 @@ def lead_from(notes: "str | None") -> "str | None":
     ``lead (from <edge-id>)``. None for any other edge."""
     m = _LEAD_FROM.match((notes or "").lstrip())
     return m.group(1) if m else None
+
+
+def _opening_passage(notes: "str | None") -> "tuple[dict, int] | None":
+    """The JSON object of the passage segment ``notes`` open with, and where it ends in the stripped notes;
+    None when they open with no such segment (`PASSAGE_MARK`, 0.19.0)."""
+    text = (notes or "").lstrip()
+    if not text.startswith(PASSAGE_MARK):
+        return None
+    try:
+        value, end = json.JSONDecoder().raw_decode(text, len(PASSAGE_MARK))
+    except ValueError:
+        return None
+    return (value, end) if isinstance(value, dict) else None
+
+
+def passage_of(notes: "str | None") -> "tuple[str, str] | None":
+    """``(span, source_file)`` of the passage a proposal's notes open with (0.19.0): the span a second
+    construction wrote the proposed edge from, as `kg_propose` recorded it once it verified against a
+    configured source. None for any other edge, and for a segment that is not one the engine writes."""
+    found = _opening_passage(notes)
+    if found is None:
+        return None
+    span, name = found[0].get("span"), found[0].get("source_file", "")
+    if not (isinstance(span, str) and span.strip() and isinstance(name, str)):
+        return None
+    return span, name
+
+
+def without_passage(notes: "str | None") -> str:
+    """``notes`` without the passage segment they open with, and its ` | ` separator; unchanged when they
+    open with none."""
+    found = _opening_passage(notes)
+    if found is None:
+        return notes or ""
+    rest = (notes or "").lstrip()[found[1]:]
+    return rest[3:] if rest.startswith(" | ") else rest.lstrip()
+
+
+def with_passage(notes: "str | None", span: str, source_file: str) -> str:
+    """``notes`` opened by the passage segment for ``span`` in ``source_file``, replacing any it opened with."""
+    segment = PASSAGE_MARK + json.dumps({"span": span, "source_file": source_file}, ensure_ascii=False)
+    rest = without_passage(notes)
+    return segment + (" | " + rest if rest else "")
 
 
 def focus_matches(focus: str, node_id: str, label: str) -> bool:

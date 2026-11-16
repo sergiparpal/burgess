@@ -484,6 +484,16 @@ Returns the `kg_write` shape plus two fields:
 `refused_text_claims` counts the call-site `propose-lane-text-claim` refusals (folded into `details[]` and the
 `REJECTED` count).
 
+**An edge's `passage` (0.19.0).** An edge may carry the `passage` object an `ensemble` candidate came with
+(`{"span", "source_file"}`, where a second construction read the edge; extra keys such as `in_source` are
+ignored). It is never the proposal's span. The engine restores its placeholders and checks it against the
+configured sources, as for a span: when it verifies there and meets `MIN_SPAN_CHARS`, the proposal's notes open
+with the segment `passage: {"span": …, "source_file": …}` (JSON; the file is the one that holds it), and
+`kg_ground_item` shows the grounder that passage (§1.22). Otherwise nothing is kept, and the edge is written as
+any proposal is. Only the engine writes that segment: one an item's own notes open with is dropped. When any
+edge carried a passage, the response adds `passages: {"recorded": [<edge ids>], "not_recorded": [{"id",
+"reason"}]}`, the reason one of `passage-not-in-source`, `passage-too-short`, `passage-malformed`.
+
 ### 1.13 `mcp__plugin_burgess_burgess__kg_generate(mechanism="bridge", k=10, second_graph=None, dpp=None, second_construction=None)`
 
 The **discovery engine** (PLAN Stage 3). **READ-ONLY** — projects if stale, reads precomputed ranks O(1),
@@ -536,6 +546,18 @@ A `kind:"node"` compression also carries `members` (sorted) and `id`, the id `kg
 members (`model.compression_id`). Write it as the star the MDL screen scored: the node under `id`, and one
 `collapses_into` edge from each member to it. Both fields arrived in 0.16.0. Through 0.15.2 the members were
 only in `rationale`, and the language layer had to make an id up.
+
+Since 0.19.0, an `ensemble` candidate read off a second construction is the edge that construction wrote between
+two nodes not adjacent here: its `relation` and direction are the second construction's, each such edge is
+checked against failure memory on its own id, and it carries `passage`: `{"span", "source_file", "in_source"}`,
+the span the edge was written from and whether that span verifies against the configured sources, the only text
+a grounder judges against. The span leaves through the session scrub, so its placeholders restore when the
+candidate goes on to `kg_propose` (§1.12) with its `passage` unchanged. The payload then adds `passages:
+{"in_source": n, "outside_source": m}`, and `note` says when a passage lies outside the sources. A pair whose
+second-graph edge records no relation (a pre-built graph.json that carries none) is still a plain `bridges`
+with no `passage`. Through 0.18.1 every ensemble candidate was a `bridges` with no text; the field test of
+2026-11-16 lost that way the one relation its second reading found (`tcp-ip-frente-a-osi grounds
+regla-de-centralizacion`).
 
 Since 0.16.0, bridge ranks a pair by the sum of its endpoints' strengths:
 - With the gate on, a strength is `spec_betweenness`.
@@ -791,7 +813,7 @@ edges (§1.4), for extractors to write. The rest of the line still reads as a su
 - `leads_unlocated` (+ `note`) — rejected edges whose span no longer verifies in any section: the claim has to be
   grounded again against the changed source first.
 
-### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section, leads=False)`
+### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section, leads=False, construction=None, source=None)`
 
 One section of the configured source, **cut and egress-scrubbed by the engine**: what a `kg-extractor`
 launched by `/burgess:kg-build` extracts from (0.5.0). `source_file` is a basename and `section` a number, both from
@@ -831,6 +853,16 @@ extractors asking at once keeps one placeholder per value.
 
 A read without `leads` is what lets its extractor record the section as edgeless (§1.24, 0.14.1): the engine
 keeps the digest of the text it served, in memory, until it stops.
+
+`construction` + `source` (0.19.0, both or neither, never with `leads`) serve a section of `/burgess:kg-perturb`'s
+second construction instead: the same two values the extractor passes on every `kg_write` of that construction,
+and `source_file`, its source's basename. The construction cuts and scrubs the text itself, so its own
+`kg_write` restores the placeholders, and records the read on its own side: it never stands behind an edgeless
+record of the graph's build. `known_nodes` are the graph's own nodes the section names, so the second reading
+writes the same concept under the graph's id; the ensemble step pairs the two constructions by id alone. The
+response adds `construction`. Through 0.18.1 the second reading read the whole file and saw no known node: in
+the field test of 2026-11-16 it gave 13 of its 39 nodes an id the graph had, and 18 of its 22 edges could not
+be compared.
 
 ### 1.21 `mcp__plugin_burgess_burgess__kg_ground_plan(focus="", configured_wave_size="", batch_size=None)`
 
@@ -942,6 +974,11 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
     most 12 each, with their totals.
   - An empty `sections` means one of two things. If both ends have sections, the source never discusses the
     two together. If an end has none, the engine could not place it.
+- `passage` — for a proposal from `/burgess:kg-perturb` whose notes open with a passage (0.19.0, kept by
+  `kg_propose`, §1.12): the span a second reading of the source wrote this very edge from, as `{span,
+  source_file, in_source}`, plus `section`, `title` and `excerpt` when `in_source` is true (the engine's own
+  check, now). `null` for every other edge. The grounder judges it as it judges an extractor's span and may
+  copy it as `support_span`; `shared_context` still comes with it.
 - For `kind="node"`: `{node, edges}`, the node with its body (where a `[diverge]` marker shows) and up to 20
   incident edges.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,

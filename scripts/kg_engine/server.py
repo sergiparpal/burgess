@@ -1122,7 +1122,15 @@ class KGEngine:
 
         `construction`/`source` route the propose lane to a named alternate canon exactly like `kg_write`
         (§9/§15), for writing hypothesized edges into a second construction; `construction=None` is the
-        unchanged primary-canon path."""
+        unchanged primary-canon path.
+
+        An edge may carry `passage` (0.19.0): the `{"span", "source_file"}` an ensemble candidate came with,
+        where a second construction read the edge. It is not the proposal's span. When the span verifies
+        against a configured source (placeholders restored first, `MIN_SPAN_CHARS` met), the proposal's notes
+        open with it (`groundplan.with_passage`), and `kg_ground_item` later shows the grounder that passage;
+        otherwise nothing is kept. Either way the edge is written as any proposal is, and `passages` reports
+        `recorded` ids and `not_recorded` ones with the reason. Only the engine opens notes with a passage:
+        one an item's own notes open with is dropped (`_take_passage`)."""
         if construction:
             return self._construction_engine(construction, source).kg_propose(payload, message=message)
         if source is not None:
@@ -1130,11 +1138,16 @@ class KGEngine:
                              "construction's source document); omit it for a primary-canon propose")
         payload = dict(payload or {})
         refused: list[dict] = []
+        passages: dict = {"recorded": [], "not_recorded": []}
+        offered = False
 
         def _lane(items, kind):
+            nonlocal offered
             kept = []
             for it in (items or []):
                 it = dict(it or {})
+                passage = it.pop("passage", None) if kind == "edge" else None
+                offered = offered or passage is not None
                 prov = it.get("provenance")
                 if prov in (Provenance.SPAN_PRESENT.value, Provenance.INFERRED.value):
                     refused.append({"kind": kind,
@@ -1143,6 +1156,8 @@ class KGEngine:
                                     "reason": "propose-lane-text-claim", "retryable": False})
                 else:
                     it["provenance"] = Provenance.HYPOTHESIZED.value  # force the lane
+                    if kind == "edge":
+                        self._take_passage(it, passage, passages)
                     kept.append(it)
             return kept
 
@@ -1157,7 +1172,42 @@ class KGEngine:
             out["dispositions"].get(Disposition.REJECTED.value, 0) + len(refused))
         out["propose_lane"] = True
         out["refused_text_claims"] = len(refused)
+        if offered:
+            out["passages"] = passages
         return out
+
+    def _take_passage(self, item: dict, passage, passages: dict) -> None:
+        """Open a proposed edge's notes with the passage it was handed, when that passage holds in a configured
+        source (0.19.0); record the outcome in ``passages``. The item's own notes lose any passage segment they
+        open with first, so the one a grounder is shown is always one this check let through."""
+        from .groundplan import with_passage, without_passage
+
+        if item.get("notes"):
+            item["notes"] = without_passage(str(item["notes"]))
+        if passage is None:
+            return
+        try:
+            rid = edge_id(str(item.get("source") or ""), str(item.get("relation") or ""),
+                          str(item.get("target") or ""))
+        except Exception:  # noqa: BLE001 — a malformed edge still gets its outcome, just no id
+            rid = None
+        span = passage.get("span") if isinstance(passage, dict) else None
+        name = passage.get("source_file", "") if isinstance(passage, dict) else None
+        if not (isinstance(span, str) and span.strip() and isinstance(name, str)):
+            passages["not_recorded"].append({"id": rid, "reason": "passage-malformed"})
+            return
+        restore = self._restore_fn()
+        check = restore(span) if restore else span
+        sources = self.source_set()
+        if not sources.verifies(check, name):
+            passages["not_recorded"].append({"id": rid, "reason": "passage-not-in-source"})
+            return
+        if len(normalize_text(check).replace(" ", "")) < MIN_SPAN_CHARS:
+            passages["not_recorded"].append({"id": rid, "reason": "passage-too-short"})
+            return
+        held = SourceSet._key(name) if sources.has_file(name) else (sources.files_containing(check) or [""])[0]
+        item["notes"] = with_passage(item.get("notes"), check, held)
+        passages["recorded"].append(rid)
 
     def kg_ground(self, target_id: str, verdict: str, *, by: str = "agent", kind: str = "edge",
                   note: str = "", support_span: str = "", support_note: str = "", lead: str = "") -> dict:
@@ -2017,7 +2067,8 @@ class KGEngine:
             plan["note"] = "skipped files could not be read as UTF-8 text"
         return self._scrub_egress(plan)
 
-    def kg_section(self, source_file: str, section: "int | str", leads: bool = False) -> dict:
+    def kg_section(self, source_file: str, section: "int | str", leads: bool = False, *,
+                   construction: str | None = None, source=None) -> dict:
         """One section of the configured source, cut and egress-scrubbed by the engine: what a
         `kg-extractor` launched by `/kg-build` extracts from (0.5.0). ``source_file`` is a basename and
         ``section`` a number, both from ``kg_build_plan``; the cut is ``sources.plan_sections``, the same
@@ -2036,7 +2087,18 @@ class KGEngine:
 
         A read without ``leads`` is what ``kg_record_edgeless_section`` asks for (0.14.1): the engine keeps the
         digest of the text it served, and records only a section whose current text was served. A leads read
-        writes a rejected claim's leads, not the section, so it never stands behind a record."""
+        writes a rejected claim's leads, not the section, so it never stands behind a record.
+
+        ``construction`` and ``source`` (0.19.0, together, as on the kg_write calls that build it) serve a
+        section of `/kg-perturb`'s second construction instead: see ``_construction_section``."""
+        if construction or source is not None:
+            if not construction or not source:
+                return {"ok": False, "error": "construction and source go together: name the second "
+                                              "construction and its source document, as on its kg_write calls"}
+            if leads:
+                return {"ok": False, "error": "leads belong to the graph's own sources, not to a second "
+                                              "construction: drop leads, or drop construction and source"}
+            return self._construction_section(construction, source, source_file, section)
         texts = self.source_set().texts
         name = SourceSet._key(source_file or "")
         if name not in texts:
@@ -2062,6 +2124,26 @@ class KGEngine:
         out.update(self._known_nodes(s.text))
         if leads:
             out["leads"] = self._section_leads(name, idx, texts)
+        return out
+
+    def _construction_section(self, construction: str, source, source_file: str, section: "int | str") -> dict:
+        """One section of a second construction's source (0.19.0), for the extractor `/kg-perturb` launches.
+
+        The construction cuts and scrubs the text itself (its own kg_section), so its own kg_write restores
+        the placeholders of the spans copied from it; the read is recorded there, never in this engine, so it
+        can never stand behind an edgeless record of the graph's own build. ``known_nodes`` are THIS canon's:
+        the graph's nodes the section names, so the extractor can write the same concept under the graph's id.
+        The ensemble step pairs the two constructions by id alone. In the field test of 2026-11-16 the second
+        reading, which saw no known nodes, gave 13 of its 39 nodes an id the graph had, so 18 of its 22 edges
+        could not be compared at all (`atribucion-asimetrica-de-culpa → trinquete-de-controles` against the
+        graph's `asimetria-de-culpa → trinquete`)."""
+        eng = self._construction_engine(construction, source)
+        out = eng.kg_section(source_file, section)
+        if not out.get("ok"):
+            return out
+        text = plan_sections(eng.source_set().texts[out["source_file"]])[1][out["section"] - 1].text
+        out.update(self._known_nodes(text))
+        out["construction"] = construction
         return out
 
     def _edgeless_sections(self) -> "dict[tuple[str, str, str], dict]":
@@ -2351,12 +2433,12 @@ class KGEngine:
         (``groundplan.span_excerpt``: the paragraph and its neighbours, at most 3000 characters; rows cut out
         of a long table keep the table's header rows, 0.8.0). An edge with no span, a proposal, has no
         `context` and gets `shared_context` instead (0.18.0, ``_shared_context``): the source sections where
-        both its ends are discussed, with excerpts, and the sections where each end is. For a node:
-        the node and its incident edges. All free text leaves through the SESSION scrub, the same as
-        kg_section, so a support span the grounder copies back to kg_ground, placeholders included, restores
-        and verifies. Read-only."""
-        from .groundplan import span_excerpt
-
+        both its ends are discussed, with excerpts, and the sections where each end is. A proposal whose notes
+        open with a passage (0.19.0: an ensemble edge a second construction read from the source, recorded by
+        kg_propose) also gets `passage` (``_passage_view``): that span, `in_source`, and the excerpt around it;
+        every other edge gets `passage: null`. For a node: the node and its incident edges. All free text leaves
+        through the SESSION scrub, the same as kg_section, so a support span the grounder copies back to
+        kg_ground, placeholders included, restores and verifies. Read-only."""
         if kind not in ("edge", "node"):
             return {"ok": False, "error": "kind must be 'edge' or 'node'", "target_id": target_id}
         nodes = self._canon_baseline()
@@ -2388,21 +2470,9 @@ class KGEngine:
             return {"ok": False, "error": "edge not found", "target_id": target_id}
         e = next(x for x in owner.edges if x.id == target_id)
         has_span = bool(e.span and e.span.strip())
-        context = None
-        if has_span:
-            texts = self.source_set().texts
-            name = SourceSet._key(e.source_file) if e.source_file else ""
-            for fname in ([name] if name in texts else list(texts)):
-                for s in plan_sections(texts[fname])[1]:
-                    excerpt = span_excerpt(s.text, e.span)
-                    if excerpt is not None:
-                        context = {"source_file": fname, "section": s.index,
-                                   "title": scrub(s.title) if s.title else "(whole file)",
-                                   "excerpt": scrub(excerpt)}
-                        break
-                if context:
-                    break
+        context = self._span_context(e.span, e.source_file, scrub) if has_span else None
         shared = None if has_span else self._shared_context(e, nodes, scrub)
+        passage = None if has_span else self._passage_view(e, scrub)
         return {"ok": True, "kind": "edge",
                 "edge": {"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
                          "provenance": e.provenance.value, "authored_by": e.authored_by.value,
@@ -2411,7 +2481,43 @@ class KGEngine:
                          "span": scrub(e.span), "notes": scrub(e.notes)},
                 "span_in_source": self.source_set().verifies(e.span, e.source_file) if has_span else None,
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
-                "context": context, "shared_context": shared}
+                "context": context, "shared_context": shared, "passage": passage}
+
+    def _span_context(self, span: str, source_file: str, scrub) -> "dict | None":
+        """The excerpt of the source section that holds ``span`` (``groundplan.span_excerpt``), in
+        ``source_file`` when that is a configured file, else in the first configured file that holds it:
+        ``{source_file, section, title, excerpt}``, or None when no section does. What kg_ground_item shows
+        around an edge's span, and around a proposal's passage (0.19.0)."""
+        from .groundplan import span_excerpt
+
+        texts = self.source_set().texts
+        name = SourceSet._key(source_file) if source_file else ""
+        for fname in ([name] if name in texts else list(texts)):
+            for s in plan_sections(texts[fname])[1]:
+                excerpt = span_excerpt(s.text, span)
+                if excerpt is not None:
+                    return {"source_file": fname, "section": s.index,
+                            "title": scrub(s.title) if s.title else "(whole file)",
+                            "excerpt": scrub(excerpt)}
+        return None
+
+    def _passage_view(self, edge, scrub) -> "dict | None":
+        """What kg_ground_item shows of the passage a proposal's notes open with (0.19.0): the span a second
+        construction wrote the edge from, `in_source` (whether it verifies against the configured sources now,
+        the engine's own check), and, when it does, the section and excerpt around it. None for a proposal
+        with no passage."""
+        from .groundplan import passage_of
+
+        found = passage_of(edge.notes)
+        if found is None:
+            return None
+        span, name = found
+        held = bool(self.source_set().verifies(span, name))
+        out = {"span": scrub(span), "source_file": name, "in_source": held}
+        context = self._span_context(span, name, scrub) if held else None
+        if context:
+            out.update(context)
+        return out
 
     def _shared_context(self, edge, nodes: dict, scrub) -> dict:
         """What a grounder judges an edge with no span against (0.18.0): the source sections where both of
@@ -2635,6 +2741,11 @@ class KGEngine:
         nodes whose communities it did not compress again, and the existing nodes candidates' ids named,
         with their states (`generate._compression_skip`). `note` names them.
 
+        An ensemble candidate read off a second construction is that construction's own edge, and carries
+        `passage` (0.19.0): the span it was written from, with `in_source`, whether that span verifies
+        against the configured sources (`_annotate_passages`). The payload then counts them in `passages`,
+        and `note` says when some passage lies outside the sources, where no grounder can check it.
+
         FUSION Stage 5: when `dpp` is true (default: the pack's `divergence.dpp` flag, shipped OFF),
         the SAME candidate set is reordered by hybrid-descriptor DPP (one semantic axis + graph-
         structural axes, judge-bounded quality) and a `divergence_advisory` block labels the slate.
@@ -2688,6 +2799,15 @@ class KGEngine:
                    "unjudged_hypotheses": unjudged,
                    "count": len(cands), "candidates": [c.to_dict() for c in cands],
                    "note": note}
+        passages = self._annotate_passages(payload["candidates"])
+        if passages:
+            payload["passages"] = passages
+            if passages["outside_source"]:
+                payload["note"] = ((payload["note"] + "; ") if payload["note"] else "") + (
+                    f"{passages['outside_source']} ensemble candidate(s) carry a passage that is not in the "
+                    "configured sources; the grounder judges against those sources only, so such a passage "
+                    "cannot support the edge (add its document to the sources and /burgess:kg-build it for "
+                    "that)")
         # 0.17.0: compression leaves out a community a live compression node was already proposed over and a
         # candidate whose id is already a node (generate._compression_skip). Said here, so a run that
         # offers no compression is not read as finding no dense community, and so nobody drops by hand
@@ -2726,6 +2846,27 @@ class KGEngine:
         # (review: generative-reads-omit-degraded-flag). Scrubbed like the sibling reads: candidate
         # `label`/`rationale` strings embed canon labels (§1.9, review-r4: egress-label-gap).
         return self._with_degraded(self._scrub_egress(payload))
+
+    def _annotate_passages(self, candidates: list) -> "dict | None":
+        """Mark each candidate's `passage` (an ensemble edge read off a second construction, 0.19.0) with
+        `in_source`: whether its span verifies against the configured sources, the only text a grounder
+        judges against. The span leaves through the SESSION scrub, like kg_section's text, so the
+        placeholders `kg_propose` is handed back restore before it checks the span. Returns
+        ``{"in_source": n, "outside_source": m}``, or None when no candidate carries a passage."""
+        counts = {"in_source": 0, "outside_source": 0}
+        sources = None
+        for c in candidates:
+            p = c.get("passage")
+            if not p:
+                continue
+            if sources is None:
+                sources = self.source_set()
+            span = p.get("span") or ""
+            held = bool(sources.verifies(span, p.get("source_file") or ""))
+            p["in_source"] = held
+            p["span"] = self.kg_scrub(span)["scrubbed"]
+            counts["in_source" if held else "outside_source"] += 1
+        return counts if counts["in_source"] or counts["outside_source"] else None
 
     def _second_graph(self, path: str):
         """Load a SECOND construction's graph.json into a NetworkX graph (raises on failure)."""
@@ -3542,7 +3683,11 @@ def _register(mcp, engine: KGEngine) -> None:
         span-present/inferred text claim with reason `propose-lane-text-claim` — text claims belong on
         kg_write. Candidates land `unverified`; only kg_ground (with support) can ever promote them.
         `construction`/`source` route the proposal to a named second construction's alternate canon
-        exactly like kg_write (§9/§15); omit both for the primary canon."""
+        exactly like kg_write (§9/§15); omit both for the primary canon.
+        An edge may carry the `passage` object an ensemble candidate came with (copy it unchanged): when
+        its span verifies against a configured source, the proposal's notes open with it and
+        kg_ground_item shows it to the grounder; otherwise nothing is kept. It is never the proposal's
+        span. `passages` reports the `recorded` edge ids and the `not_recorded` ones with the reason."""
         return engine.kg_propose(payload, construction=construction, source=source)
 
     @mcp.tool()
@@ -3645,9 +3790,11 @@ def _register(mcp, engine: KGEngine) -> None:
         `context`, the excerpt of the source that holds the span. An edge with no span (a proposal) gets
         `shared_context` instead: up to 3 source sections where both its ends are discussed, located by the
         spans of their live edges, each with excerpts (`sections`, nearest pair first), and the sections
-        where each end is discussed (`source_node_sections`, `target_node_sections`). For a node
-        (`kind="node"`): the node and its incident edges. Text is egress-scrubbed with the session's
-        placeholders. Read-only."""
+        where each end is discussed (`source_node_sections`, `target_node_sections`). A proposal from
+        /burgess:kg-perturb may also carry `passage`: the span a second reading of the source wrote this
+        very edge from, with `in_source` (does it verify now) and, when it does, the section and `excerpt`
+        around it; any other edge has `passage: null`. For a node (`kind="node"`): the node and its
+        incident edges. Text is egress-scrubbed with the session's placeholders. Read-only."""
         return engine.kg_ground_item(target_id, kind)
 
     @mcp.tool()
@@ -3662,14 +3809,21 @@ def _register(mcp, engine: KGEngine) -> None:
 
     @mcp.tool()
     @_tool_result
-    def kg_section(source_file: str, section: int, leads: bool = False) -> dict:
+    def kg_section(source_file: str, section: int, leads: bool = False,
+                   construction: str | None = None, source: str | None = None) -> dict:
         """The text of ONE section to extract, cut from the configured source and egress-scrubbed by the
         engine: `source_file` and `section` come from kg_build_plan. Returns `text` (the section's heading
-        line and body, verbatim but for ⟦CAT:N⟧ placeholders), its `title`, and `known_nodes`, the canon
-        nodes the section names. Copy spans from `text` exactly, placeholders included — kg_write restores
-        them to the original. `leads=true` (for `/burgess:kg-build --leads`) adds `leads`: the edges grounders found
-        stated by spans of this section under claims they rejected, each with that span."""
-        return engine.kg_section(source_file, section, leads)
+        line and body, verbatim but for ⟦CAT:N⟧ placeholders), its `title`, `of` (how many sections the
+        file has), and `known_nodes`, the canon nodes the section names. Copy spans from `text` exactly,
+        placeholders included — kg_write restores them to the original. `leads=true` (for
+        `/burgess:kg-build --leads`) adds `leads`: the edges grounders found stated by spans of this section
+        under claims they rejected, each with that span.
+        `construction` + `source` (for /burgess:kg-perturb, the same two values as on every kg_write of that
+        second construction) serve section `section` of that construction's source document instead
+        (`source_file` is its basename), cut and scrubbed by the construction so its kg_write restores the
+        placeholders, with `known_nodes` from the graph's own canon: write the same concept under the
+        graph's id. Not with `leads`."""
+        return engine.kg_section(source_file, section, leads, construction=construction, source=source)
 
     @mcp.tool()
     @_tool_result
@@ -3707,7 +3861,11 @@ def _register(mcp, engine: KGEngine) -> None:
         For the `ensemble` exo move, supply EITHER `second_construction` (the NAME of an in-session
         second construction built via kg_write(..., construction=…) — projected here, key-free) OR
         `second_graph` (a path to a pre-built graph.json); with neither, ensemble degrades to `regroup`
-        and says so. `dpp` (FUSION Stage 5; default = the pack's `divergence.dpp` flag, shipped OFF)
+        and says so. An ensemble candidate is the edge the second construction wrote between two nodes
+        not adjacent here, with its relation and direction, and `passage`: the span it was written from,
+        with `in_source` (does that span verify against the configured sources, which are all a grounder
+        judges against); `passages` counts them. Pass `passage` on to kg_propose unchanged. A pair whose
+        second-graph edge records no relation stays a plain `bridges` with no passage. `dpp` (FUSION Stage 5; default = the pack's `divergence.dpp` flag, shipped OFF)
         reorders the SAME candidate set by hybrid-descriptor DPP and adds a `divergence_advisory` block
         with bins, semantic novelty and cliché-hub distances — advisory presentation only,
         verdict-invariant (I5)."""

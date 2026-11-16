@@ -254,9 +254,14 @@ You give it a **second document** (a different source, or the same territory see
 ```
 
 Burgess builds a second, independent picture of the topic and looks for connections that exist in
-*that* picture but are missing from yours — precisely the bridges your own perspective would resist.
-It's honest about the catch: a second viewpoint doesn't remove blind spots, it *swaps* them for
-different ones. The connections that survive **both** views are the ones worth grounding.
+*that* picture but are missing from yours — precisely the links your own perspective would resist. Each
+one comes with the passage the second reading found it in.
+It's honest about two catches. A second viewpoint doesn't remove blind spots, it *swaps* them for
+different ones. And grounding only ever checks *your* sources: a connection read from one of them can be
+grounded on its passage, but one that only the new document states cannot, however true it is. So
+re-reading one of your own documents is a second opinion on what the first extraction missed, while an
+outside document mostly previews what it would connect. To make that document count, add it to your
+sources and run `/burgess:kg-build`.
 
 ---
 
@@ -330,7 +335,7 @@ believed.
 | `/burgess:kg-build <file/folder>` | Turn a document (or many) into a graph. Adds to what's there. |
 | `/burgess:kg-ground` | Fact-check against your source. The **only** way to mark something trusted. |
 | `/burgess:kg-generate` | Let the graph's structure suggest new candidate ideas. |
-| `/burgess:kg-perturb [2nd source]` | Bring in an outside viewpoint to expose blind spots. Give it another document, or a prior construction's `graph.json`. |
+| `/burgess:kg-perturb [2nd source]` | Read a source a second way to expose blind spots. Give it one of your documents for a second opinion, another document to preview what it would connect, or a prior construction's `graph.json`. |
 | `/burgess:kg-query <question>` | Ask your graph, with trust levels attached to every answer. |
 | `/burgess:kg-view` | Render an offline interactive map + a written report. |
 | `/burgess:kg-eval` | Measure extraction precision and grounding reliability. |
