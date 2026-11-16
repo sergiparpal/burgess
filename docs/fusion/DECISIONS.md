@@ -1832,3 +1832,63 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - `untyped` counts edges, while an untyped pair yields one `bridges`.
 - **Pinned in:** `tests/test_fix_perturb_leak_check.py` (14 tests).
   - Against 0.19.0 the module does not import, because `ensemble_tally` does not exist, so all 14 fail.
+
+## On Windows the venv is built on the setup's own Python, and a failed build says so (2026-11-16)
+
+- **Decision:**
+  - On Windows, `bootstrap.install_with_uv` passes `--python <sys.executable>` to `uv sync`
+    (`_uv_python_pin`). That is the interpreter running bootstrap, which the launcher and the hook found
+    and `provision` checked to be ≥ 3.10. A `UV_PYTHON` the user set is kept. Other platforms keep uv's
+    choice.
+  - A failed build leaves `provision.failed` beside `provision.log`: JSON `{at, error}`, one line naming the
+    step and its cause (`_failure_line`). An Application Control refusal (WinError 4551) is named as such,
+    with the refused file, which `bootstrap.run` now attaches since Windows' error carries none. Any OSError
+    during a build is caught and recorded, no longer a bare traceback. `_ok_with_reconcile`, the one
+    success exit, removes the record.
+  - `launch_server.mjs` ends its wait as soon as a record written after its own start appears
+    (`waitUntilReady`'s `failed`), and reports the failure with its cause. At the deadline with an older
+    record, it says a build is running but the last one failed, and what failed.
+- **Field run it answers** (0.19.1, 2026-11-16, Windows 11 with Smart App Control on):
+  - The engine venv had been built by uv on its managed CPython 3.12.13 (python-build-standalone), while
+    bootstrap ran on the PSF-signed python.org 3.14.3. A Windows venv's `python.exe` is a copy of its base
+    interpreter's launcher, here an unsigned 45 KB file.
+  - At 12:48 UTC Smart App Control refused that file, which had run the engine for days. The Code
+    Integrity log shows no cached verdict, a cloud lookup, and a fail.
+  - At 13:02 the next session's readiness check could not run the venv's interpreter, so it fell back to
+    the running interpreter's identity, the stamp mismatched, and a rebuild began. It failed at the import
+    check with WinError 4551 and removed the venv. Four more rebuilds created fresh venvs on 3.12.13 and
+    failed the same way.
+  - Each launch said the setup was "still being set up in the background", normal after an update, and
+    suggested `MCP_TIMEOUT`. The field session first suggested raising it, then found the cause in
+    `provision.log` and the event log. A uv venv built on the python.org interpreter started.
+  - The 0.19.1 update was not the trigger: the session before ran 0.19.1 on the existing venv with no
+    rebuild.
+- **Why the setup's own interpreter:**
+  - It is the interpreter the setup already chose and checked. uv's preference for its managed Python
+    silently put a different one, with a different launcher, under the engine.
+  - On Windows the venv's `python.exe` is that interpreter's launcher, so the venv is exactly as trusted
+    as the Python the user installed. That is signed for the python.org installer.
+  - Elsewhere a venv's interpreter is the base one itself, so nothing is gained by overriding uv there.
+- **Why a record file:** the build runs in a detached worker whose exit code reaches nobody. The launcher
+  already polls the data folder for the stamp, so one more file read is the whole channel. Removed on
+  success, a record always means no build has succeeded since.
+- **Rejected alternatives:**
+  - (a) *Detect WinError 4551 and only then retry on the setup's interpreter.* That adds a second path a
+    test can only fake. The first build would still land on the unsigned launcher, and stay there until
+    Windows' verdict flips.
+  - (b) *Rebuild every existing Windows venv now.* A venv that works would cost every Windows user a
+    rebuild, and a first session that cannot connect, for a risk that has hit one machine. It moves on its
+    next rebuild instead.
+  - (c) *Run the base interpreter with the venv's packages instead of the venv's `python.exe`.* A venv is
+    found through `pyvenv.cfg` beside its executable, and emulating that is a larger change than choosing
+    the interpreter.
+  - (d) *Raise the launcher's wait.* The build had not been slow: it failed. A longer wait only delays the
+    message.
+- **Accepted trade-offs:**
+  - On the field machine the venv moves from Python 3.12 to 3.14. The lock has win_amd64 wheels for cp314
+    or abi3 for every compiled package, so nothing compiles. Whether Smart App Control lets those DLLs load
+    is known only once the build runs there. If it does not, the record names the refused file.
+  - A record that cannot be written costs only the launcher's explanation; the build's outcome is the same.
+- **Pinned in:** `tests/test_fix_windows_signed_venv.py` (14 tests).
+  - Against 0.19.1 all 14 fail: the platform helper they patch does not exist there, nothing writes the
+    record, and the launcher's wait has no failure to end on.

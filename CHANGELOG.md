@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.19.2 — 2026-11-16
+
+Found on the Windows install the same day, on 0.19.1, with Smart App Control on. At 12:48 UTC Windows stopped
+trusting the engine venv's `python.exe`, a file that had run the engine for days. On Windows a venv's
+`python.exe` is a copy of its base interpreter's launcher, not the interpreter. uv had built the venv on its
+own managed CPython 3.12.13, whose launcher is unsigned. bootstrap itself runs on the PSF-signed python.org
+3.14.3, but `uv sync` was given no interpreter and preferred the managed one.
+
+At 13:02 the next session could not start the venv's Python, so the readiness check failed and a rebuild
+began. The rebuild installed every package, then the import check failed with `OSError: [WinError 4551]` and
+the venv was removed. Five rebuilds failed the same way. Every launch said the environment was "still being
+set up in the background", normal after an update, and suggested `MCP_TIMEOUT`. The cause was only in
+`provision.log`. A venv built on the python.org interpreter started.
+
+### Fixed
+
+- **On Windows the engine venv is built on the Python that runs the setup.**
+  - `uv sync` gets `--python` set to the interpreter running bootstrap, the one the setup already found and
+    checked to be ≥ 3.10. The venv then carries that interpreter's launcher, signed for a python.org install.
+  - A `UV_PYTHON` the user set is kept. Other platforms keep uv's choice, since there a venv's interpreter
+    is the base one itself.
+- **A failed build is reported as one.**
+  - A build that fails leaves `provision.failed` beside `provision.log`: when it failed and why, in one
+    line. When Application Control refused a program, the line says so and names the refused file, which
+    Windows' own error leaves out. A provision that ends ready removes the record.
+  - A refused program, an OSError, now ends the build with that line instead of a bare traceback, and so
+    does every other OSError raised during the build.
+  - The MCP launcher stops waiting as soon as a build fails. It says the environment could not be built,
+    gives the cause and the log, and says waiting longer will not help.
+  - When a build is still running at the end of the window after an earlier failure, the launcher says
+    what failed last time instead of calling it a first-session setup.
+
+### Upgrading
+
+- A venv that works is not rebuilt by this release.
+  - The stamp follows the venv's own interpreter, so a Windows venv built on uv's managed Python stays as
+    it is until something else forces a rebuild. That rebuild then uses the setup's interpreter.
+  - To move such a venv now, delete it from the plugin's data folder and start a session.
+- On the Windows install of the field report the venv is gone, so the first session after updating builds
+  one on the python.org Python. It downloads the packages for that version, which can take a few minutes:
+  reconnect from `/mcp` when it is done, or start that session with `MCP_TIMEOUT=600000`.
+- Nothing changes in the canon.
+
+### Tests
+
+- `tests/test_fix_windows_signed_venv.py` (14 tests):
+  - On Windows `uv sync` gets the running interpreter. A `UV_PYTHON` the user chose is kept, and other
+    platforms keep uv's choice.
+  - A refused program fails the build with a record that names it, and the runner carries the program it
+    started. A failed step, a timed-out step, and a refusal with a message are recorded too. A provision
+    that ends ready removes the record. The launcher reads the file bootstrap writes.
+  - The launcher's wait ends when the build fails, and a record counts only from the launch's start.
+    End to end, against a stand-in bootstrap: a build that fails inside the window is reported as failed,
+    with its cause, long before the window ends. A build still running after a failure says what failed
+    last time.
+- Against 0.19.1 all 14 fail: the platform helper they patch does not exist there, nothing writes the
+  record, and the launcher's wait has no failure to end on.
+- 2235 → 2249 passed, 3 skipped.
+
 ## 0.19.1 — 2026-11-16
 
 Found on the second field `/burgess:kg-perturb`, on 0.19.0. It re-read «Síntesis - Fábricas de software.md», one

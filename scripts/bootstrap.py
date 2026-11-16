@@ -60,6 +60,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import json
 import os
 import platform
 import re
@@ -109,6 +110,10 @@ STALE_LOCK_SECS = 30 * 60           # treat a lock older than this as abandoned
 HEARTBEAT_SECS = STALE_LOCK_SECS / 4
 POLL_SECS = 2.0                     # how often a foreground waiter re-checks the lock
 LOG_NAME = "provision.log"          # where the detached worker logs
+# Beside the log: the last failed build's time and cause in one line, JSON, until a provision succeeds
+# (0.19.2). The detached worker's exit code reaches nobody, so this is how the MCP launcher tells a build
+# that failed from one still running (launch_server.mjs reads it as PROVISION_FAILED_NAME).
+FAILED_NAME = "provision.failed"
 SCHEMA = "2"                        # bump to force every venv to rebuild
 #   "2" (0.11.10): the stamp leaves out pyproject.toml's [project] version line (_install_inputs)
 # Every provisioning subprocess is bounded. Without this, a child that never returns — a dead NFS/network
@@ -339,7 +344,14 @@ def run(cmd: list[str], *, cwd: Path | None = None, env: dict | None = None,
     """Run a provisioning step, checked and BOUNDED. `timeout` is required in spirit: every caller passes
     one (see the *_TIMEOUT_SECS constants for why an unbounded child wedges provisioning permanently)."""
     print(f"[bootstrap] $ {' '.join(str(c) for c in cmd)}", flush=True)
-    subprocess.run(cmd, check=True, cwd=str(cwd) if cwd else None, env=env, timeout=timeout)
+    try:
+        subprocess.run(cmd, check=True, cwd=str(cwd) if cwd else None, env=env, timeout=timeout)
+    except OSError as exc:
+        # Windows' CreateProcess error names no file (field, 2026-11-16: a bare "[WinError 4551]"), so the
+        # failure record could not say which program was refused. Name the one this step started.
+        if exc.filename is None:
+            exc.filename = str(cmd[0])
+        raise
 
 
 def install_with_uv(venv_dir: Path, uv: str) -> None:
@@ -357,7 +369,33 @@ def install_with_uv(venv_dir: Path, uv: str) -> None:
         shutil.copyfile(PYPROJECT, proj_dir / "pyproject.toml")
     env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv_dir)}
     print("[bootstrap] Installing dependencies with uv (sync --no-install-project)", flush=True)
-    run([uv, "sync", "--no-install-project"], cwd=proj_dir, env=env, timeout=INSTALL_TIMEOUT_SECS)
+    cmd = [uv, "sync", "--no-install-project"]
+    pin = _uv_python_pin()
+    if pin:
+        print(f"[bootstrap] Building the venv on this interpreter: {pin}", flush=True)
+        cmd += ["--python", pin]
+    run(cmd, cwd=proj_dir, env=env, timeout=INSTALL_TIMEOUT_SECS)
+
+
+def _is_windows() -> bool:
+    """One place for the platform test, so a test can take the Windows branch on any host."""
+    return os.name == "nt"
+
+
+def _uv_python_pin() -> "str | None":
+    """The interpreter ``uv sync`` is told to build the venv on, or None to leave the choice to uv (0.19.2).
+
+    On Windows a venv's ``python.exe`` is not the interpreter but a copy of its base interpreter's
+    launcher. uv prefers a Python it manages over the one running this script, and its managed CPython (a
+    python-build-standalone build) ships that launcher unsigned. On 2026-11-16 Smart App Control stopped
+    trusting it on the field machine: every engine launch and every rebuild failed with WinError 4551,
+    while a venv built on the PSF-signed python.org interpreter running bootstrap started. So on Windows
+    the venv is built on the interpreter running bootstrap, which is >= MIN_PY (``provision`` exits
+    before installing otherwise). ``UV_PYTHON`` set by the user wins. Elsewhere a venv's interpreter is
+    the base one itself, so uv keeps its choice."""
+    if not _is_windows() or _clean(os.environ.get("UV_PYTHON")) or not sys.executable:
+        return None
+    return sys.executable
 
 
 def install_with_pip(venv_dir: Path) -> None:
@@ -804,9 +842,53 @@ def maybe_reconcile(venv_dir: Path) -> None:
 # --------------------------------------------------------------------------- #
 def _ok_with_reconcile(venv_dir: Path, reconcile: bool) -> int:
     """The single success post-condition: on any successful provision, reconcile if asked (§1.8)."""
+    _clear_failure(venv_dir)
     if reconcile:
         maybe_reconcile(venv_dir)
     return EXIT_OK
+
+
+# WinError 4551, ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION: an Application Control policy (Smart App Control
+# or a WDAC policy) refused to run a file. Windows sets it on the OSError of a refused CreateProcess.
+WINERROR_APP_CONTROL = 4551
+
+
+def _failure_line(exc: BaseException) -> str:
+    """One line saying which step of a build failed, and why (0.19.2)."""
+    if getattr(exc, "winerror", None) == WINERROR_APP_CONTROL:
+        return (f"Windows Application Control (Smart App Control or a WDAC policy) refused to run "
+                f"{getattr(exc, 'filename', None) or 'a program the build needs'} (WinError 4551)")
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"timed out after {exc.timeout:.0f}s: {_step(exc.cmd)}"
+    if isinstance(exc, subprocess.CalledProcessError):
+        return f"failed (exit {exc.returncode}): {_step(exc.cmd)}"
+    return str(exc).strip() or type(exc).__name__
+
+
+def _step(cmd) -> str:
+    """A build command, short enough for one line: the import check is named, not quoted whole."""
+    parts = [str(c) for c in (cmd if isinstance(cmd, (list, tuple)) else [cmd])]
+    if "-c" in parts and _VERIFY_IMPORTS in parts:
+        return f"the import check ({parts[0]})"
+    return " ".join(parts)
+
+
+def _record_failure(venv_dir: Path, line: str) -> None:
+    """Leave FAILED_NAME beside the log: this build failed, when, and why (0.19.2). Best-effort: a
+    record that cannot be written only costs the launcher its explanation."""
+    record = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "error": line}
+    try:
+        atomic_write_text(venv_dir.parent / FAILED_NAME, json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _clear_failure(venv_dir: Path) -> None:
+    """A provision that ends ready leaves no failure record behind."""
+    try:
+        (venv_dir.parent / FAILED_NAME).unlink()
+    except OSError:
+        pass
 
 
 def _wait_for_lock(venv_dir: Path, deadline: float) -> int | None:
@@ -891,7 +973,24 @@ def provision(venv_dir: Path, *, wait_secs: float, reconcile: bool = False) -> i
             f"{' '.join(str(c) for c in exc.cmd)}\n"
             f"[bootstrap] See {log_path} for details, then start a new session.\n"
         )
+        _record_failure(venv_dir, _failure_line(exc))
         return EXIT_BUILD_FAILED
+    except OSError as exc:
+        # A build step that could not even start. The field case (2026-11-16): Smart App Control refused
+        # the venv's python.exe at the import check, the OSError went up as a bare traceback, and the
+        # launcher went on reporting a build "still being set up" for every session.
+        line = _failure_line(exc)
+        sys.stderr.write(f"[bootstrap] Install step could not run: {line}\n"
+                         f"[bootstrap] See {venv_dir.parent / LOG_NAME} for details.\n")
+        _record_failure(venv_dir, line)
+        return EXIT_BUILD_FAILED
+    except SystemExit as exc:
+        # do_install's own refusals (no pyproject, a foreign venv in the way, no interpreter after the
+        # install) exit with a message: record it, then exit as before.
+        if isinstance(exc.code, str):
+            _record_failure(venv_dir, " ".join(part.strip().removeprefix("[bootstrap] ")
+                                               for part in exc.code.splitlines() if part.strip()))
+        raise
     finally:
         release(venv_dir)
 

@@ -46,11 +46,14 @@
 // Venv/interpreter resolution lives in ./_engine_resolve.mjs (shared with the other launchers).
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import {
+  appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   venvDir, systemPython, enginePython, withPythonpath, clean, PROBE_TIMEOUT_MS, STAMP_NAME, PROVISION_LOG_NAME,
+  PROVISION_FAILED_NAME,
 } from "./_engine_resolve.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url)); // <repo>/scripts
@@ -93,9 +96,14 @@ export function provisionDeadline(startedAtMs, env = process.env, C = CONNECT) {
 // `initialize` waits in the pipe for the engine to read it), and the heal path it replaces blocked the same
 // way for up to five minutes, not for a share of the connect window. isReady() runs once more after the
 // last sleep, so a build that lands right at the deadline still counts. Injectable for a fake-clock test.
-export function waitUntilReady({ isReady, deadline, now = Date.now, sleep = sleepSync, pollMs = CONNECT.POLL_MS }) {
+// `failed()` ends the wait early (0.19.2): a build that has failed cannot land, so waiting out the window
+// would only delay the message that says why.
+export function waitUntilReady({
+  isReady, deadline, failed = () => false, now = Date.now, sleep = sleepSync, pollMs = CONNECT.POLL_MS,
+}) {
   for (;;) {
     if (isReady()) return true;
+    if (failed()) return false;
     const left = deadline - now();
     if (left <= 0) return false;
     sleep(Math.min(pollMs, left));
@@ -333,16 +341,73 @@ function venvReady(sysPy) {
 }
 
 // Start or join a background build and wait for it inside the connect window. True = ready to launch.
-function catchUp(sysPy, deadline, force = false) {
+// The wait ends early when a build fails after `since`, this launch's start.
+function catchUp(sysPy, deadline, since, force = false) {
   startBackgroundBuild(sysPy, force);
-  return waitUntilReady({ isReady: () => venvReady(sysPy), deadline });
+  return waitUntilReady({
+    isReady: () => venvReady(sysPy),
+    deadline,
+    failed: () => failedSince(readBuildFailure(dirname(VENV_DIR)), since),
+  });
+}
+
+// The last failed build's record beside provision.log (bootstrap's FAILED_NAME, 0.19.2): {at, error, mtimeMs},
+// or null when there is none or it cannot be read. bootstrap removes it once a provision succeeds, so a
+// record means no build has succeeded since that one failed.
+export function readBuildFailure(dataDir) {
+  const p = join(dataDir, PROVISION_FAILED_NAME);
+  try {
+    const rec = JSON.parse(readFileSync(p, "utf8"));
+    if (!rec || typeof rec.error !== "string" || !rec.error.trim()) return null;
+    return { at: String(rec.at ?? ""), error: rec.error.trim(), mtimeMs: statSync(p).mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+// Did that record come from a build that failed during this launch (written at or after `since`)?
+export function failedSince(failure, since) {
+  return Boolean(failure) && failure.mtimeMs >= since;
+}
+
+// The launch could not connect: say why. A build that failed during this launch is reported as a failure,
+// with its cause (0.19.2). Through 0.19.1 every launch said the environment was "still being set up" and
+// suggested MCP_TIMEOUT, even when each build failed within seconds: on 2026-11-16 Smart App Control refused
+// the venv's python.exe, five rebuilds failed the same way, and the cause was only in provision.log.
+function reportNotReady(since) {
+  const failure = readBuildFailure(dirname(VENV_DIR));
+  if (failedSince(failure, since)) reportBuildFailed(failure);
+  else reportStillProvisioning(failure);
+}
+
+function reportBuildFailed(failure) {
+  const log = join(dirname(VENV_DIR), PROVISION_LOG_NAME);
+  process.stderr.write(
+    `[burgess] The engine's Python environment could not be built: ${failure.error}. Details: ${log}. ` +
+      "Waiting longer (MCP_TIMEOUT) will not help: once the cause is fixed, reconnect the burgess server " +
+      "from /mcp, or start a new session.\n"
+  );
+  serverLog(`venv build failed (${failure.at}): ${failure.error}; exiting`);
 }
 
 // The launcher is giving up on this connection, not on the build: say so where the user will look.
-// Claude Code shows a failed server's stderr under /mcp, and server.log keeps a line for later.
-function reportStillProvisioning() {
+// Claude Code shows a failed server's stderr under /mcp, and server.log keeps a line for later. `previous`
+// is the record of an earlier build that failed and none has succeeded since: then this is no first-session
+// setup, and the message says what failed last time instead.
+function reportStillProvisioning(previous = null) {
   const timeout = connectTimeoutMs();
   const log = join(dirname(VENV_DIR), PROVISION_LOG_NAME);
+  if (previous) {
+    process.stderr.write(
+      "[burgess] The engine's Python environment is not ready. A build is running in the background, but " +
+        `the last one failed (${previous.at}): ${previous.error}. If this one fails the same way, waiting ` +
+        `longer (MCP_TIMEOUT) will not help: fix that cause first. Progress: ${log}. Once a build has ` +
+        "succeeded, reconnect the burgess server from /mcp, or start a new session.\n"
+    );
+    serverLog(`venv not ready inside the connect window (MCP_TIMEOUT=${timeout}ms); the last build failed ` +
+      `(${previous.at}): ${previous.error}`);
+    return;
+  }
   process.stderr.write(
     "[burgess] The engine's Python environment is still being set up in the background. That is " +
       "normal on the first session after an install or an update, and can take a few minutes. Claude " +
@@ -505,7 +570,8 @@ export function createSupervisor({
 }
 
 function main() {
-  const deadline = provisionDeadline(Date.now());
+  const startedAt = Date.now();
+  const deadline = provisionDeadline(startedAt);
   const sysPy = systemPython();
   let py = enginePython(VENV_DIR);
 
@@ -514,8 +580,8 @@ function main() {
   // upgrades it in place, so its packages can be half-swapped at any moment.
   if (!py || !stampFresh(sysPy)) {
     if (sysPy) {
-      if (!catchUp(sysPy, deadline)) {
-        reportStillProvisioning();
+      if (!catchUp(sysPy, deadline, startedAt)) {
+        reportNotReady(startedAt);
         process.exit(1);
       }
       py = enginePython(VENV_DIR);
@@ -544,8 +610,8 @@ function main() {
       // Same connect window as the initial wait, so the heal can only use what the startup left of it.
       // The wait blocks the loop (and so markShutdown) for at most that remainder, where the foreground
       // heal it replaces could block teardown for five minutes (review-low).
-      if (!catchUp(sysPy, deadline, true)) {
-        reportStillProvisioning();
+      if (!catchUp(sysPy, deadline, startedAt, true)) {
+        reportNotReady(startedAt);
         return false;
       }
       const fixed = enginePython(VENV_DIR);

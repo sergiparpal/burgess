@@ -550,6 +550,13 @@ divergence templates ship as pack fragments under `pack/domains/`.
   leaves out `[project]`'s version line (0.11.10), so a release that changes no dependency leaves the
   venv current and the first session after an update starts without a rebuild. Venv
   precedence: `--venv` > `$KG_ENGINE_VENV` > `$CLAUDE_PLUGIN_DATA/.venv` > `<repo>/.venv` (dev).
+  On Windows `uv sync` gets `--python` set to the interpreter running bootstrap, unless the user set
+  `UV_PYTHON` (0.19.2). A Windows venv's `python.exe` is a copy of its base interpreter's launcher,
+  and uv otherwise prefers its own managed CPython, whose launcher is unsigned. Smart App Control
+  refused that launcher on the field machine, while one copied from the python.org interpreter
+  started. A build that fails leaves `provision.failed` beside the log (JSON `{at, error}`, one line
+  naming the step and the cause, and the refused file when Application Control refused it), removed
+  by the next provision that ends ready.
   The stamp is written as soon as the core imports verify; the advisory leidenalg/divergence probes
   run after it, so they never hold readiness back. On Windows the worker gets a windowless console
   of its own (`CREATE_NO_WINDOW`, not `DETACHED_PROCESS`): its children (`uv`, the probe
@@ -586,7 +593,11 @@ divergence templates ship as pack fragments under `pack/domains/`.
   the engine starts in the same session; otherwise the launcher exits with a message, shown under
   `/mcp`, that names `provision.log` and says to reconnect once the build is done (or to start
   Claude Code with `MCP_TIMEOUT=600000`). The early-failure heal follows the same rule. A stale venv is
-  never launched while it is being rebuilt in place.
+  never launched while it is being rebuilt in place. Since 0.19.2 the wait ends as soon as a
+  `provision.failed` written after the launcher started appears. The launcher then reports that the
+  build failed, with its cause, and says waiting longer will not help. When a build is still running at
+  the deadline after an earlier failure, the message says what failed last time instead of calling it
+  a first-session setup.
 - **CI/structural gates**: `scripts/validate_plugin.py` (stdlib-only: manifest JSON validity,
   4-file version agreement across plugin.json/marketplace/pyproject/`kg_engine.__version__`,
   every declared component file exists); `scripts/check_donors_clean.py` (invariant I11, installed
