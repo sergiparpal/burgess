@@ -694,6 +694,54 @@ def ensemble(G, *, failures, k=10, second_graph=None, und=None, adj=None,
     return _rank(cands, k)
 
 
+# How many known-failure ids `ensemble_tally` lists; the count is always exact.
+KNOWN_FAILURE_IDS_SHOWN = 20
+
+
+def ensemble_tally(G, second_graph, *, failures, adj=None) -> dict:
+    """How each of the second construction's live edges fared in `ensemble` (0.19.1), in the order `ensemble`
+    decides, so the parts sum to ``edges``:
+
+    - ``ends_missing`` — an end is not a node here, so the edge cannot be compared at all;
+    - ``repeated`` — this very edge (same relation, same direction) is live here: the readings agree;
+    - ``joined_otherwise`` — the pair is joined here by another live edge. A disagreement `ensemble` does
+      not propose, since it crosses only pairs not adjacent here;
+    - ``untyped`` — the edge records no relation, so its pair goes out as a plain `bridges`;
+    - ``known_failures`` — the edge or its reverse is in failure memory, which binds imported structure too;
+      ``known_failure_ids`` lists them (sorted, at most KNOWN_FAILURE_IDS_SHOWN);
+    - ``new`` — what `ensemble` proposes, before its top-k cut.
+
+    The second field run of /kg-perturb (2026-11-16, 0.19.0) re-read a source with the graph's own ids
+    and got 0 candidates with an empty note; its session ran two scripts over the canon (one waited 15
+    minutes on approval) to learn that 9 of the 10 edges were the graph's own and the tenth a known failure."""
+    adj1 = _resolve_adj(G, adj)
+    own = set(G.nodes())
+    live_here = {edge_id(u, d["relation"], v) for u, v, d in G.edges(data=True)
+                 if d.get("relation") and d.get("epistemic_state") not in _NON_LIVE_VALUES}
+    tally = {"edges": 0, "ends_missing": 0, "repeated": 0, "joined_otherwise": 0, "untyped": 0,
+             "known_failures": 0, "new": 0}
+    failed: set = set()
+    for u, v, d in second_graph.edges(data=True):
+        if u == v or d.get("epistemic_state") in _NON_LIVE_VALUES:
+            continue
+        tally["edges"] += 1
+        relation = str(d.get("relation") or "").strip()
+        if u not in own or v not in own:
+            tally["ends_missing"] += 1
+        elif v in adj1.get(u, ()):
+            tally["repeated" if relation and edge_id(u, relation, v) in live_here else "joined_otherwise"] += 1
+        elif not relation:
+            tally["untyped"] += 1
+        elif _is_failure(failures, u, relation, v):
+            tally["known_failures"] += 1
+            forward = edge_id(u, relation, v)
+            failed.add(forward if forward in failures else edge_id(v, relation, u))
+        else:
+            tally["new"] += 1
+    tally["known_failure_ids"] = sorted(failed)[:KNOWN_FAILURE_IDS_SHOWN]
+    return tally
+
+
 def periphery(G, *, failures, k=10, adj=None) -> list:
     """§5 — explore the periphery. Source candidates from LOW-degree nodes (the periphery the
     hub-seeking mechanisms ignore): for each peripheral node, propose a `bridges` edge to a

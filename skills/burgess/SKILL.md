@@ -91,7 +91,7 @@ afterward. The portico moved from the door of imagination to after generation.
 | `/burgess:kg-build` | `kg-extractor` | `kg_build_plan`, `kg_section`, `kg_write`, `kg_record_edgeless_section` |
 | `/burgess:kg-ground` | `kg-grounder`, `kg-adversarial-grounder` | `kg_ground_plan`, `kg_ground_item`, `kg_ground`, `kg_write`, `kg_record_attack` |
 | `/burgess:kg-generate` | `kg-generator` | `kg_generate`, `kg_propose`, `kg_operate`, `kg_absorption`, `kg_record_generation`, `kg_context` |
-| `/burgess:kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_section` / `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`), `kg_propose` (each edge's `passage`) |
+| `/burgess:kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_metrics` (`digest=true`, before and after the build), `kg_section` / `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`; its `ensemble` tally), `kg_propose` (each edge's `passage`) |
 | `/burgess:kg-query` | (none; direct reads) | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `kg_context` |
 | `/burgess:kg-view` | (none; direct render) | `kg_export` |
 | `/burgess:kg-eval` | `kg-annotator` | `f4_probe.py`, `kg_engine.harness`, `query_graph` |

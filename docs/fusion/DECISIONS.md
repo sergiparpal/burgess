@@ -1771,3 +1771,64 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - A proposal's notes open with a JSON segment.
 - **Pinned in:** `tests/test_fix_perturb_second_reading.py` (28 tests).
   - Against 0.18.1 the module does not import, because the passage helpers do not exist, so all 28 fail.
+
+## The leak check reads a digest, and the ensemble step says how each edge fared (2026-11-16)
+
+- **Decision:**
+  - `kg_metrics(digest=true)` adds `canon_digest`: a sha256 over the canon's note files, each one's name and
+    bytes, in name order, read from disk (`KGEngine._canon_digest`). Without `digest` the answer is as before.
+  - `/burgess:kg-perturb` reads counts and digest before its extractor starts and after it returns. Both must
+    be unchanged. If either moved, it stops before cross-generating and does not ground. The check needs no
+    Bash.
+  - With a second construction, `kg_generate` carries `ensemble` (`generate.ensemble_tally`): how each of the
+    construction's live edges fared, in the order the step decides, the parts summing to `edges`.
+    - `ends_missing`: an end is not a node here.
+    - `repeated`: this very edge is live here.
+    - `joined_otherwise`: the pair is joined here by another live edge.
+    - `untyped`: the edge records no relation.
+    - `known_failures`: the edge or its reverse is in failure memory; `known_failure_ids` lists them.
+    - `new`: what the step proposes, before its top-`k` cut.
+  - `note` says why when none is new, and how many new edges the cut left out.
+  - The command reports from the tally, skips the generator when there is no candidate, and never re-derives
+    the outcome from the canon.
+- **Field run it answers** (0.19.0, 2026-11-16): the second `/burgess:kg-perturb`. It re-read «Síntesis -
+  Fábricas de software.md», one of the graph's own sources.
+  - The extractor read each section with the graph's known nodes, and took the graph's id for all 20 of its
+    nodes. Its 10 edges all repeated the graph's own: 9 grounded, and `base-de-conocimientos enables
+    fabrica-industrial`, which the graph had rejected `wrong-node`.
+  - `kg_generate(ensemble)` returned no candidate and an empty note. The session ran two scripts over the canon
+    to learn why; one waited 15 minutes on approval.
+  - The session hashed the canon with Bash before and after the build, because its notes said counts could miss
+    a leak (11 and 26 minutes on approval). The hash was identical.
+  - The run took 68 minutes. The extractor took one of them, and the cross-generation a second.
+- **Why a digest:**
+  - Since 0.19.0 the brief has the second reading declare the graph's own nodes with a label and body of its
+    own. A write that lost its routing lands on those nodes as deduped writes. `_merge_into_existing` adopts an
+    incoming label on any note and an incoming body on an unverified one, so labels and bodies change and no
+    count moves. This was verified on a test canon: label and body replaced, `kg_metrics` identical.
+  - The field project has no version control, so such a rewrite could not be undone there.
+  - A digest of every note sees any change at all, whatever made it.
+- **Why from disk:** the baseline cache is keyed on file stats, so a write it has not seen could slip past a
+  digest built from it. The check runs twice per perturb. Reading the notes is about a megabyte on the field
+  canon.
+- **Why the tally:** a second reading of one of the graph's own sources mostly confirms the graph. Its report
+  has to say so, and say why nothing was proposed, from what the engine decided rather than from a script over
+  the canon.
+- **Rejected alternatives:**
+  - (a) *Keep counts, and stop the second reading declaring known nodes; the construction would copy them from
+    the graph.* A misrouted write would then add only edges, which counts see. But a re-emit of an existing
+    unverified edge still replaces its span and notes without moving a count. And the check would rest on the
+    brief being followed, which is the very thing it checks.
+  - (b) *Hash the canon in the command with Bash,* as the field session did. That takes an approval per call,
+    and the shell differs between Windows and Unix.
+  - (c) *Refuse an unrouted write while a construction is being built.* The engine cannot tell an unrouted write
+    from an ordinary one. Any such state would lock the primary for the whole session.
+  - (d) *Propose a `joined_otherwise` edge as a candidate.* §9 defines the step as structure between nodes not
+    adjacent here. A second relation on a joined pair is another mechanism, and needs its own decision. It is
+    counted, so the report shows the disagreement.
+- **Accepted trade-offs:**
+  - The digest moves on any change to a note, including another session's legitimate write during the build.
+    The command then stops and tells the user, who can tell the two apart.
+  - `untyped` counts edges, while an untyped pair yields one `bridges`.
+- **Pinned in:** `tests/test_fix_perturb_leak_check.py` (14 tests).
+  - Against 0.19.0 the module does not import, because `ensemble_tally` does not exist, so all 14 fail.

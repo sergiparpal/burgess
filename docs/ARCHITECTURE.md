@@ -309,7 +309,12 @@ asking at once keeps one placeholder per value.
    keeps a passage that verifies against the graph's own sources at the head of the proposal's notes, and
    `kg_ground_item` shows it to the grounder. A passage is context, never a span: only one in the graph's own
    sources can support grounding, so an outside document counts only once it is added to the sources and
-   built. A pair whose second-graph edge records no relation is still a plain `bridges`. The headless
+   built. A pair whose second-graph edge records no relation is still a plain `bridges`. Since 0.19.1 the
+   payload's `ensemble` says how each of the second construction's live edges fared (repeated here, pair
+   joined here by another edge, known failure, an end missing here, untyped, new), and
+   `/burgess:kg-perturb` checks the primary across the build with `kg_metrics(digest=true)`: counts and a
+   sha256 of the canon's notes. Counts alone would miss a misrouted write, because the second reading
+   writes the graph's own ids and so rewrites the graph's nodes instead of adding any. The headless
    `backend.py` stays available for out-of-session / CI builds.
 7. **periphery** — low-degree sources get a `bridges` edge to their max-connectability anchor —
    the periphery the hub-seeking mechanisms ignore.

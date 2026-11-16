@@ -692,9 +692,15 @@ construction's blind spots for a different set — and the bridges that survive 
 worth grounding. The command states this every time it runs, and so should you when you report its
 results.
 
-`/burgess:kg-perturb` verifies that nothing leaked into your primary graph: it records the primary node and
-edge counts before the build and re-reads them after. If the primary grew, the routing was dropped on
-some section, and the command tells you rather than absorbing the leak silently.
+`/burgess:kg-perturb` verifies that nothing leaked into your primary graph. Before the build and after it, it
+reads the node and edge counts and a hash of every note in the canon (`kg_metrics(digest=true)`, its
+`canon_digest`). Counts alone could miss a leak: the second reading writes your graph's own ids, so a write
+that lost its routing would rewrite your nodes rather than add to them. If either moved, the command stops
+and tells you rather than going on.
+
+The report also says how the second reading's edges fared: how many your graph already has, how many join
+a pair your graph joins another way, which ones repeat a known failure, how many could not be compared, and
+how many are new. When nothing is new, it says why.
 
 ---
 
