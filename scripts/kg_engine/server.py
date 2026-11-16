@@ -1832,7 +1832,40 @@ class KGEngine:
         finally:
             self.canon.release_lock()
 
-    def kg_metrics(self) -> dict:
+    def kg_metrics(self, digest: bool = False) -> dict:
+        """Summary counts. ``digest=True`` adds ``canon_digest`` (``_canon_digest``, 0.19.1)."""
+        out = self._metric_counts()
+        if digest:
+            out["canon_digest"] = self._canon_digest()
+        return out
+
+    def _canon_digest(self) -> str:
+        """sha256 over the canon's note files, each one's name and bytes, in name order (0.19.1). Equal
+        digests mean not one note changed in between, which counts cannot say.
+
+        /burgess:kg-perturb checks that its second construction's build left the primary canon alone, and
+        through 0.19.0 it compared node and edge counts. But since 0.19.0 that build writes the graph's own
+        ids, and declares those nodes with a label and body from the second text. A write that lost its
+        `construction=` routing would therefore land on the primary as deduped writes, and
+        `_merge_into_existing` adopts an incoming label on any note and an incoming body on an unverified
+        one. Counts stay identical. The field run of 2026-11-16 (20 nodes, all the graph's) left the canon byte-identical,
+        but only its session's own Bash hash could show that; the field project has no git, so an overwrite
+        there could not be undone. Read from disk, never from a cache, so a write the baseline cache has not
+        seen still moves it. An unreadable note is hashed by name with a marker, so a note that vanishes
+        or locks mid-read moves the digest instead of raising."""
+        h = hashlib.sha256()
+        for p in self.canon.note_paths():
+            h.update(p.name.encode("utf-8") + b"\0")
+            try:
+                data = p.read_bytes()
+            except OSError:
+                h.update(b"\0unreadable\0")
+                continue
+            h.update(len(data).to_bytes(8, "big"))
+            h.update(data)
+        return h.hexdigest()
+
+    def _metric_counts(self) -> dict:
         # When the derived index is already fresh, serve counts from it with O(1) SQL instead of
         # re-parsing the whole canon (server-3). kg_metrics is not itself a projection trigger, so when
         # the index is stale we fall back to the authoritative canon parse rather than forcing a project.
@@ -2744,14 +2777,16 @@ class KGEngine:
         An ensemble candidate read off a second construction is that construction's own edge, and carries
         `passage` (0.19.0): the span it was written from, with `in_source`, whether that span verifies
         against the configured sources (`_annotate_passages`). The payload then counts them in `passages`,
-        and `note` says when some passage lies outside the sources, where no grounder can check it.
+        and `note` says when some passage lies outside the sources, where no grounder can check it. With a
+        second construction the payload also carries `ensemble` (0.19.1, `generate.ensemble_tally`): how
+        each of its live edges fared, and `note` says why when none of them is new here.
 
         FUSION Stage 5: when `dpp` is true (default: the pack's `divergence.dpp` flag, shipped OFF),
         the SAME candidate set is reordered by hybrid-descriptor DPP (one semantic axis + graph-
         structural axes, judge-bounded quality) and a `divergence_advisory` block labels the slate.
         Purely advisory (I5): never adds/drops/mutates a candidate; grounding output is snapshot-
         proven bit-identical flag on vs off; any advisory failure keeps the donor ordering (I9)."""
-        from .generate import compression_skips, resolve_mechanisms, run_generators
+        from .generate import compression_skips, ensemble_tally, resolve_mechanisms, run_generators
         self._ensure_projected()
         G = self.projector.load_graph()
         corpus = self.projector._corpus()
@@ -2808,6 +2843,15 @@ class KGEngine:
                     "configured sources; the grounder judges against those sources only, so such a passage "
                     "cannot support the edge (add its document to the sources and /burgess:kg-build it for "
                     "that)")
+        # 0.19.1: how each of the second construction's edges fared, so a slate of few or no candidates
+        # explains itself (generate.ensemble_tally). The field run of 2026-11-16 got 0 candidates, an empty
+        # note, and a session that scripted over the canon to learn why.
+        if G2 is not None and "ensemble" in resolve_mechanisms(mechanism):
+            tally = ensemble_tally(G, G2, failures=failures)
+            payload["ensemble"] = tally
+            told = self._ensemble_note(tally, int(k))
+            if told:
+                payload["note"] = ((payload["note"] + "; ") if payload["note"] else "") + told
         # 0.17.0: compression leaves out a community a live compression node was already proposed over and a
         # candidate whose id is already a node (generate._compression_skip). Said here, so a run that
         # offers no compression is not read as finding no dense community, and so nobody drops by hand
@@ -2846,6 +2890,31 @@ class KGEngine:
         # (review: generative-reads-omit-degraded-flag). Scrubbed like the sibling reads: candidate
         # `label`/`rationale` strings embed canon labels (§1.9, review-r4: egress-label-gap).
         return self._with_degraded(self._scrub_egress(payload))
+
+    @staticmethod
+    def _ensemble_note(tally: dict, k: int) -> str:
+        """The `note` clause for an ensemble tally (0.19.1): why nothing was proposed, or that the top-k cut
+        left some of the second construction's new edges out. Empty otherwise."""
+        if tally["new"] > k:
+            return (f"the second construction wrote {tally['new']} edge(s) between nodes this graph does not "
+                    f"join; ensemble returns its top {k} (raise k for the rest)")
+        if tally["new"] or tally["untyped"]:
+            return ""
+        if not tally["edges"]:
+            return "the second construction holds no live edge, so ensemble had nothing to cross"
+        parts = []
+        if tally["repeated"]:
+            parts.append(f"already edges of this graph: {tally['repeated']}")
+        if tally["joined_otherwise"]:
+            parts.append(f"joining a pair this graph joins by another edge: {tally['joined_otherwise']}")
+        if tally["known_failures"]:
+            ids = tally["known_failure_ids"]
+            parts.append(f"known failures: {tally['known_failures']} ("
+                         + ", ".join(ids[:5]) + (", …" if tally["known_failures"] > 5 else "") + ")")
+        if tally["ends_missing"]:
+            parts.append(f"with an end this graph does not have: {tally['ends_missing']}")
+        return (f"none of the second construction's {tally['edges']} edge(s) is new here — "
+                + "; ".join(parts))
 
     def _annotate_passages(self, candidates: list) -> "dict | None":
         """Mark each candidate's `passage` (an ensemble edge read off a second construction, 0.19.0) with
@@ -3734,9 +3803,14 @@ def _register(mcp, engine: KGEngine) -> None:
 
     @mcp.tool()
     @_tool_result
-    def kg_metrics() -> dict:
-        """Summary counts: nodes, edges, edges by epistemic state."""
-        return engine.kg_metrics()
+    def kg_metrics(digest: bool = False) -> dict:
+        """Summary counts: nodes, edges, edges by epistemic state. `digest=true` adds `canon_digest`, a
+        sha256 of the canon's note files (names and bytes): two equal digests mean no note changed in
+        between. /burgess:kg-perturb compares it across its second construction's build, because a write that
+        lost its construction routing rewrites the graph's existing nodes without changing any count."""
+        # The default call keeps 0.19.0's exact shape, so anything standing in for engine.kg_metrics with
+        # the old no-argument signature (tests/test_resilience.py patches it) is called as before.
+        return engine.kg_metrics(digest=True) if digest else engine.kg_metrics()
 
     @mcp.tool()
     @_tool_result
@@ -3865,7 +3939,12 @@ def _register(mcp, engine: KGEngine) -> None:
         not adjacent here, with its relation and direction, and `passage`: the span it was written from,
         with `in_source` (does that span verify against the configured sources, which are all a grounder
         judges against); `passages` counts them. Pass `passage` on to kg_propose unchanged. A pair whose
-        second-graph edge records no relation stays a plain `bridges` with no passage. `dpp` (FUSION Stage 5; default = the pack's `divergence.dpp` flag, shipped OFF)
+        second-graph edge records no relation stays a plain `bridges` with no passage. With a second
+        construction, `ensemble` says how each of its live edges fared (they sum to `edges`): `ends_missing`
+        (an end not in this graph), `repeated` (this very edge is live here), `joined_otherwise` (the pair
+        is joined here by another edge), `untyped`, `known_failures` with `known_failure_ids`, and `new`
+        (proposed, before the top-k cut); `note` says why when nothing is new. Report it from there.
+        `dpp` (FUSION Stage 5; default = the pack's `divergence.dpp` flag, shipped OFF)
         reorders the SAME candidate set by hybrid-descriptor DPP and adds a `divergence_advisory` block
         with bins, semantic novelty and cliché-hub distances — advisory presentation only,
         verdict-invariant (I5)."""

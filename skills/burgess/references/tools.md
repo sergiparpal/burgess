@@ -249,9 +249,9 @@ reconciler's §1.8 forgery sweep.
 
 Failure: `{"ok": false, "error": "source node not found" | "target node not found" | "cannot merge a node into itself" | "node_type conflict — refusing to merge"}`; `ok` is `false` (`error: "merge rolled back: …"`) if the multi-file write rolled back — the graph is left untouched.
 
-### 1.6 `mcp__plugin_burgess_burgess__kg_metrics()`
+### 1.6 `mcp__plugin_burgess_burgess__kg_metrics(digest=False)`
 
-Cheap summary counts straight off the canon (no projection). No args.
+Cheap summary counts straight off the canon (no projection).
 
 ```json
 {"nodes": 24, "edges": 41, "edges_by_epistemic_state": {"unverified": 30, "grounded": 7, "failed": 4}}
@@ -259,6 +259,12 @@ Cheap summary counts straight off the canon (no projection). No args.
 
 `edges_by_epistemic_state` keys are whatever `EpistemicState` values are present
 (`unverified|grounded|rejected|failed|obsolete`).
+
+`digest=True` (0.19.1) adds `canon_digest`, a sha256 over the canon's note files, each one's name and bytes,
+read from disk. Two equal digests mean not one note changed in between, which counts cannot say: a write
+that rewrites a node's label or body leaves every count as it was. `/burgess:kg-perturb` compares counts and
+digest before and after its second construction's build. That build writes the graph's own ids, so a write
+that lost its `construction=` routing would rewrite the graph's nodes rather than add to them.
 
 ### 1.7 `mcp__plugin_burgess_burgess__query_graph(node_type=None, relation=None, epistemic_state=None, limit=50, text=None)`
 
@@ -558,6 +564,19 @@ second-graph edge records no relation (a pre-built graph.json that carries none)
 with no `passage`. Through 0.18.1 every ensemble candidate was a `bridges` with no text; the field test of
 2026-11-16 lost that way the one relation its second reading found (`tcp-ip-frente-a-osi grounds
 regla-de-centralizacion`).
+
+With a second construction, the payload also carries `ensemble` (0.19.1): how each of that construction's live
+edges fared, in the order the step decides, the parts summing to `edges`:
+- `ends_missing`: an end is not a node here, so the edge could not be compared;
+- `repeated`: this very edge is live here, so the readings agree;
+- `joined_otherwise`: the pair is joined here by another live edge, a disagreement ensemble does not propose;
+- `untyped`: the edge records no relation, so its pair goes out as a plain `bridges`;
+- `known_failures`: the edge or its reverse is in failure memory; `known_failure_ids` lists them, at most 20;
+- `new`: what ensemble proposes, before its top-`k` cut.
+
+When none is new, `note` says why. When the cut leaves new edges out, `note` says how many there were.
+The second field run of 2026-11-16 got 0 candidates and an empty note, and its session scripted over the canon
+to learn that 9 of the 10 edges were the graph's own and the tenth a known failure.
 
 Since 0.16.0, bridge ranks a pair by the sum of its endpoints' strengths:
 - With the gate on, a strength is `spec_betweenness`.
@@ -1568,7 +1587,7 @@ errors}`.
 | set a verdict (grounded/rejected/failed/obsolete) | `kg_ground(...)` — the **only** way |
 | fix a node id everywhere | `kg_rename(old, new)` (strict — refuses if `new` exists) |
 | merge two nodes that name the same concept | `kg_merge(from, into)` (dedups edges, keeps negative info) |
-| cheap counts | `kg_metrics()` |
+| cheap counts (`digest=true` adds a hash of the whole canon) | `kg_metrics(digest=?)` |
 | projection-free status / resume a partial build | `kg_status()` |
 | browse by type/relation/state, ranked by degree | `query_graph(...)` |
 | find nodes and edges by what they say (edgeless nodes too) | `query_graph(text=...)` |

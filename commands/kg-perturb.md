@@ -103,7 +103,9 @@ node/edge tally.
 
 The ensemble step pairs the two constructions by node id alone, so the known nodes are what let it compare
 them: in the field test of 2026-11-16 a second reading that saw none gave 13 of its 39 nodes an id the graph
-had, and only 4 of its 22 edges could be compared.
+had, and only 4 of its 22 edges could be compared. A second reading the same day, which saw them, gave all 20
+of its nodes the graph's id; its 10 edges all repeated the graph's own (9 grounded, 1 a known failure), so it
+proposed nothing. A source the graph was built from mostly confirms its extraction.
 
 After the extractor finishes, sanity-check the build landed (its reported ACCEPTED counts are non-zero). If
 it wrote **nothing**, tell the user the second source yielded no anchored structure and either fix the source
@@ -111,13 +113,17 @@ or fall back to `MODE=degrade` — do not proceed on an empty construction (Step
 `regroup` anyway, with a note saying so).
 
 **Also verify nothing leaked into the PRIMARY graph.** Routing depends on the extractor passing
-`construction=`/`source=` on *every* `kg_write`; a single omitted pair silently writes second-source
-structure into the real canon, where it would later be grounded as native. Before Step 1, record the
-primary node/edge counts (`mcp__plugin_burgess_burgess__kg_metrics()` / `kg_status()`); after the extractor
-returns, re-read them. The primary counts must be **unchanged** — the whole build lands in the construction's
-own canon. If the primary grew, the extractor dropped the routing args on some section: tell the user, and do
-**not** ground until the leaked primary nodes/edges are identified (they are `unverified`, so a subsequent
-`/burgess:kg-ground` is the backstop, but flag it explicitly rather than absorbing them silently).
+`construction=`/`source=` on *every* `kg_write`; a single omitted pair writes into the real canon instead.
+Counts cannot show it. The second reading writes the graph's own ids and declares those nodes with a label and
+body of its own, so such a write does not grow the primary: it rewrites the labels and bodies of nodes the
+graph already has, without changing any count. So, before launching the extractor, call
+`mcp__plugin_burgess_burgess__kg_metrics(digest=true)` and keep its counts and its `canon_digest`, a hash of
+every note in the canon; when the extractor returns, call it again. Counts and digest must both be
+**unchanged** — the whole build lands in the construction's own canon. This check needs no Bash: do not hash
+or list the canon yourself. If either moved, the primary canon changed while the second construction was
+built, through a write that lost its routing or another session writing the graph at the same time. Stop
+before Step 2, tell the user, and do **not** ground. The engine keeps no earlier copy of a note, so only the
+user's own version control or backup can bring one back.
 
 ## Step 2 — cross-generate (ensemble §9)
 
@@ -133,7 +139,17 @@ outside them. A pre-built graph whose edges record no relation gives plain `brid
 second construction (`MODE=degrade`, or a construction that built empty), the same call returns the
 `regroup` degrade (its `note` says so) — still useful, but internal, not coverage-attacking.
 
+With a second construction the payload also carries `ensemble`: how each of its live edges fared, the parts
+summing to `edges`. `ends_missing` counts edges with an end the graph does not have, which could not be
+compared; `repeated`, edges the graph already has (the two readings agree); `joined_otherwise`, edges whose
+pair the graph joins by another edge (a disagreement ensemble does not propose); `untyped`, edges that record
+no relation; `known_failures`, with their ids in `known_failure_ids`, edges failure memory refuses; and `new`,
+what ensemble proposes, before its top-`k` cut. When none is new, `note` says why. Report the outcome from these
+fields; never re-derive it from the canon by hand.
+
 ## Step 3 — phrase & write to the hypothesized lane (Task → kg-generator)
+
+If `count` is 0, skip this step and go to Step 4: there is nothing to phrase or propose.
 
 Launch **kg-generator** with the candidates. Instruct it to mark each proposal as **imported structure**:
 carry `perturbation=external` into the `notes`, so the slate is legible as cross-construction structure
@@ -157,7 +173,10 @@ Task(subagent_type: "kg-generator", description: "Phrase exo edges", prompt: """
 Present the ranked slate (mechanism `ensemble`, § = §9, one-sentence idea, specificity, and whether its
 passage is in the graph's sources), flagged as **imported external structure**, then
 `mcp__plugin_burgess_burgess__kg_metrics` (the new hypothesized candidates land under `unverified`). From
-`kg_propose`'s `passages`, say how many proposals carry a passage the grounder will see. State the caveat
+`kg_propose`'s `passages`, say how many proposals carry a passage the grounder will see. From `ensemble`, say
+how the second reading's edges fared: how many repeat the graph, how many join a pair it joins another way,
+the known failures by id, how many could not be compared, and how many are new. With `count` 0, that and the
+digest check are the whole report. State the caveat
 explicitly: *perturbation relocates the blind spot; it does not eliminate it.* For a passage outside your
 sources, say plainly that the grounder cannot see it, so that edge will be rejected unless your sources state
 it too; to make the document count, add it to the sources and run `/burgess:kg-build`. Then point at
@@ -171,4 +190,5 @@ else it joins failure memory and binds the next generation.
   kept, and only the engine writes it into the notes.
 - Generation is never gatekept by a metric (the inversion); `/burgess:kg-ground` is the post-hoc filter.
 - Failure memory binds even imported structure: a candidate colliding with a known failure is dropped.
+- The primary canon is checked by its digest as well as its counts across the second construction's build.
 - This command never calls `kg_ground` and never forges a verdict or a span.

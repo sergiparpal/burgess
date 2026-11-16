@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.19.1 — 2026-11-16
+
+Found on the second field `/burgess:kg-perturb`, on 0.19.0. It re-read «Síntesis - Fábricas de software.md», one
+of the graph's own sources, with the graph's known nodes. All 20 of the second construction's nodes took an id
+the graph had, and its 10 edges all repeated the graph's own: 9 grounded, and 1 the graph had rejected.
+`kg_generate(ensemble)` returned no candidate and an empty note. The session hashed the canon with Bash to check
+for a leak, and ran a script over the canon to learn why nothing came out. Most of the run's 68 minutes went to
+waiting on those commands' approval. Reviewing the run showed that the command's own leak check could no longer
+see a leak.
+
+### Fixed
+
+- **`/burgess:kg-perturb` checks the primary canon with a digest, not with counts alone.**
+  - Since 0.19.0 the second reading writes the graph's own ids, and declares those nodes with a label and body of
+    its own. A write that lost its `construction=` routing would land on the graph's existing nodes. It would
+    rewrite their labels, and the bodies of the unverified ones. Every count would stay the same, so the
+    command's check, counts unchanged, could not see it. This was verified on a test canon.
+  - `kg_metrics(digest=true)` adds `canon_digest`, a sha256 over the canon's note files (names and bytes), read
+    from disk. The command reads counts and digest before the extractor starts and again after it returns. If
+    either moved, it stops before cross-generating and does not ground. The check needs no Bash.
+  - The field project has no version control, so a rewrite there could not have been undone. In the field run
+    nothing leaked: the session's own Bash hash was identical before and after.
+
+### Added
+
+- **The ensemble step says how the second reading's edges fared.**
+  - With a second construction, `kg_generate` carries `ensemble`. It splits the construction's live `edges`
+    into `ends_missing`, `repeated`, `joined_otherwise`, `untyped`, `known_failures` (with
+    `known_failure_ids`) and `new`. The split follows the order the step decides in, and the parts sum to
+    `edges`.
+  - When none is new, `note` says why and names the known failures. When the top-`k` cut leaves new edges out,
+    `note` says how many there were.
+  - `/burgess:kg-perturb` reports from it, skips the generator when there is no candidate, and never re-derives
+    the outcome from the canon.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `kg_metrics()` without `digest` answers as before.
+- The views carry the 0.19.0 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_perturb_leak_check.py` (14 tests):
+  - `kg_metrics` without `digest` is unchanged. The digest holds across reads and across a routed second
+    construction. It moves on an unrouted rewrite of known nodes while every count holds. It holds on an
+    idempotent rewrite and sees a hand edit. The tool takes `digest`.
+  - The tally accounts for every live second edge, and its `new` matches what the ensemble step proposes.
+    `kg_generate` says why nothing is new (the field case), and when the top-`k` cut leaves new edges out. Only
+    an ensemble over a second construction carries a tally.
+  - The command, the tools reference and the commands guide name the digest and the tally.
+- Against 0.19.0 the module does not import, because `ensemble_tally` does not exist, so all 14 fail.
+- 2221 → 2235 passed, 3 skipped.
+
 ## 0.19.0 — 2026-11-16
 
 Found on the first field `/burgess:kg-perturb`, on 0.18.1. It re-read `fronteras-de-centralizacion.md`, one of

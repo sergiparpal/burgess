@@ -263,6 +263,10 @@ re-reading one of your own documents is a second opinion on what the first extra
 outside document mostly previews what it would connect. To make that document count, add it to your
 sources and run `/burgess:kg-build`.
 
+When the second reading finds nothing new, the report says why: how many of its connections your graph
+already has, how many your graph has already rejected, and how many it could not compare. Before and after
+building the second picture, Burgess also checks that every note of your own graph is exactly as it was.
+
 ---
 
 #### Phase 7 — Ask your graph questions (`/burgess:kg-query`)
