@@ -1,5 +1,5 @@
 ---
-description: Grounding's second function — import EXTERNAL structure the graph's own dynamics would resist, build it as a second construction, and cross-generate (ensemble §9) to surface bridges that exist across constructions. The only mechanism that attacks coverage.
+description: Grounding's second function — build a second reading of a source as a second construction and cross-generate (ensemble §9) the edges it wrote that the graph lacks, each with the passage it was read from. The only mechanism that attacks coverage; only passages in the graph's own sources can ground.
 argument-hint: "[second_source_or_graph_json]"
 allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics
 ---
@@ -8,15 +8,21 @@ allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin
 
 Every other generator is **endo**: it elaborates the graph using the graph's own structure, so it can only
 ever surface what the current construction already implies. `/burgess:kg-perturb` is the **exo** move (§9): it
-builds a *second construction* of the same territory — the same source under a different pack/resolution, or
-a second source entirely — and cross-generates against it (the `ensemble` mechanism). The candidates it
-emits are bridges that exist in one construction's structure but **not** the other's: precisely the
-connections the graph's own dynamics would resist.
+builds a *second construction* of the same territory — a second reading of one of the graph's own sources, a
+document outside them, or a pre-built `graph.json` — and cross-generates against it (the `ensemble`
+mechanism). Each candidate is an edge the second construction wrote between two nodes the graph does not
+join, with its relation, its direction and the passage it was read from: precisely the connections the
+graph's own dynamics would resist.
 
 This is the **only** mechanism that *attacks coverage* rather than elaborating within it. Be honest about
-its limit (the ensemble caveat): a second construction does not eliminate the blind spot — it **relocates**
-it. You trade your construction's blind spots for a different set, and the bridges that survive both are the
-ones worth grounding.
+its two limits:
+- **A second construction relocates the blind spot; it does not eliminate it.** You trade your
+  construction's blind spots for a different set.
+- **The grounder judges against the graph's own sources only.** A candidate whose passage lies in them can be
+  grounded on that passage. One read from a document outside them cannot, however true it is: to make such a
+  document count, add it to the sources and run `/burgess:kg-build`. So re-reading one of the graph's own
+  sources gives a second opinion on its extraction, and an outside document mainly previews what it would
+  connect.
 
 Arguments, as typed (optional): `$ARGUMENTS`. The whole line is one path, without any surrounding quotes:
 a **second source document** to build into a second construction, or an already-built **`graph.json`** to
@@ -73,9 +79,14 @@ Task(
   subagent_type: "kg-extractor",
   description: "Build second construction",
   prompt: """
-Build a SECOND CONSTRUCTION of a different source document into a NAMED alternate canon (NOT the primary
-graph). `Read` the whole file at path: $SECOND_SOURCE  (this is the direct-invocation whole-file path —
-read it off disk, then work section by section, one `##` section per payload).
+Build a SECOND CONSTRUCTION of a source document into a NAMED alternate canon (NOT the primary graph),
+section by section. Get each section from
+  mcp__plugin_burgess_burgess__kg_section(source_file="<the basename of $SECOND_SOURCE>", section=<n>, construction="$CONSTRUCTION", source="$SECOND_SOURCE")
+starting at section 1; its `of` says how many sections the document has. Its `text` is your section: extract
+from it and nothing else, and cite spans only from it. Its `known_nodes` are the PRIMARY graph's nodes the
+section names: for the same concept, write the graph's id (your contract's rules for known nodes hold), and
+declare that node in `nodes[]` with a label and body from your text, since the construction is a separate
+canon.
 
 On EVERY mcp__plugin_burgess_burgess__kg_write call, pass these two extra arguments so the write is routed
 to the second construction (they are the whole point — without them you would overwrite the primary graph):
@@ -89,6 +100,10 @@ node/edge tally.
 """
 )
 ```
+
+The ensemble step pairs the two constructions by node id alone, so the known nodes are what let it compare
+them: in the field test of 2026-11-16 a second reading that saw none gave 13 of its 39 nodes an id the graph
+had, and only 4 of its 22 edges could be compared.
 
 After the extractor finishes, sanity-check the build landed (its reported ACCEPTED counts are non-zero). If
 it wrote **nothing**, tell the user the second source yielded no anchored structure and either fix the source
@@ -110,38 +125,50 @@ own canon. If the primary grew, the extractor dropped the routing args on some s
   The engine projects the named construction's alternate canon in-session (key-free) and cross-generates.
 - **`MODE=graph`** → `mcp__plugin_burgess_burgess__kg_generate(mechanism="ensemble", second_graph="$SECOND_GRAPH", k=10)`.
 
-Either returns hypothesized candidate bridges that are adjacent in the second construction but absent in ours
-(each rationale carries `perturbation=external`). With no second construction (`MODE=degrade`, or a
-construction that built empty), the same call returns the `regroup` degrade (its `note` says so) — still
-useful, but internal, not coverage-attacking.
+Either returns hypothesized candidates, each rationale carrying `perturbation=external`: the edges the second
+construction wrote between two nodes not adjacent in ours, each with its relation, its direction and
+`passage`, the span it was read from. `passage.in_source` says whether that span is in the graph's own
+sources, the only text a grounder judges against; `passages` counts both kinds, and `note` says when some lie
+outside them. A pre-built graph whose edges record no relation gives plain `bridges` with no passage. With no
+second construction (`MODE=degrade`, or a construction that built empty), the same call returns the
+`regroup` degrade (its `note` says so) — still useful, but internal, not coverage-attacking.
 
 ## Step 3 — phrase & write to the hypothesized lane (Task → kg-generator)
 
 Launch **kg-generator** with the candidates. Instruct it to mark each proposal as **imported structure**:
 carry `perturbation=external` into the `notes`, so the slate is legible as cross-construction structure
 rather than internal elaboration. It writes through `mcp__plugin_burgess_burgess__kg_propose`
-(hypothesized/unverified, no span — never a verdict).
+(hypothesized/unverified, no span — never a verdict), and passes each candidate's `passage` on: `kg_propose`
+keeps a passage that holds in the graph's sources and drops one that does not, and `kg_ground_item` later
+shows the grounder the one it kept.
 
 ```
-Task(subagent_type: "kg-generator", description: "Phrase exo bridges", prompt: """
+Task(subagent_type: "kg-generator", description: "Phrase exo edges", prompt: """
   Candidates from kg_generate(ensemble): <paste candidates[]>. Phrase each as one falsifiable sentence,
-  keeping source/target/relation verbatim, and tag each note with `perturbation=external` (imported from a
-  second construction, not internal elaboration). Assemble ONE kg_propose payload (provenance=hypothesized,
-  NO span, NO verdict) and call it. Report dispositions + the phrased slate.
+  keeping source/target/relation verbatim, copy each candidate's `passage` onto its edge unchanged, and tag
+  each note with `perturbation=external` (imported from a second construction, not internal elaboration).
+  Assemble ONE kg_propose payload (provenance=hypothesized, NO span, NO verdict) and call it. Report
+  dispositions, `passages`, and the phrased slate.
 """)
 ```
 
 ## Step 4 — report the perturbation slate
 
-Present the ranked slate (mechanism `ensemble`, § = §9, one-sentence idea, specificity), flagged as
-**imported external structure**, then `mcp__plugin_burgess_burgess__kg_metrics` (the new
-hypothesized candidates land under `unverified`). State the caveat explicitly: *perturbation relocates the
-blind spot; it does not eliminate it.* Then point at `/burgess:kg-ground` as the filter — a cross-construction bridge
-earns `grounded` only by a span/citation, else it joins failure memory and binds the next generation.
+Present the ranked slate (mechanism `ensemble`, § = §9, one-sentence idea, specificity, and whether its
+passage is in the graph's sources), flagged as **imported external structure**, then
+`mcp__plugin_burgess_burgess__kg_metrics` (the new hypothesized candidates land under `unverified`). From
+`kg_propose`'s `passages`, say how many proposals carry a passage the grounder will see. State the caveat
+explicitly: *perturbation relocates the blind spot; it does not eliminate it.* For a passage outside your
+sources, say plainly that the grounder cannot see it, so that edge will be rejected unless your sources state
+it too; to make the document count, add it to the sources and run `/burgess:kg-build`. Then point at
+`/burgess:kg-ground` as the filter — a cross-construction edge earns `grounded` only by a span or citation,
+else it joins failure memory and binds the next generation.
 
 ## Invariants this command upholds
 
 - Exo candidates are written `hypothesized`/`unverified`, in the separate lane, never as grounded fact.
+- A passage is context for the grounder, never the proposal's span; only one in the graph's own sources is
+  kept, and only the engine writes it into the notes.
 - Generation is never gatekept by a metric (the inversion); `/burgess:kg-ground` is the post-hoc filter.
 - Failure memory binds even imported structure: a candidate colliding with a known failure is dropped.
 - This command never calls `kg_ground` and never forges a verdict or a span.

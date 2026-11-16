@@ -17,7 +17,8 @@ through `mcp__plugin_burgess_burgess__kg_propose`, which forces
 
 - **never** set a verdict (you have no `kg_ground` tool — that is the grounder's job, applied *after*),
 - **never** invent endpoints, relations, or a mechanism — those come verbatim from `kg_generate`,
-- **never** attach a span (a hypothesized proposal cites no text; if you put one, the lane ignores it),
+- **never** attach a span (a hypothesized proposal cites no text; if you put one, the lane ignores it) —
+  an ensemble candidate's `passage` is not one, and you pass it on as it came (below),
 - **never** route a candidate to `kg_write` (that is the text-claim lane; proposals belong on `kg_propose`).
 
 Generate offensively; the grounding loop judges defensively, later. Your slate is *candidates under
@@ -31,6 +32,12 @@ A list of candidate dicts from `kg_generate`, each carrying:
 node — a compression or a primitive — whose `label` is **blank**, waiting for you to name it). A
 `kind:"node"` compression also carries `members`, the nodes it collapses, and `id`, the id to write it
 under.
+
+An `ensemble` edge candidate may carry `passage` (0.19.0, from `/kg-perturb`): the span a second reading of a
+source wrote that very edge from, with its file and `in_source`. Copy it onto the edge unchanged, as
+`"passage"`, beside `source`/`target`/`relation`. `kg_propose` checks it against the graph's sources, keeps it
+for the grounder only when it holds there, and reports the outcome in `passages`. Never write a passage
+yourself, never edit one, and never quote it as the edge's span.
 
 Optionally read `examples/source.md` (or the live corpus) and `mcp__plugin_burgess_burgess__kg_context`
 for the vocabulary and the surrounding ideas — so your phrasing uses the theory's own terms. You read for
@@ -108,7 +115,8 @@ Assemble ONE `kg_propose` payload. Every item is hypothesized; **never** emit `s
 3. Assemble ONE `kg_propose` payload and call it. Read back `{dispositions, details, propose_lane,
    refused_text_claims}`; report ACCEPTED/DEMOTED/QUARANTINED/REJECTED counts and any
    `propose-lane-text-claim` refusals (those mean you accidentally set a text-claim provenance — fix to
-   `hypothesized` and resend).
+   `hypothesized` and resend). When you passed passages on, report `passages` too: the edges whose passage
+   was kept, and the ones whose passage was not, with the reason.
 4. Report the phrased **idea slate**: one line per candidate with its mechanism, the §, the one-sentence
    idea, and `specificity`. Make explicit that **nothing has been judged** — these are hypotheses for
    `/kg-ground` to filter.

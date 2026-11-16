@@ -93,7 +93,7 @@ This workflow does not consume the configured source, but the current plugin ins
 
 ## Other advanced workflows
 
-- `/burgess:kg-perturb` builds or loads a second construction and cross-generates against it.
+- `/burgess:kg-perturb` builds or loads a second construction and cross-generates against it: the edges a second reading wrote that your graph lacks, each with the passage it was read from. Only a passage in your own sources can ground one.
 - `/burgess:kg-eval` measures extraction precision and grounding reliability.
 - `/burgess:kg-experiment` runs the built-in multi-arm ideation comparison.
 
@@ -222,7 +222,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 | `/burgess:kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`, which then stay current; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
 | `/burgess:kg-generate [mechanism-set] [k]` | Propose unverified candidates from graph structure | *Optional:* `default`, `all`, or one of seven mechanisms; number of candidates |
 | `/burgess:kg-diverge <brief> [domain-template] [reach]` | Explore a brief as a varied idea slate; optionally materialize selected pins as hypotheses | **Required:** your brief. *Optional:* domain axes and `conservative\|balanced\|wild` reach |
-| `/burgess:kg-perturb [second_source_or_graph_json]` | Build or load a second construction and cross-generate against it | *Optional:* a second text source or pre-built `graph.json`; omission degrades to regrouping the current graph |
+| `/burgess:kg-perturb [second_source_or_graph_json]` | Build or load a second construction and cross-generate against it; only passages in your own sources can ground what it proposes | *Optional:* a second text source or pre-built `graph.json`; omission degrades to regrouping the current graph |
 | `/burgess:kg-eval [graph.json]` | Measure extractor precision (Stage 4) and grounding reliability (Stage 7) | *Optional:* which `graph.json` to grade (defaults to the current derived graph) |
 | `/burgess:kg-experiment [--judge] [prompts_path]` | Blind multi-arm ideation experiment (control / graph / graph+generate / graph+generate+dpp / rag); `--judge` adds blind judges, about 0.8 million tokens for 12 prompts | *Optional:* a file of test prompts (defaults to prompts drafted from your graph; the built-in set is for the demo corpus only) |
 
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **2193 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **2221 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.19.0 — 2026-11-16
+
+Found on the first field `/burgess:kg-perturb`, on 0.18.1. It re-read `fronteras-de-centralizacion.md`, one of
+the nine sources the graph was built from. The second construction gave 13 of its 39 nodes an id the graph had,
+so the ensemble step could compare 4 of its 22 edges, and 3 of those the graph already held grounded. The fourth
+was new: `tcp-ip-frente-a-osi grounds regla-de-centralizacion`, read off «TCP/IP frente a OSI es el caso
+canónico. … Ganó el que acordó menos.». The ensemble step proposed it as `regla-de-centralizacion bridges
+tcp-ip-frente-a-osi`, with no text. Its ends' own edges lie in different sections, so the grounder saw no
+passage, and rejected it `no-support`. A targeted extraction wrote the `grounds` edge the same day.
+
+### Added
+
+- **The ensemble step proposes the edge the second construction wrote.**
+  - For each pair the second construction joins and the graph does not, the candidate is that construction's
+    own edge: its relation, its direction, and `passage`, the span it was written from with its file. Each such
+    edge is checked against failure memory on its own id.
+  - A pair whose second-graph edge records no relation, as in a pre-built graph.json that carries none, is
+    still a plain `bridges` with no passage.
+  - `kg_generate` marks each passage `in_source`, whether it verifies against the configured sources, the only
+    text a grounder judges against. It counts them in `passages`, and `note` says when some lie outside the
+    sources. The span leaves through the session scrub, so its placeholders restore on the way back.
+- **A proposal keeps its passage when the graph's sources hold it.**
+  - `kg_propose` takes an edge's `passage` and checks it against the configured sources, placeholders restored
+    first. When it holds, the proposal's notes open with `passage: {"span", "source_file"}`, the file being the
+    one that holds it. Otherwise nothing is kept, and the edge is written as any proposal is.
+  - Only the engine writes that segment: one an item's own notes open with is dropped. The response reports
+    `passages`: the ids recorded, and the ones not recorded with the reason (`passage-not-in-source`,
+    `passage-too-short`, `passage-malformed`).
+  - A passage is never the proposal's span. A proposal is still promoted only on support a grounder supplies.
+- **The grounder is shown the passage.**
+  - `kg_ground_item` gives such a proposal `passage`: the span, `in_source` (the engine's own check, now), and
+    when it holds, the section, title and excerpt around it. Every other edge has `passage: null`.
+    `shared_context` still comes with it.
+  - The grounder's contract says to judge the passage as an extractor's span, and to copy it as `support_span`
+    when it states the relation. `in_source` false is no support. The `/burgess:kg-ground` batch prompt names it.
+- **A second reading reads with the graph's ids.**
+  - `kg_section(source_file, section, construction=, source=)` serves a section of the second construction's
+    source, cut and scrubbed by the construction so its own `kg_write` restores the placeholders. Its
+    `known_nodes` are the graph's own.
+  - The read is recorded on the construction's side, so it never stands behind an edgeless record of the
+    graph's build.
+  - `/burgess:kg-perturb`'s extractor now reads section by section through it, writes a concept under the
+    graph's id, and declares it in the construction's canon.
+
+### Changed
+
+- **`/burgess:kg-perturb` says what a second reading can ground.**
+  - The command, the generator's and extractor's contracts, the tools and contract references, the skill, the
+    README and the tutorial now say what a second reading can ground.
+  - Re-reading one of the graph's own sources gives a second opinion on its extraction. An outside document
+    mostly previews what it would connect, because the grounder judges against the graph's own sources only.
+  - To make an outside document count, add it to the sources and run `/burgess:kg-build`.
+  - The report says how many proposals carry a passage the grounder will see.
+
+### Upgrading
+
+- Nothing to do. The canon format is unchanged: a passage lives in a proposal's notes.
+- Proposals written before 0.19.0 carry no passage, and are judged as before.
+- A second construction left from 0.18.1 is wiped the next time `/burgess:kg-perturb` builds one under that
+  name, as before.
+- The views carry the 0.18.1 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_perturb_second_reading.py` (28 tests):
+  - the ensemble step proposes the second construction's own edge and passage, keeps a plain `bridges` for an
+    untyped pair, checks each edge against failure memory on its own id, skips a rejected one, and no other
+    mechanism carries a passage;
+  - `kg_generate` marks a passage in and out of the sources, and a passage leaves scrubbed and restores at
+    `kg_propose`;
+  - `kg_propose` records a passage that holds, finds its file when none is named, and keeps none that is
+    outside the sources, short or malformed, nor one an item's own notes open with;
+  - `kg_ground_item` shows the passage and its excerpt, shows a passage the source no longer holds as not in
+    source, and shows none for any other edge; the proposal grounds on its passage;
+  - `kg_section` serves a second construction's section with the graph's known nodes, records the read on the
+    construction's side only, and takes `construction` and `source` together and without `leads`;
+  - the field case end to end, and the notes segment's round trip;
+  - the command, the contracts, the batch prompt and the tools reference name it.
+- Against 0.18.1 the module does not import, because the passage helpers do not exist, so all 28 fail.
+- Replayed on a copy of the field canon and the field's second construction, with the targeted edge taken out:
+  - the one candidate is `tcp-ip-frente-a-osi grounds regla-de-centralizacion`, its passage in the sources;
+  - `kg_propose` keeps it;
+  - `kg_ground_item` shows section 2, «1. Tres pruebas para cualquier decisión de diseño», in a 2974-character
+    excerpt that holds the line restating the rule.
+- 2193 → 2221 passed, 3 skipped.
+
 ## 0.18.1 — 2026-11-15
 
 Found on the field re-judge of the one generated edge that had grounded, on 0.18.0. The user gave one grounder

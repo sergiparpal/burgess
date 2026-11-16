@@ -99,7 +99,8 @@ class Candidate:
 
     `provenance` is always `hypothesized`, `epistemic_state` always `unverified`, and there is never
     a span — these are structural proposals, not text claims, so they are not carried on the dataclass
-    (the propose lane forces them).
+    (the propose lane forces them). An ensemble candidate may carry `passage`, where a second
+    construction read its edge (0.19.0): context for the grounder, never the proposal's span.
     """
     kind: str            # "edge" | "node"
     mechanism: str       # "bridge" | "seed" | "compression" | "regroup" | "transplant" | "ensemble" | "periphery"
@@ -121,12 +122,20 @@ class Candidate:
     # the other, and nothing said to write the `collapses_into` star the MDL screen scored.
     members: list = field(default_factory=list)
     id: str = ""
+    # Ensemble edge candidates only (0.19.0): the passage the SECOND construction wrote this edge from,
+    # `{"span", "source_file"}`. It is not the candidate's span (a proposal cites no text): `kg_propose` checks it
+    # against the configured sources and keeps it for the grounder only when it holds there. Through 0.18.1
+    # ensemble emitted every cross-construction pair as `bridges` with no text, so what the second reading had
+    # found, and where, was lost before grounding (field test of 2026-11-16).
+    passage: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
         d = asdict(self)
         if self.kind != "node":  # an edge candidate's dict is unchanged: its identity is its endpoints
             del d["members"], d["id"]
+        if not self.passage:     # only an ensemble candidate read off a second construction carries one
+            del d["passage"]
         return d
 
 
@@ -271,10 +280,10 @@ def _rank_spread(cands: list, k: int, cap: int = ENDPOINT_CAP) -> list:
     return kept
 
 
-def _edge_cand(mechanism, source, target, relation, *, score, specificity, rationale, section):
+def _edge_cand(mechanism, source, target, relation, *, score, specificity, rationale, section, passage=None):
     return Candidate(kind="edge", mechanism=mechanism, source=source, target=target, relation=relation,
                      score=round(float(score), 6), specificity=round(float(specificity), 4),
-                     rationale=rationale, section=section)
+                     rationale=rationale, section=section, passage=dict(passage or {}))
 
 
 # --------------------------------------------------------------------------- the mechanisms (six core + periphery §5)
@@ -605,12 +614,35 @@ def transplant(G, *, failures, k=10, und=None, adj=None) -> list:
     return _rank(cands, k)
 
 
+def _second_reading(second_graph) -> dict:
+    """``{frozenset(pair): [(source, relation, target, span, source_file), …]}``: the live, typed edges a second
+    construction holds between each pair of its nodes, in a stable order (0.19.0). An edge with no relation
+    (a pre-built graph.json that carries none) is left out, so its pair falls back to a plain `bridges`."""
+    out: dict = defaultdict(list)
+    for u, v, d in second_graph.edges(data=True):
+        relation = str(d.get("relation") or "").strip()
+        if u == v or not relation or d.get("epistemic_state") in _NON_LIVE_VALUES:
+            continue
+        out[frozenset((u, v))].append((u, relation, v, str(d.get("span") or ""), str(d.get("source_file") or "")))
+    for edges in out.values():
+        edges.sort(key=lambda e: (e[1], e[0], e[2]))
+    return out
+
+
 def ensemble(G, *, failures, k=10, second_graph=None, und=None, adj=None,
              new_comm=_UNSET) -> list:
     """§9 — exo: cross constructions. Given an optional SECOND construction (a second derived graph from
-    a different pack/resolution), emit candidate bridges that exist in one construction's structure but
-    not the other's — the bridges the graph's own dynamics would resist. With only one construction
-    available, this degrades to `regroup` (the internal analogue), tagged so the slate stays honest."""
+    a different pack/resolution), emit the edges that exist in one construction's structure but not the
+    other's — the connections the graph's own dynamics would resist. With only one construction
+    available, this degrades to `regroup` (the internal analogue), tagged so the slate stays honest.
+
+    A pair the second construction joins and ours does not is proposed as the edge the second construction
+    wrote: its relation, its direction, and the passage it wrote it from (0.19.0, `Candidate.passage`), each
+    such edge checked against failure memory on its own id. Only a pair whose second-construction edges carry
+    no relation (a pre-built graph.json that records none) is proposed as a plain `bridges`, as through 0.18.1.
+    The field test of 2026-11-16 re-read a source the graph was built from: of the four edges the two
+    constructions could compare, one was new (`tcp-ip-frente-a-osi grounds regla-de-centralizacion`), and as a
+    `bridges` with no passage it was rejected `no-support`."""
     if second_graph is None:
         # perf #13 — pass the shared undirected graph/adjacency and the run's memoized re-partition
         # through to the degraded regroup so Leiden is not recomputed (already run by regroup on 'all').
@@ -623,6 +655,7 @@ def ensemble(G, *, failures, k=10, second_graph=None, und=None, adj=None,
     adj1 = _resolve_adj(G, adj)
     own = set(G.nodes())
     adj2 = _undirected_adjacency(second_graph)
+    read = _second_reading(second_graph)
     cands: list = []
     seen: set = set()
     for u in second_graph.nodes():
@@ -635,14 +668,29 @@ def ensemble(G, *, failures, k=10, second_graph=None, und=None, adj=None,
             if key in seen:
                 continue
             seen.add(key)
-            if _is_failure(failures, u, BRIDGES_RELATION, v):
-                continue
             spec = _pair_specificity(G, u, v)
-            cands.append(_edge_cand(
-                "ensemble", u, v, BRIDGES_RELATION, score=1.0, specificity=spec, section="§9",
-                rationale=(f"exo bridge: {_attr(G, u, 'label', u)} ⇄ {_attr(G, v, 'label', v)} is adjacent "
-                           f"in the SECOND construction but absent here — external structure our own "
-                           f"dynamics resisted (perturbation=external)")))
+            typed = read.get(key, [])
+            if not typed:
+                if _is_failure(failures, u, BRIDGES_RELATION, v):
+                    continue
+                cands.append(_edge_cand(
+                    "ensemble", u, v, BRIDGES_RELATION, score=1.0, specificity=spec, section="§9",
+                    rationale=(f"exo bridge: {_attr(G, u, 'label', u)} ⇄ {_attr(G, v, 'label', v)} is adjacent "
+                               f"in the SECOND construction but absent here — external structure our own "
+                               f"dynamics resisted (perturbation=external)")))
+                continue
+            for src, relation, tgt, span, source_file in typed:
+                if _is_failure(failures, src, relation, tgt):
+                    continue
+                passage = {"span": span, "source_file": source_file} if span.strip() else {}
+                cands.append(_edge_cand(
+                    "ensemble", src, tgt, relation, score=1.0, specificity=spec, section="§9",
+                    rationale=(f"exo edge: the SECOND construction reads {_attr(G, src, 'label', src)} "
+                               f"{relation} {_attr(G, tgt, 'label', tgt)}"
+                               + (" from a passage of its source" if passage else "")
+                               + "; the two are not adjacent here — external structure our own dynamics "
+                                 "resisted (perturbation=external)"),
+                    passage=passage))
     return _rank(cands, k)
 
 

@@ -107,6 +107,25 @@ in place without support.
 (Through 0.17.1 a proposal came with its two nodes and no source text. On the field graph of 2026-11-15 one
 grounder judged its twelve proposals on that alone, while three others looked the ends up themselves.)
 
+**A proposal with a `passage`** (0.19.0). A proposal from `/kg-perturb` may come with `passage`: the span a
+second reading of the source wrote this very edge from, which the engine checked against the source before
+keeping it, with the section and `excerpt` around it.
+- **Judge it as you judge an extractor's span.** Read the passage inside its excerpt. If it states THIS
+  relation, in this direction, between what the two nodes name, as **What each relation asserts** defines it,
+  ground it with that span as `support_span` (copied from `passage.span` or the excerpt, placeholders
+  included), or with the tightest run of it that states the relation.
+- **Otherwise reject it,** with the reason that fits (`no-support`, `vague`), and as for any proposal, no
+  lead: when the passage states another relation between the two ends, or the relation for another node, name
+  that edge in the note.
+- **`in_source` false** means the passage no longer verifies against the source: it is no support. Judge the
+  proposal on its `shared_context` alone.
+- `shared_context` still comes with it, and an empty `sections` there says only that the ends' own edges lie
+  apart. It does not outweigh a passage that states the relation.
+
+(Through 0.18.1 such a proposal was always `bridges` and came with no text. On 2026-11-16 a second reading
+found `tcp-ip-frente-a-osi grounds regla-de-centralizacion` in its source; its grounder saw no passage, and
+rejected it `no-support`.)
+
 ### Two kinds of hypothesized item — triage by the `[diverge]` marker
 
 Not every hypothesized item is a *structural proposal meant to be verified now*. Some carry a
@@ -161,7 +180,8 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     `sections` are the source sections where both ends are discussed, at most three, the nearest mentions
     first, each with its `excerpts`. An end is discussed where the span of one of its live edges lies.
     `sections_total` counts every such section, and `source_node_sections` / `target_node_sections` list
-    where each end is discussed.
+    where each end is discussed. A proposal from `/kg-perturb` may also carry `passage` (0.19.0): the span a
+    second reading of the source wrote this edge from, `in_source`, and the `excerpt` around it.
   - For a node: the node (with its body, where a `[diverge]` marker shows) and its incident edges.
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
@@ -242,8 +262,9 @@ concept as another node, `get_node` the id you suspect.
 ## Procedure (bounded — at most 20 items per run)
 
 1. **For EACH item of your batch, in order:** call `kg_ground_item` and verify. A proposal (an edge with no
-   span) has no span to check: judge it by **Judge a proposal against its `shared_context`**, then go to
-   step 2. Reject any other edge on the first failure:
+   span) has no span to check: judge it by **Judge a proposal against its `shared_context`**, and by **A
+   proposal with a `passage`** when it carries one, then go to step 2. Reject any other edge on the first
+   failure:
    a. **Span is real.** `span_in_source` must be `true`. If it is `false`, the span no longer verifies (or never
       did) → `rejected`, note `"no-support: span not in source"`.
    b. **Span actually asserts THIS relation, in this direction, between THESE nodes.** Read the span inside

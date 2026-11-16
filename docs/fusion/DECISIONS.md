@@ -1697,3 +1697,77 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - (b) *Remove every field-derived example.* The decided ones carry rules the field taught, and none of them
     pre-decides anything pending.
 - **Pinned in:** `tests/test_fix_neutral_proposal_example.py` (3 tests). Against 0.18.0, 2 fail.
+
+## A second reading keeps its relation and its passage, and reads with the graph's ids (2026-11-16)
+
+- **Decision:**
+  - The ensemble step proposes, for each pair a second construction joins and ours does not, the edge that
+    construction wrote: its relation, its direction, and `passage`, the span it was written from
+    (`generate._second_reading`, `Candidate.passage`). Each such edge is checked against failure memory on its
+    own id. A pair whose second-graph edge records no relation is still a plain `bridges`, as before.
+  - `kg_generate` marks each passage `in_source`: whether it verifies against the configured sources. It counts
+    them in `passages`, and `note` says when some lie outside the sources. The span leaves through the session
+    scrub.
+  - `kg_propose` takes an edge's `passage` and checks it against the configured sources, as a span is checked.
+    When it holds, the proposal's notes open with `passage: {"span", "source_file"}` (`groundplan.with_passage`).
+    Otherwise nothing is kept. Only the engine writes that segment: one an item's own notes open with is
+    dropped. `passages` reports what was recorded.
+  - `kg_ground_item` shows a proposal's passage, `in_source` and the excerpt around it (`passage`). The grounder
+    judges it as it judges an extractor's span, and may copy it as `support_span`.
+  - `kg_section(..., construction=, source=)` serves a section of the second construction's source. The
+    construction cuts and scrubs it, and the section comes with the graph's own known nodes. The second
+    reading's extractor writes a concept under the graph's id, and declares it in the construction's canon.
+  - `/burgess:kg-perturb`, the extractor, generator and grounder contracts, the batch prompt, the tool
+    reference, the README and the tutorial say what a second reading can and cannot ground.
+- **Field run it answers** (0.18.1, 2026-11-16): the first `/burgess:kg-perturb`. It re-read
+  `fronteras-de-centralizacion.md`, one of the nine sources the graph was built from.
+  - The second construction had 39 nodes and 22 edges. 13 of its node ids were the graph's, so 4 of its edges
+    could be compared, and 3 of those the graph already held grounded.
+  - The fourth, `tcp-ip-frente-a-osi grounds regla-de-centralizacion`, read off «TCP/IP frente a OSI es el caso
+    canónico. … Ganó el que acordó menos.», became `regla-de-centralizacion bridges tcp-ip-frente-a-osi` with
+    no text.
+  - Its ends' own edges lie in different sections, so `shared_context` was empty. The grounder rejected it
+    `no-support`, and its note said the source never ties the case to the rule. The section around the passage
+    restates the rule in its first line.
+  - A targeted extraction wrote the `grounds` edge the same day.
+- **Why the second construction's own edge:**
+  - The relation is what the second reading found. `bridges` says only that a pair is joined, and the pack
+    excludes evidence from it, so a `grounds` the reading had found could not hold as one.
+  - The passage is where the reading found it. Without it the grounder can only look where the two ends' other
+    edges lie, and a relation the graph lacks is often stated elsewhere.
+- **Why in the notes, written by the engine:**
+  - A proposal still carries no span: the propose lane stays span-less, and a proposal is promoted only on
+    support a grounder supplies.
+  - Notes already hold the engine's marks (`lead:`, `lead (from …)`), and the canon keeps everything the
+    derived layer shows.
+  - The span is checked before it is written and again when it is shown, so what a grounder reads is text of
+    the source. The JSON segment keeps a span that holds ` | ` or quotes whole.
+- **Why the graph's ids:**
+  - The ensemble step pairs the constructions by id alone. A concept coined anew leaves every edge on it
+    uncompared: 18 of the 22 edges in the field test.
+  - Naming is not the blind spot a second reading is for. What it relates, and how, still comes from its own
+    reading.
+- **Where the line is:**
+  - Only a passage in the graph's own sources can support grounding. A document outside them counts once it is
+    added to the sources and built. Until then its passages are dropped at `kg_propose` and named in the report.
+- **Rejected alternatives:**
+  - (a) *Let the grounder judge against the second document, as an external citation.* That would ground edges
+    on a document the graph's sources do not hold. Adding the document to the sources does the same and keeps
+    every edge checkable against them. The user agreed (2026-11-16).
+  - (b) *Store the passage as the proposal's span.* The hypothesized lane is span-less by design, and a span is
+    what a grounder supplies to promote.
+  - (c) *A side ledger of passages in the derived layer.* Derived holds nothing the canon does not.
+  - (d) *Have the language layer quote the passage in its note.* Nothing would check it, and a copy that drifts
+    by a character no longer verifies.
+  - (e) *A new tool for known nodes.* `kg_section` already serves a section with its known nodes. With
+    `construction` and `source` it serves the second document the same way, scrubbed by the construction that
+    restores its spans.
+  - (f) *Let a rejected proposal with a passage carry a lead.* That changes the lead path and needs its own
+    decision. Another relation found in the passage still goes in the note.
+- **Accepted trade-offs:**
+  - A second reading that reuses the graph's ids is less independent in its naming.
+  - In an `all` run, a typed `bridges` from the ensemble step that the bridge mechanism also proposes keeps the
+    bridge mechanism's candidate, without the passage. `/burgess:kg-perturb` runs the ensemble step alone.
+  - A proposal's notes open with a JSON segment.
+- **Pinned in:** `tests/test_fix_perturb_second_reading.py` (28 tests).
+  - Against 0.18.1 the module does not import, because the passage helpers do not exist, so all 28 fail.

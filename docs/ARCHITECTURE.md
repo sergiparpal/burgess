@@ -297,13 +297,20 @@ asking at once keeps one placeholder per value.
    strengths, with the same two-slot cap.
 5. **transplant** — import a hub's dominant relation pattern into the community with the highest
    absorption capacity.
-6. **ensemble** — bridges present in one construction's structure but not a second's (from
+6. **ensemble** — the edges a second construction wrote between two nodes not adjacent in ours (from
    `/burgess:kg-perturb`); degrades to `regroup` without a second graph, and says so. The second construction
-   is built **key-free, in-session**: `kg_write(..., construction=<name>, source=<second source>)`
-   routes the same span-verified boundary to a separately-named alternate canon under
-   `<project>/.kg/constructions/<slug>/`, and `kg_generate(second_construction=<name>)` (or a pre-built
-   `second_graph` path) projects + cross-generates against it — no API key, no `backend` extra. The
-   headless `backend.py` stays available for out-of-session / CI builds.
+   is built **key-free, in-session**: its extractor reads each section with `kg_section(..., construction=<name>,
+   source=<second source>)`, which carries the graph's own known nodes so it writes a concept under the graph's
+   id, and `kg_write(..., construction=<name>, source=<second source>)` routes the same span-verified boundary
+   to a separately-named alternate canon under `<project>/.kg/constructions/<slug>/`;
+   `kg_generate(second_construction=<name>)` (or a pre-built `second_graph` path) projects + cross-generates
+   against it — no API key, no `backend` extra. Since 0.19.0 a candidate keeps the second construction's
+   relation and direction, and its `passage` (the span it was written from, with `in_source`); `kg_propose`
+   keeps a passage that verifies against the graph's own sources at the head of the proposal's notes, and
+   `kg_ground_item` shows it to the grounder. A passage is context, never a span: only one in the graph's own
+   sources can support grounding, so an outside document counts only once it is added to the sources and
+   built. A pair whose second-graph edge records no relation is still a plain `bridges`. The headless
+   `backend.py` stays available for out-of-session / CI builds.
 7. **periphery** — low-degree sources get a `bridges` edge to their max-connectability anchor —
    the periphery the hub-seeking mechanisms ignore.
 
@@ -351,7 +358,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
   reads no file; for an edge with no span, a proposal, the source sections where both its ends are
-  discussed, located by the spans of their live edges, 0.18.0), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
+  discussed, located by the spans of their live edges, 0.18.0, and for a `/burgess:kg-perturb` proposal the
+  passage a second reading wrote it from, with its excerpt, 0.19.0), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
   edges by what they say, edgeless nodes included), `get_node`,
   `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`

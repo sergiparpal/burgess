@@ -281,6 +281,13 @@ validates and stores. The store is session-ephemeral (git commits disabled; wipe
 materialization of a session), and `kg_generate(second_construction=<name>)` projects it to cross-generate.
 Omit both params — the default — and the write is the byte-for-byte unchanged primary-canon path.
 
+Since 0.19.0 the extractor reads that source with `kg_section(source_file, section, construction=<name>,
+source=<path>)`, which serves the construction's section with the **graph's own** known nodes, so the second
+reading writes the same concept under the graph's id (and declares it in its own canon). `kg_generate`'s
+ensemble candidate is then the edge the second construction wrote, with its relation and its `passage`, and
+`kg_propose` keeps a passage only when it verifies against the graph's own sources. It is context for the
+grounder, never the proposal's span: a proposal still carries no span and is promoted only with support.
+
 ---
 
 ## 6. Edge identity (§1.4)
