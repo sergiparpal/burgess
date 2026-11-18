@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.19.3 — 2026-11-18
+
+Found on the same Windows install, on 0.19.2, with Smart App Control on. A /burgess:kg-diverge session at 62
+ideas sent a round of 12. That ingest is the one that crosses the open-axis freeze threshold (2 × 32
+mechanism embeddings), where the engine fits k-means once. Both attempts hung with the engine process idle,
+no CPU at all, until the MCP connection closed after about two minutes. Nothing was saved. The ingests before
+it had worked.
+
+The fit imported `sklearn.cluster.KMeans`, the first import of `sklearn.cluster` in the session. Its import
+chain loads `sklearn/neighbors/_kd_tree.cp314-win_amd64.pyd`. The CodeIntegrity log recorded Application
+Control refusing that file, and a bare `from sklearn.cluster import KMeans` in the engine venv hung or failed
+with "DLL load failed". The same log shows `leidenalg`/`igraph` DLLs refused at every engine start. The
+projector already falls back to label propagation for those, and this release leaves them alone.
+
+### Fixed
+
+- **The open-axis k-means no longer imports scikit-learn.**
+  - `archive.kmeans` runs Lloyd's algorithm with k-means++ seeding in numpy alone.
+  - It is deterministic in the seed, keeps the best of 10 runs, and re-seeds an emptied cluster.
+  - By the time of the freeze numpy is already loaded, so the fit is no longer the first thing to load an
+    unvetted binary.
+  - On a copy of the session that hung, the same round now freezes the partition and finishes in 4 s.
+- **The divergence import probe checks what the default path imports: numpy and model2vec.** scikit-learn is
+  now needed only by the offline `hash` embedder.
+
+### Upgrading
+
+- A partition already frozen by sklearn's k-means is kept as stored; nothing is refit.
+- A session that has not reached the threshold will freeze with the numpy fit. Its cell boundaries differ from
+  what sklearn would have drawn. That affects only which open-axis niche an idea lands in, never a verdict.
+
 ## 0.19.2 — 2026-11-16
 
 Found on the Windows install the same day, on 0.19.1, with Smart App Control on. At 12:48 UTC Windows stopped

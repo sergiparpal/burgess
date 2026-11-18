@@ -43,10 +43,9 @@ class ConfigError(ValueError):
 
 def require_sklearn(what: str) -> None:
     """Raise an actionable ``ConfigError`` (mirroring ``StaticEmbedder``'s model2vec guard, I9) when
-    scikit-learn — the peer hard-dep behind the ``hash`` embedder's ``HashingVectorizer`` and the
-    open-axis nicher's ``KMeans`` — is absent, instead of leaking a raw ``ModuleNotFoundError``. ONE home
-    for the message so the two call sites (``embed.HashingEmbedder``, ``archive.FrozenVoronoiNicher.fit``)
-    can't drift. The caller imports the specific submodule after this returns; convergence (``kg_*``)
+    scikit-learn — the dep behind the ``hash`` embedder's ``HashingVectorizer`` — is absent, instead of
+    leaking a raw ``ModuleNotFoundError``. ONE home for the message. (The open-axis nicher used sklearn's
+    ``KMeans`` too until 0.19.3; it now runs ``archive.kmeans`` on numpy alone, see its docstring.) The caller imports the specific submodule after this returns; convergence (``kg_*``)
     tools import no sklearn, so the graceful-degradation invariant is untouched — this only upgrades a
     divergence-side message. Deliberately does NOT suggest ``KG_DIVERGE_EMBEDDER=hash``: the hash embedder
     itself needs sklearn, so re-provisioning is the only real remedy."""

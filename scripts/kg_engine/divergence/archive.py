@@ -58,6 +58,71 @@ def _niche_slug(value: Any) -> str:
     return f"x-{hashlib.sha1(raw.encode('utf-8')).hexdigest()[:8]}"
 
 
+def kmeans(
+    x: np.ndarray,
+    k: int,
+    seed: int = 0,
+    n_init: int = 10,
+    max_iter: int = 300,
+    tol: float = 1e-4,
+) -> np.ndarray:
+    """Lloyd's k-means with k-means++ seeding, in numpy only; returns ``(k, dim)`` centers.
+
+    Deterministic in ``seed``: run ``r`` of ``n_init`` seeds its own generator from
+    ``(seed, r)`` and the run with the lowest inertia wins (first on ties). ``tol`` is
+    relative to the mean per-feature variance of ``x``, as in scikit-learn. A cluster
+    that empties is re-seeded on the point farthest from its current center, so the
+    result always has exactly ``k`` rows. ``k`` must be between 1 and ``len(x)``.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    n = int(x.shape[0])
+    k = int(k)
+    if not 1 <= k <= n:
+        raise ValueError(f"kmeans: k={k} must be between 1 and the number of points ({n})")
+    abs_tol = float(tol) * float(np.mean(np.var(x, axis=0))) if n > 1 else 0.0
+    x_sq = np.einsum("ij,ij->i", x, x)
+
+    def sq_dists(centers: np.ndarray) -> np.ndarray:
+        d = x_sq[:, None] - 2.0 * (x @ centers.T) + np.einsum("ij,ij->i", centers, centers)[None, :]
+        return np.maximum(d, 0.0)
+
+    best_centers: np.ndarray | None = None
+    best_inertia = math.inf
+    for run in range(max(1, int(n_init))):
+        rng = np.random.default_rng([int(seed), run])
+        # k-means++ seeding: each next center is drawn with probability ∝ squared distance.
+        centers = np.empty((k, x.shape[1]))
+        centers[0] = x[rng.integers(n)]
+        closest = sq_dists(centers[:1])[:, 0]
+        for j in range(1, k):
+            total = float(closest.sum())
+            idx = int(rng.choice(n, p=closest / total)) if total > 0 else int(rng.integers(n))
+            centers[j] = x[idx]
+            closest = np.minimum(closest, sq_dists(centers[j:j + 1])[:, 0])
+        for _ in range(max(1, int(max_iter))):
+            d = sq_dists(centers)
+            labels = np.argmin(d, axis=1)
+            new = np.empty_like(centers)
+            point_d = d[np.arange(n), labels]
+            for j in range(k):
+                members = labels == j
+                if members.any():
+                    new[j] = x[members].mean(axis=0)
+                else:
+                    far = int(np.argmax(point_d))
+                    new[j] = x[far]
+                    point_d[far] = 0.0  # don't hand the same point to two empty clusters
+            shift = float(np.sum((new - centers) ** 2))
+            centers = new
+            if shift <= abs_tol:
+                break
+        inertia = float(np.sum(np.min(sq_dists(centers), axis=1)))
+        if inertia < best_inertia:
+            best_inertia, best_centers = inertia, centers
+    assert best_centers is not None
+    return best_centers
+
+
 class FrozenVoronoiNicher:
     """A **frozen** Voronoi partition of the open-axis embedding space.
 
@@ -103,31 +168,27 @@ class FrozenVoronoiNicher:
     def fit(cls, vecs: np.ndarray, k: int, seed: int = 0) -> "FrozenVoronoiNicher":
         """Fit k-means **once** over accumulated embeddings; return a frozen nicher.
 
-        Uses ``sklearn.cluster.KMeans(random_state=seed)`` (deterministic) and
-        keeps the L2-normalized cluster centers as the frozen centroids. ``k`` is
-        clamped to the number of available points.
+        Uses :func:`kmeans` (numpy only, deterministic in ``seed``) and keeps the
+        L2-normalized cluster centers as the frozen centroids. ``k`` is clamped to
+        the number of available points.
+
+        This used ``sklearn.cluster.KMeans`` until 0.19.3. On Windows with Smart App
+        Control on, importing ``sklearn.cluster`` loads compiled modules
+        (``sklearn/neighbors/_kd_tree*.pyd``) that Application Control may refuse;
+        the refusal hung the engine with no CPU use until the MCP connection closed,
+        on the one ingest that crosses the freeze threshold. numpy's own DLLs are
+        already loaded by then, so the fit can no longer be the first thing to touch
+        an unvetted binary.
         """
-        import warnings
-
-        from .config import require_sklearn
-        require_sklearn("open-axis nicher")  # actionable ConfigError instead of a raw ModuleNotFoundError
-        from sklearn.cluster import KMeans
-        from sklearn.exceptions import ConvergenceWarning
-
         vecs = np.asarray(vecs, dtype=np.float64)
         n = int(vecs.shape[0])
         k_eff = max(1, min(int(k), n))
-        km = KMeans(n_clusters=k_eff, random_state=int(seed), n_init=10)
         # Accumulated idea embeddings are often clustered into fewer than k natural
-        # groups (near-duplicate mechanisms, a low-diversity session). KMeans then
-        # finds fewer distinct centers than requested and warns; that's expected and
-        # harmless here — the surplus centroids sit in sparse regions and assignment
-        # still works — so silence just that warning rather than spam the operator.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=ConvergenceWarning)
-            km.fit(vecs)
-        return cls(dim=int(vecs.shape[1]), k=k_eff, seed=seed,
-                   centroids=km.cluster_centers_)
+        # groups (near-duplicate mechanisms, a low-diversity session). Some centers
+        # then coincide; that's harmless here — the surplus centroids sit in sparse
+        # regions and assignment still works.
+        centers = kmeans(vecs, k_eff, seed=int(seed))
+        return cls(dim=int(vecs.shape[1]), k=k_eff, seed=seed, centroids=centers)
 
     def cell(self, vec: np.ndarray) -> int:
         vec = np.asarray(vec, dtype=np.float32)

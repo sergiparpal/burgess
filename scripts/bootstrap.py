@@ -505,18 +505,22 @@ def probe_leidenalg(py: Path) -> None:
 
 
 def probe_divergence(py: Path) -> None:
-    """Soft-probe the divergence-layer deps (numpy / scikit-learn / model2vec) — advisory only.
+    """Soft-probe the divergence-layer deps of the default path (numpy / model2vec) — advisory only.
 
     They are core deps in pyproject (wheel-only installs), but the divergence layer is
     OPTIONAL at runtime (I9): every import inside kg_engine.divergence is lazy/guarded and
     a missing dep degrades /kg-diverge with a clear error while every kg_* convergence tool
     keeps working. So, exactly like leidenalg, a missing/blocked divergence dep must never
     abort provisioning — this just reports which path the diverge flow will take.
+
+    scikit-learn is left out since 0.19.3: the default path no longer imports it (the open-axis
+    k-means is numpy-only), only the offline ``hash`` embedder does, and importing it is what
+    Windows Application Control was seen to block.
     """
     _soft_probe(py, (
         "try:\n"
-        "    import numpy, sklearn, model2vec\n"
-        "    print('[bootstrap] divergence deps OK (numpy/sklearn/model2vec)')\n"
+        "    import numpy, model2vec\n"
+        "    print('[bootstrap] divergence deps OK (numpy/model2vec)')\n"
         "except Exception as e:\n"
         "    print('[bootstrap] divergence deps unavailable (' + type(e).__name__ + ': '\n"
         "          + str(e) + '); /burgess:kg-diverge will raise a clear error until provisioned;'\n"

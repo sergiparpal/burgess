@@ -1,6 +1,6 @@
 [project]
 name = "kg-engine"
-version = "0.19.2"
+version = "0.19.3"
 description = "Deterministic graph engine for the Burgess Claude Code plugin"
 requires-python = ">=3.10"
 # Core, always-installed dependencies. Each is verified to install from wheels with no
@@ -41,7 +41,7 @@ dependencies = [
     # clear actionable error and every convergence (kg_*) capability is untouched. Pins mirror
     # the donor's requirements.txt exactly.
     "numpy>=1.26,<3",           # geometry: embeddings, kernels, archives
-    "scikit-learn>=1.7.2,<2",   # HashingVectorizer (hash embedder) + KMeans (CVT open-nicher)
+    "scikit-learn>=1.7.2,<2",   # HashingVectorizer (hash embedder); the open-nicher k-means is numpy-only since 0.19.3
     "model2vec>=0.10.0,<0.11",  # static embedder (potion-multilingual-128M), torch-free (I7)
 ]
 
