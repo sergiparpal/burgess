@@ -47,7 +47,7 @@ verdict path.
 | `groundaudit.py` | Crash-safe append-only grounding-audit log (the trust root for verdicts) |
 | `reconciler.py` | Out-of-band-edit sweep: mtime/size pre-filter + full re-hash, forged-verdict re-quarantine |
 | `canonmerge.py` | Semantic git merge driver for canon notes (never forges a verdict) |
-| `projector.py` | Derived layer: canon → `graph.json` + `index.sqlite` + Leiden communities + precomputed ranks |
+| `projector.py` | Derived layer: canon → `graph.json` + `index.sqlite` + Leiden communities (leidenalg, else igraph's own Leiden since 0.19.4, label propagation only without igraph) + precomputed ranks |
 | `generate.py` | The seven structural discovery mechanisms + the convergence tally |
 | `operations.py` | The four endo operations (collapse/explode/regroup/open), writing via the propose lane |
 | `advisory_geometry.py` | Advisory hybrid-descriptor DPP ordering over `kg_generate` candidates (behind `divergence.dpp`, default off) |

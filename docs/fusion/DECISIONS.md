@@ -1892,3 +1892,50 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_windows_signed_venv.py` (14 tests).
   - Against 0.19.1 all 14 fail: the platform helper they patch does not exist there, nothing writes the
     record, and the launcher's wait has no failure to end on.
+
+## Leiden through igraph when leidenalg cannot load, and kg-diverge shows the whole round (2026-11-19)
+
+- **Decision:**
+  - `projector.leiden_membership(undirected, seed, resolution)` runs leidenalg's
+    `RBConfigurationVertexPartition` when leidenalg loads and runs. Otherwise it runs igraph's built-in
+    `community_leiden(objective_function="modularity")` at the same resolution, with igraph's generator
+    swapped for a private `random.Random(seed)` and restored afterwards.
+  - `projector._leiden` (seed 42) and `generate._repartition` (seed 7, resolution 4.0) both call it. Each
+    keeps its label-propagation fallback for an engine where igraph itself cannot run.
+  - The bootstrap probe and the engine's preload log name igraph's Leiden as the fallback.
+  - `/burgess:kg-diverge` step 7, after the slate, lists every other idea ingested that round in two or
+    three plain lines with an example, and invites pinning any idea of the round.
+- **Field run it answers** (0.19.2–0.19.3, 2026-11-16 to 11-19, the first field `/burgess:kg-diverge`, on
+  Windows with Smart App Control on):
+  - At the engine starts of 11-18 at 12:13 and 15:25, the preload logged "leidenalg unavailable
+    (ImportError: DLL load failed while importing _c_leiden …)", and every projection would have used label
+    propagation.
+  - After the 0.19.3 rebuild leidenalg loaded again. Smart App Control decides per file and per lookup, in
+    either direction. The canon did not change in between, so the field graph kept its Leiden communities.
+  - The session's step 7 showed six of twelve ideas per round. Round 2 showed the rest as a one-line table,
+    the user could not tell what they were about, and one pin went to an idea never explained. From round 3
+    the session explained every idea on its own initiative.
+  - 0.19.3 recorded its test count from the Windows run (2254 passed, 4 skipped) instead of Linux (2255, 3).
+- **Why igraph's Leiden:** igraph's DLL is a core import, so it loads wherever the engine starts at all.
+  Its Leiden optimizes the same objective, and on the karate club it finds the partition leidenalg finds.
+  Label propagation is a different algorithm: the communities it draws, and every rank, bridge and
+  generation built on them, would change whenever Windows changed its mind about one file.
+- **Why the whole round:** the slate is the engine's diverse pick for attention, not a filter on what the
+  user may keep. An idea the user cannot read cannot be pinned on purpose. Earlier rounds' ideas are not
+  repeated.
+- **Rejected alternatives:**
+  - (a) *Always use igraph's Leiden and drop leidenalg.* That would redraw every installation's
+    communities, since the implementations differ in their random draws, for a failure seen on one
+    machine.
+  - (b) *Remember a failed leidenalg import for the life of the process.* A module-level flag leaks between
+    engines and tests; the retried import costs little.
+  - (c) *Show the rest of a round only when the user asks.* The user cannot ask about ideas they have not
+    seen.
+- **Accepted trade-offs:**
+  - Where leidenalg cannot load, communities come from a second implementation and can differ in detail
+    from leidenalg's.
+  - A round's message grows by about six short paragraphs.
+- **Pinned in:** `tests/test_fix_leiden_igraph_fallback.py` (7 tests) and `tests/test_fix_diverge_presents_rest.py`
+  (2 tests).
+  - Against 0.19.3, 6 of the 9 fail. The 3 that pass pin what 0.19.3 already did: the result with
+    leidenalg, the last resort without igraph, and two cliques, which label propagation also separates.

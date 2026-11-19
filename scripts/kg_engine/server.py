@@ -4226,16 +4226,19 @@ def _preload_native_deps() -> None:
     loader-lock deadlock entirely: ``sys.modules`` is warm, so the projector's later lazy imports are pure
     cache hits that take no loader lock. This is the highest-impact / lowest-risk of the reported fixes.
 
-    Best-effort: a genuinely-absent or broken dep must still DEGRADE gracefully — the projector falls back
-    to pure-Python label propagation (``projector._leiden``) and every ``kg_*`` graph tool keeps working —
-    so an import failure here is logged at INFO and swallowed, NEVER a startup failure. Ordered so numpy
-    (the actual hang site) is imported first and alone, before igraph pulls it in transitively."""
+    Best-effort: a genuinely-absent or broken dep must still DEGRADE gracefully — without leidenalg the
+    projector runs igraph's own Leiden, and without igraph pure-Python label propagation
+    (``projector.leiden_membership`` / ``_leiden``); every ``kg_*`` graph tool keeps working — so an import
+    failure here is logged at INFO and swallowed, NEVER a startup failure. Ordered so numpy (the actual
+    hang site) is imported first and alone, before igraph pulls it in transitively."""
+    fallback = {"leidenalg": "projection will use igraph's built-in Leiden instead",
+                "igraph": "projection will fall back to label propagation"}
     for name in ("numpy", "networkx", "igraph", "leidenalg"):
         try:
             __import__(name)
         except Exception as e:  # noqa: BLE001 — a missing/broken native dep must degrade, not block startup
-            logger.info("preload: %s unavailable (%s: %s); projection will fall back to the pure-Python "
-                        "path if needed", name, type(e).__name__, e)
+            logger.info("preload: %s unavailable (%s: %s); %s", name, type(e).__name__, e,
+                        fallback.get(name, "projection will fall back to the pure-Python path if needed"))
 
 
 def _start_watchdog() -> "_Watchdog | None":

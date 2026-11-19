@@ -527,9 +527,9 @@ def test_do_install_keeps_sentinel_when_cleanup_leaves_a_husk(tmp_path, monkeypa
 def test_verify_imports_excludes_leidenalg_but_keeps_core():
     # Windows Smart App Control can block leidenalg's unsigned native _c_leiden DLL from
     # LOADING even though it installs fine. At runtime projector._leiden already degrades to
-    # label propagation, so a blocked leidenalg must NOT be a mandatory import that aborts
-    # provisioning. It moved to a separate soft probe; the hard set keeps only what the server
-    # genuinely needs to come up.
+    # igraph's own Leiden (label propagation until 0.19.4), so a blocked leidenalg must NOT be a
+    # mandatory import that aborts provisioning. It moved to a separate soft probe; the hard set
+    # keeps only what the server genuinely needs to come up.
     assert "leidenalg" not in bootstrap._VERIFY_IMPORTS
     for mod in ("mcp", "pydantic", "networkx", "igraph", "yaml", "kg_engine"):
         assert mod in bootstrap._VERIFY_IMPORTS
@@ -540,7 +540,7 @@ def test_leidenalg_probe_swallows_launch_failure(tmp_path, capsys):
     # at all. A missing interpreter path makes subprocess.run raise FileNotFoundError (an
     # OSError); the probe swallows it and still prints the fallback line.
     bootstrap.probe_leidenalg(tmp_path / "no-such-python")  # must not raise
-    assert "label-propagation fallback" in capsys.readouterr().out
+    assert "igraph's built-in Leiden instead" in capsys.readouterr().out
 
 
 def test_leidenalg_probe_reports_status_with_real_interpreter(capfd):
@@ -550,7 +550,7 @@ def test_leidenalg_probe_reports_status_with_real_interpreter(capfd):
     # THIS environment, so accept either — the contract is "always reports, never fails".
     bootstrap.probe_leidenalg(Path(bootstrap.sys.executable))
     out = capfd.readouterr().out
-    assert ("Leiden community detection enabled" in out) or ("label-propagation fallback" in out)
+    assert ("Leiden community detection enabled" in out) or ("igraph's built-in Leiden instead" in out)
 
 
 def test_do_install_completes_when_leidenalg_unavailable(tmp_path, monkeypatch):
@@ -571,7 +571,7 @@ def test_do_install_completes_when_leidenalg_unavailable(tmp_path, monkeypatch):
     def fake_probe(py):  # leidenalg blocked: reports unavailable, returns cleanly
         called["probe"] = True
         print("[bootstrap] leidenalg unavailable (ImportError: DLL load failed while importing "
-              "_c_leiden); using label-propagation fallback (projector._leiden)")
+              "_c_leiden); using igraph's built-in Leiden instead (projector.leiden_membership)")
 
     monkeypatch.setattr(bootstrap, "probe_leidenalg", fake_probe)
 
