@@ -4090,7 +4090,10 @@ def _register(mcp, engine: KGEngine) -> None:
         omitted — omitted prefers the pack's `divergence:` section, else the generic template.
         `session` follows I10: pass ONE id per chat session (e.g. a timestamp slug) — a new id wipes
         the ephemeral geometry archive; re-passing the same id resumes it; pins/discards always
-        survive. Returns the resolved domain, session id, and state paths."""
+        survive. Returns the resolved domain, session id, state paths and the resolved `axes`
+        (name, type, range, which one is the open axis), `unit_of_generation` and
+        `candidates_per_generation` — write every candidate's descriptor with exactly these axis
+        names; there is no template file to open for them."""
         from kg_engine.divergence import config as dconfig
         from kg_engine.divergence import pipeline as dpipe
         # pack_path threads the ENGINE's resolved pack into axes resolution, so the divergence
@@ -4134,7 +4137,11 @@ def _register(mcp, engine: KGEngine) -> None:
         Pins ({"type":"pin","id":...}) are strong stepping-stone signals and always future
         parents; discards ({"type":"discard","id":...}) are NEGATIVE MEMORY — dropped from
         every future slate and parent pool, persisted across sessions (I8); comparisons
-        ({"type":"comparison","winner":...,"loser":...}) are low-weight A-vs-B evidence.
+        ({"type":"comparison","winner":...,"loser":...}) are the user's A-vs-B answers. The
+        engine does NOT use comparisons to pick the slate or the parents: it only stops asking
+        a pair already answered and tallies the answers in kg_diverge_recall (win counts and
+        the winners' descriptor values). They reach the next round through you, when you
+        generate. Never tell the user a comparison moved the slate.
         Pin and discard are mutually exclusive per id (latest wins)."""
         from kg_engine.divergence import pipeline as dpipe
         return dpipe.remember(project, event, home=engine._diverge_home())
@@ -4165,6 +4172,11 @@ def _register(mcp, engine: KGEngine) -> None:
         the human already discarded and TOWARD what they pinned. Also syncs the fate of
         previously materialized pins: one whose graph item was FAILED by grounding joins
         this brief's discards (unified negative memory, I8).
+
+        It also returns the session context: `session_id` (the session the archive belongs to —
+        the one kg_diverge_init last began or resumed), `seed`, and the resolved `axes`,
+        `unit_of_generation` and `candidates_per_generation`. After a compaction in the same chat,
+        this one call restores what the next round needs; never read `.kg/diverge/` files for it.
 
         On a source change it surfaces `failed`-fated discards under `reexaminable_discards` (a re-look
         candidate list — the divergence mirror of the graph R3-mirror; SURFACE-ONLY, never auto-un-sealed).

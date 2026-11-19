@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.19.5 — 2026-11-20
+
+Three follow-ups from the second field `/burgess:kg-diverge` session (Windows, 2026-11-19, 48 ideas over 3
+rounds), the first on 0.19.4.
+
+### Fixed
+
+- **`/burgess:kg-diverge` reads its files by path, and never with Bash.**
+  - The command named its references as `references/operators.md` and its templates as `pack/domains/...`,
+    relative paths that lead nowhere from the project. The agent searched for them with find, cat and sed.
+    Every Bash read outside the project asks the user for permission: seven such reads waited 96 minutes,
+    most of it before the first round, while the user was away.
+  - The command now names each file under `${CLAUDE_PLUGIN_ROOT}`, which Claude Code fills in, and says to
+    open it with the Read tool.
+  - `kg_diverge_init` returns the resolved axes, the unit and how many candidates to draft, so there is no
+    template to open for them.
+  - `kg_diverge_recall` also returns the session id, the seed and the axes. A new step-8 paragraph says to
+    call it first after a compaction and never to re-init with another session id. The field session had
+    read the state files with Bash instead.
+- **A healthy first batch is no longer reported as a collapse.**
+  - Until two batches calibrate it, the monitor compared mean cosine with 0.55, a value tuned on the test
+    embedder. Under the default embedder (potion) healthy batches ran 0.45–0.58 in the field. The session's
+    first batch scored 0.58 and was regenerated as collapsing; its fourth scored the same and passed,
+    against the calibrated 0.69.
+  - The cold-start threshold is now the embedder family's own, like the near-duplicate threshold: 0.55 for
+    `hash`, 0.67 for `static`. 0.67 is what the calibrated rule computes from a typical healthy baseline
+    (0.52 + 0.15). A domain can still pin `engine.monitor_cos_threshold`.
+  - The cost is measured too (DECISIONS, 2026-11-20). Under potion, similarity follows idea length about as
+    much as sameness, so a same-mechanism batch of long ideas (0.56–0.62) is no longer flagged in the first
+    batch. The calibrated rule misses most of those too. A template-like collapse (0.89) is still flagged.
+- **Comparisons and repeats are described as they work.**
+  - The session told the user a lost idea came back because «las comparaciones pesan poco en la
+    selección». The slate and the parents do not read comparisons at all: the engine only stops asking an
+    answered pair and tallies the answers for recall. `kg_diverge_remember`'s description and step 7 now say
+    so.
+  - It also suggested discarding ideas because they kept coming back to the slate. Step 7 now says the
+    slate draws from every idea so far and that earlier ideas get a one-line summary. A repeat is no reason
+    to discard: a discard is negative memory, and one of those ideas was the parent of two later ones.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv is
+  not rebuilt.
+- A domain that pinned `monitor_cos_threshold` keeps its value. Without a pin, a session's first two
+  batches are judged by the embedder's threshold. From the third, the calibrated rule takes over, unchanged.
+- The views carry the 0.19.4 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_diverge_paths_coldstart.py` (16 tests):
+  - Every reference and template the command names is a `${CLAUDE_PLUGIN_ROOT}` path that exists, and no
+    relative path is left. The Read-only rule and the compaction paragraph are there.
+  - init returns the resolved axes. recall returns the session context, and leaves it out for a project
+    never inited. The tool descriptions say both.
+  - Each embedder family has its cold-start threshold, and the config leaves it to the embedder unless
+    pinned. The field's first batch passes under `static` and still flags under `hash`, and a pin wins. A
+    template-like collapse still flags, the calibrated rule is unchanged, and a full ingest uses the
+    embedder's threshold.
+  - The remember description and step 7 describe comparisons and repeats as they work, and a comparison
+    does not change the next slate.
+- `tests/fusion/divergence/test_engine_config.py` expects the `null` default.
+- Against 0.19.4, 14 of the 16 fail. The 2 that pass pin what 0.19.4 already did: recall on a project
+  never inited, and a comparison leaving the next slate alone. Two of the 14, the calibrated rule and the
+  template-like collapse, fail there only because the monitor's helper took no embedder.
+- 2264 → 2280 passed, 3 skipped.
+
 ## 0.19.4 — 2026-11-19
 
 Three follow-ups from the first field `/burgess:kg-diverge` session (Windows, 2026-11-16 to 11-19, 86 ideas

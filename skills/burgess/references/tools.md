@@ -1142,8 +1142,17 @@ lane and is **not** discarded.
 
 ```json
 {"ok": true, "domain": "generic", "reset": false, "session_id": "sess-…", "new_session": true,
+ "axes": [{"name": "angle", "type": "categorical"}, {"name": "scope", "type": "categorical"},
+          {"name": "form", "type": "categorical"},
+          {"name": "boldness", "type": "continuous", "range": [0.0, 1.0]},
+          {"name": "feasibility", "type": "continuous", "range": [0.0, 1.0]},
+          {"name": "mechanism", "type": "open", "primary_novelty": true}],
+ "unit_of_generation": "idea", "candidates_per_generation": 12,
  "paths": {"state_dir": "…/.kg/diverge/cold-brew-launch"}, "materialized_failures_discarded": []}
 ```
+
+`axes` is the resolved geometry: write every candidate's `descriptor` with exactly these names (the
+`open` axis is the mechanism). There is no template file to open for it.
 
 ### 1B.2 `kg_diverge_ingest(project, candidates, axes=None, seed=0)`
 
@@ -1179,7 +1188,9 @@ the result also carries a `surface_mechanism_gap` block (measurement only).
 Append one durable preference event: `{"type": "pin", "id": …}` · `{"type": "discard", "id": …}` ·
 `{"type": "comparison", "winner": …, "loser": …}`. Pins are the strongest signal (always parents, recalled
 across sessions, materializable); a discard is durable negative memory (never re-slated, never bred from;
-re-pinning un-discards). Returns `{ok, type, …}`.
+re-pinning un-discards). A comparison does not move the slate or the parents: the engine only stops
+asking a pair already answered and tallies the answers in `kg_diverge_recall` (`win_counts`,
+`preferred_values`). The answers reach the next round through the generator. Returns `{ok, type, …}`.
 
 ### 1B.4 `kg_diverge_parents(project, k=4, seed=0)`
 
@@ -1198,7 +1209,11 @@ Archive health: `{entropy, mean_cosine, coverage, n, mechanism_spread, mechanism
 ### 1B.6 `kg_diverge_recall(project, k=10, reexamine=None)`
 
 The brief's preference memory, for injection into generation: `{domain, preferences, pins, discards,
-summary: {n_comparisons, win_counts, preferred_values}}`. Like `init`, it first syncs materialized fates
+summary: {n_comparisons, win_counts, preferred_values}}`, plus the session context: `session_id` (the
+session the archive belongs to, the one `init` last began or resumed), `seed`, `axes`,
+`unit_of_generation` and `candidates_per_generation` (each left out when the state has none). After a
+compaction in the same chat this one call restores what the next round needs; never read `.kg/diverge/`
+files for it. Like `init`, it first syncs materialized fates
 (I8) — generate AWAY from `discards`, FROM `pins`. On a source change it also surfaces `failed`-fated
 discards under `reexaminable_discards` (the divergence mirror of the graph R3-mirror; SURFACE-ONLY, never
 auto-un-sealed). Pass `reexamine=[candidate_ids]` to EXPLICITLY un-seal those candidates — each drops from

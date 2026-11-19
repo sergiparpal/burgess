@@ -209,7 +209,9 @@ class EngineConfig:
     parsed out separately, so :class:`AxesSpec` stays pure.
 
     ``dedup_tau`` defaults to ``None``, meaning "use the per-embedder default"
-    (see ``embed.default_dedup_tau``); set it to pin a fixed threshold.
+    (see ``embed.default_dedup_tau``); set it to pin a fixed threshold. So does
+    ``monitor_cos_threshold``, the monitor's cold-start similarity threshold
+    (see ``monitor.default_cos_threshold``).
     """
 
     # niching
@@ -226,8 +228,10 @@ class EngineConfig:
     # DPP slate
     max_dpp_pool: int = 200
     quality_weight: float = 0.3
-    # anti-collapse monitor
-    monitor_cos_threshold: float = 0.55
+    # anti-collapse monitor. monitor_cos_threshold is the cold-start fallback used until the
+    # baseline window fills; None = per-embedder (monitor.default_cos_threshold: 0.55 hash,
+    # 0.67 static).
+    monitor_cos_threshold: float | None = None
     monitor_entropy_threshold: float = 0.50
     monitor_margin: float = 0.15
     monitor_cos_ceiling: float = 0.80
@@ -391,6 +395,11 @@ class EngineConfig:
             if not (0.0 < dedup_tau <= 1.0):
                 raise ConfigError("engine.dedup_tau must be in (0, 1]")
 
+        # Same contract as dedup_tau: null/absent = the per-embedder default, a number pins it.
+        monitor_cos_threshold = None
+        if eng.get("monitor_cos_threshold") is not None:
+            monitor_cos_threshold = unit_float("monitor_cos_threshold", 0.0)
+
         return cls(
             open_niches=pos_int("open_niches", base.open_niches),
             open_niche_freeze_factor=pos_int(
@@ -401,9 +410,7 @@ class EngineConfig:
             novelty_ref_cap=pos_int("novelty_ref_cap", base.novelty_ref_cap),
             max_dpp_pool=pos_int("max_dpp_pool", base.max_dpp_pool),
             quality_weight=unit_float("quality_weight", base.quality_weight),
-            monitor_cos_threshold=unit_float(
-                "monitor_cos_threshold", base.monitor_cos_threshold
-            ),
+            monitor_cos_threshold=monitor_cos_threshold,
             monitor_entropy_threshold=unit_float(
                 "monitor_entropy_threshold", base.monitor_entropy_threshold
             ),

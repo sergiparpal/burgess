@@ -9,9 +9,10 @@ Two complementary signals decide whether the search is converging:
   rolling baseline of recent generations' mean cosine is kept, and a generation
   trips the flag when it is meaningfully *more* similar than that baseline
   (``baseline + margin``) or breaches an absolute safety ceiling. Before a
-  baseline exists it falls back to a fixed absolute threshold. This keeps the
-  monitor from misfiring when the embedder or domain shifts the natural scale of
-  cosine similarity.
+  baseline exists it falls back to an absolute threshold chosen per embedder
+  family (:func:`default_cos_threshold`), because each family has its own
+  natural cosine scale. This keeps the monitor from misfiring when the embedder
+  or domain shifts that scale.
 
 The monitor only *reports*; the skill reacts by raising diversity pressure. This
 machinery is never removed or bypassed — it is the whole point.
@@ -47,6 +48,36 @@ DEFAULT_EROSION_WINDOW = 5        # W: generations of survivor-mean-novelty to k
 DEFAULT_EROSION_ACCEL_RATIO = 0.5  # rho: recent slope >= (1+rho)*earlier slope
 DEFAULT_EROSION_PERSIST = 2        # K: consecutive accelerating generations to flag
 EROSION_MIN_SLOPE = 0.005          # rate-noise floor (NOT a novelty-level floor)
+
+# Per-embedder cold-start thresholds, keyed by ``Embedder.name`` like
+# ``embed.DEDUP_TAU_BY_EMBEDDER``; unknown families fall back to the default.
+#
+# 0.55 was tuned on the ``hash`` fixture (char-n-grams). Under ``static`` (potion-multilingual-128M,
+# the default for real runs) healthy generations sit higher. Measured in the field (2026-11-16..19,
+# two kg-diverge sessions in Spanish, 11 generations of 12 ideas of 55-90 words) they ran 0.45-0.58,
+# and the calibrated limit the monitor settled on from the third generation ran 0.62-0.70. So 0.55
+# flagged a healthy first generation (0.58) as collapsing and forced a regeneration, while the same
+# similarity passed in that session's fourth generation (limit 0.69).
+#
+# 0.67 is what the calibrated rule computes from a typical healthy baseline: the mean of those 11
+# generations (0.52) plus the margin (0.15). Generation 1 is then judged as generation 3 will be.
+#
+# The cost is measured too. Under potion, mean cosine follows idea LENGTH about as much as sameness.
+# Authored same-mechanism batches as long as the field ideas scored 0.56-0.62, and of 13-28 words
+# 0.36-0.55. Healthy field ideas cut to their first 25 words scored 0.26-0.41. So 0.67 no longer
+# flags a long same-mechanism batch at cold start. The calibrated rule mostly misses those too:
+# only the most similar one (0.624) clears the lowest field limit (0.622). A template-like
+# collapse (the selftest fixtures, 0.89) is still flagged. ``local`` (bge-small) has no
+# measurements yet and keeps the default.
+COLD_START_COS_BY_EMBEDDER = {
+    "hash": 0.55,
+    "static": 0.67,
+}
+
+
+def default_cos_threshold(embedder_name: str) -> float:
+    """Cold-start similarity threshold calibrated to the embedder family."""
+    return COLD_START_COS_BY_EMBEDDER.get(embedder_name, DEFAULT_COS_THRESHOLD)
 
 
 def shannon_entropy(counts: Sequence[float]) -> float:

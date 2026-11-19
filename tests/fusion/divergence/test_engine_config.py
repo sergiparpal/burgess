@@ -22,7 +22,10 @@ def test_defaults_match_module_constants():
     # EngineConfig at import — asserting equality would be tautological. The monitor/memory pairs
     # below are still independent literals, so their guards remain load-bearing.)
     c = EngineConfig()
-    assert c.monitor_cos_threshold == monitor.DEFAULT_COS_THRESHOLD
+    # the cold-start similarity threshold defaults to per-embedder (None), like dedup_tau below;
+    # for hash that is the global default (0.19.5: static has its own, see test_fix_diverge_paths_coldstart)
+    assert c.monitor_cos_threshold is None
+    assert monitor.default_cos_threshold("hash") == monitor.DEFAULT_COS_THRESHOLD
     assert c.monitor_entropy_threshold == monitor.DEFAULT_ENTROPY_THRESHOLD
     assert c.monitor_margin == monitor.DEFAULT_MARGIN
     assert c.monitor_cos_ceiling == monitor.DEFAULT_COS_CEILING

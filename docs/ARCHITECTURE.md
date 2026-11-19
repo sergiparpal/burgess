@@ -425,12 +425,18 @@ anti-collapse monitor reading every round.
   pool capped at 200 elites. Judge fitness enters as a bounded quality term: affine-rescaled,
   clipped to a [0.7, 1.3] multiplier, blended at weight 0.3 — it sharpens within-niche ordering
   and can never prune variety.
-- **Monitor** (`monitor.py`): flags `collapsing` on mean-cosine 0.55 (absolute fallback) /
-  entropy 0.50 (≥3 occupied niches) / relative baseline+0.15 with ceiling 0.80 (rolling window 5,
-  min baseline 2); `under_generation` below 0.6× the per-generation target; the variety-erosion
-  early warning fires at ≥1.5× novelty-decay acceleration sustained 2 generations.
+- **Monitor** (`monitor.py`): flags `collapsing` on mean-cosine above the cold-start threshold until
+  the baseline fills — per embedder family, `monitor.default_cos_threshold`: 0.55 `hash`, 0.67
+  `static`, pinnable as `engine.monitor_cos_threshold` — / entropy 0.50 (≥3 occupied niches) /
+  relative baseline+0.15 with ceiling 0.80 (rolling window 5, min baseline 2); `under_generation`
+  below 0.6× the per-generation target; the variety-erosion early warning fires at ≥1.5×
+  novelty-decay acceleration sustained 2 generations. Under `static` mean cosine tracks idea length
+  about as much as sameness, so the similarity signal separates a same-mechanism batch from a
+  healthy one only weakly (measured 2026-11-20; see DECISIONS).
 - **Memory** (`memory.py`): durable pins/discards/comparisons per brief; informative A-vs-B pair
-  selection; diverse-parent selection (pins always in, discards never).
+  selection; diverse-parent selection (pins always in, discards never). Comparisons feed only the
+  pair selection (a decided pair is not asked again) and `recall`'s tallies; neither the slate nor
+  the parents read them.
 - **State** (`state.py`): project-local under `.kg/diverge/<brief-slug>/`. `meta.json`,
   `axes.json`, `session.json`, `materialized.json` and `memory/` are durable; the `session/` dir
   (MAP-Elites archive, candidate records, `embeddings.npz`/`mech_embeddings.npz` vector stores,
@@ -453,6 +459,13 @@ timeout rather than deadlock — a divergence command must never hang):
 | `State.project_lock` | the whole-project read-modify-write of `ingest` (and an axes-changing `init`) |
 | `State.project_read_lock` | the multi-file reads of `recall` / `metrics` / `parents`, so none of them can pair a new `archive.json` with an old `candidates.json`. A no-op when the project dir does not exist — a read-only command must not materialize state |
 | `State._preference_lock` | pins **and** discards together for one domain. `add_pin`, `add_discard` and `remove_discard` each mutate *both* files, so one lock per file let a concurrent pin and discard of an id interleave and land it in both lists or neither |
+
+**Session context.** `kg_diverge_init` returns the resolved `axes` (name, type, range, the open
+axis), `unit_of_generation` and `candidates_per_generation` beside the session id and paths, and
+`kg_diverge_recall` returns the same context plus `session_id` and `seed` from the engine's state.
+The agent writes descriptors from that and resumes after a compaction from `recall`, with no file to
+open: a Bash read outside the project prompts the user, and in the 2026-11-19 field run such reads
+left a round waiting.
 
 **Cycle response** (`kg_diverge_ingest`): `slate`, `slate_ids`, `ask_pairs`, `ask_policy`, `monitor`,
 `slate_mechanism_novelty`, `open_axis` (+ `surface_mechanism_gap` when the probe is on). `slate_ids`
