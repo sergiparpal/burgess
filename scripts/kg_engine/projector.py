@@ -1,6 +1,7 @@
 """The derived layer (§1.2): canon -> NetworkX node-link graph.json + SQLite index.
 
-- Leiden communities (igraph + leidenalg; graceful label-propagation fallback if unavailable)
+- Leiden communities (igraph + leidenalg; igraph's own Leiden when leidenalg cannot load, label
+  propagation only without igraph)
 - precomputed ranks: local DEGREE (cheap advisory) + a labelled STRUCTURAL-BRIDGE signal
   (a node whose neighbours span >=2 communities, §1.4/§1.6) — computed OFF the hot path
 - incremental reproject keyed by per-file content hash (mismatch => stale => rebuild)
@@ -251,22 +252,49 @@ def gate_ranking(gate_on: bool) -> "tuple[str, tuple[str, ...]]":
 # --------------------------------------------------------------------------- communities
 
 
+def leiden_membership(undirected: nx.Graph, *, seed: int, resolution: float = 1.0) -> dict:
+    """``node_id -> community`` by Leiden on modularity at ``resolution``: through leidenalg when it
+    loads and runs, else igraph's built-in ``community_leiden`` (0.19.4). Raises only when igraph itself
+    cannot run, so the caller picks the last resort.
+
+    leidenalg ships its own native library (``_c_leiden`` and a bundled igraph DLL). On the field machine
+    (Windows, Smart App Control on) it was refused at two engine starts on 2026-11-18, while python-igraph's
+    own DLL, a core import, loaded. Until 0.19.3 that dropped the projection to label propagation, a
+    different algorithm with different communities. igraph's ``community_leiden`` optimizes the same
+    objective as ``RBConfigurationVertexPartition``, modularity at the given resolution, so the graph keeps
+    Leiden communities.
+
+    igraph draws from Python's ``random`` module by default, so the run is given a private generator seeded
+    with ``seed``, which keeps it deterministic and leaves the global state alone."""
+    import igraph as ig
+    nodes = list(undirected.nodes())
+    if not nodes:
+        return {}
+    idx = {n: i for i, n in enumerate(nodes)}
+    g = ig.Graph(n=len(nodes), edges=[(idx[u], idx[v]) for u, v in undirected.edges()], directed=False)
+    try:
+        import leidenalg as la
+        membership = la.find_partition(g, la.RBConfigurationVertexPartition, seed=seed,
+                                       resolution_parameter=resolution).membership
+    except Exception:  # noqa: BLE001 — a leidenalg that cannot load or run: igraph's own Leiden
+        import random
+        ig.set_random_number_generator(random.Random(seed))
+        try:
+            membership = g.community_leiden(objective_function="modularity", resolution=resolution,
+                                            n_iterations=2).membership
+        finally:
+            ig.set_random_number_generator(random)
+    return {nodes[i]: m for i, m in enumerate(membership)}
+
+
 def _leiden(undirected: nx.Graph) -> dict:
-    """Return node_id -> community int. Leiden if available, else label propagation."""
+    """Return node_id -> community int: Leiden (``leiden_membership``), or label propagation without igraph."""
     import networkx as nx  # deferred — see the TYPE_CHECKING note (review-r6: hook-import-tax)
     if undirected.number_of_nodes() == 0:
         return {}
     try:
-        import igraph as ig
-        import leidenalg as la
-
-        nodes = list(undirected.nodes())
-        idx = {n: i for i, n in enumerate(nodes)}
-        edges = [(idx[u], idx[v]) for u, v in undirected.edges()]
-        g = ig.Graph(n=len(nodes), edges=edges, directed=False)
-        part = la.find_partition(g, la.RBConfigurationVertexPartition, seed=42)
-        return {nodes[i]: m for i, m in enumerate(part.membership)}
-    except Exception:  # noqa: BLE001 — any import/runtime failure degrades to fallback
+        return leiden_membership(undirected, seed=42)
+    except Exception:  # noqa: BLE001 — no usable igraph either: the pure-Python fallback
         communities = nx.community.label_propagation_communities(undirected)
         return {n: ci for ci, com in enumerate(communities) for n in com}
 

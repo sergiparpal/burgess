@@ -124,11 +124,19 @@ reach — `wild` means further-out, never incoherent.
    that clause for an idea, it was incoherent and should have been cut at step 5 — drop it now.
    Field honesty: `novelty` is mean k-NN distance to THIS SESSION's own ideas — a variety
    proxy, not originality vs the world; `mechanism_novelty` is the same for its mechanism.
-   Report them as such. Then:
+   Report them as such.
+
+   **Then the rest of this round.** After the slate, list every other idea you ingested this round
+   that the slate left out, by id, in two or three plain lines each: what it claims, and one concrete
+   example. Not a table of one-liners, and not ideas from earlier rounds. The slate is the engine's
+   diverse pick, not a filter on what the user may keep: any idea can be pinned, and a pin makes it a
+   parent. In the first field session (2026-11-16 to 11-19) round 1 showed only its slate, and round 2
+   showed the rest as a one-line table. The user could not tell what those ideas were about («Así no sé de
+   qué van»), and pinned one that had never been explained. Then:
    - ask only the returned `ask_pairs` as short A-vs-B questions;
-   - **explicitly invite pinning any idea** — "pin any of these to keep exploring from? any
-     of them, not just A/B" (pins are the strongest, durable signal: always parents, recalled
-     across sessions, and later materializable into the graph via /burgess:kg-generate's propose lane);
+   - **explicitly invite pinning any idea** — "pin any idea of this round to keep exploring from,
+     from the slate or the rest, not just A/B" (pins are the strongest, durable signal: always parents,
+     recalled across sessions, and later materializable into the graph via /burgess:kg-generate's propose lane);
    - **offer the discard lever** — "drop any of these so we stop building on them?" (a discard
      is durable negative memory: never re-slated, never bred from; re-pinning un-discards).
      Discarding is the user's call, never yours.

@@ -145,8 +145,9 @@ EXIT_PY_TOO_OLD = 3          # no interpreter >= MIN_PY to build with
 # ``leidenalg`` is deliberately NOT in this MANDATORY set. It installs fine, but its unsigned
 # native ``_c_leiden`` DLL can be blocked from LOADING by Windows Smart App Control /
 # Application Control (reputation-based — igraph's DLL loads, leidenalg's may not). At runtime
-# it is already OPTIONAL: ``projector._leiden`` wraps the import in try/except and degrades to
-# label propagation. So a blocked-but-installed leidenalg must not abort provisioning — it is
+# it is already OPTIONAL: ``projector.leiden_membership`` wraps the import in try/except and runs
+# igraph's own Leiden instead (0.19.4; label propagation until then). So a blocked-but-installed
+# leidenalg must not abort provisioning — it is
 # checked separately by ``probe_leidenalg`` (a soft probe that reports status and never fails).
 _VERIFY_IMPORTS = (
     "import mcp, pydantic, networkx, igraph, yaml, kg_engine; "
@@ -486,9 +487,9 @@ def probe_leidenalg(py: Path) -> None:
 
     leidenalg installs fine but its unsigned native ``_c_leiden`` DLL can be blocked from
     LOADING by Windows Smart App Control / Application Control. At runtime that is already
-    tolerated (``projector._leiden`` degrades to label propagation), so a blocked import must
-    NOT abort the provision the way ``verify_imports`` would — this just reports which path the
-    engine will take.
+    tolerated (``projector.leiden_membership`` runs igraph's own Leiden instead), so a blocked
+    import must NOT abort the provision the way ``verify_imports`` would — this just reports
+    which path the engine will take.
     """
     _soft_probe(py, (
         "try:\n"
@@ -496,12 +497,12 @@ def probe_leidenalg(py: Path) -> None:
         "    print('[bootstrap] leidenalg OK (Leiden community detection enabled)')\n"
         "except Exception as e:\n"
         "    print('[bootstrap] leidenalg unavailable (' + type(e).__name__ + ': ' + str(e)\n"
-        "          + '); using label-propagation fallback (projector._leiden)')\n"
+        "          + \"); using igraph's built-in Leiden instead (projector.leiden_membership)\")\n"
     ), "[bootstrap] leidenalg unavailable ({exc}); "
-       "using label-propagation fallback (projector._leiden)",
+       "using igraph's built-in Leiden instead (projector.leiden_membership)",
        "[bootstrap] leidenalg: no answer from the import probe within {secs:g}s. A first import on a "
-       "cold machine can take that long; the engine falls back to label propagation only if the "
-       "import actually fails (projector._leiden)")
+       "cold machine can take that long; the engine uses igraph's built-in Leiden instead only if the "
+       "import actually fails (projector.leiden_membership)")
 
 
 def probe_divergence(py: Path) -> None:

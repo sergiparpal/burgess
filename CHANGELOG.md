@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.19.4 — 2026-11-19
+
+Three follow-ups from the first field `/burgess:kg-diverge` session (Windows, 2026-11-16 to 11-19, 86 ideas
+over 7 rounds), reviewed after 0.19.3.
+
+### Fixed
+
+- **A leidenalg that cannot load keeps the graph's communities Leiden.**
+  - On 2026-11-18 Smart App Control refused leidenalg's native library at two engine starts on the field
+    machine, while python-igraph's own DLL, a core import, loaded. Through 0.19.3 the projection then fell
+    to networkx label propagation, a different algorithm with different communities. regroup's re-partition
+    fell to asynchronous label propagation.
+  - `projector.leiden_membership` runs leidenalg when it loads. Otherwise it runs igraph's built-in
+    `community_leiden` on the same objective: modularity at the given resolution, seeded through a private
+    generator, so the run is deterministic and the global `random` state is untouched.
+  - The projection and regroup's re-partition both use it. Label propagation is left for an engine without
+    igraph.
+  - Where leidenalg loads, the communities are exactly as before.
+  - The bootstrap probe and the engine's preload log now say igraph's Leiden is used instead.
+- **The README's test count is the Linux run's again.** 0.19.3 recorded the Windows run (2254 passed, 4
+  skipped). Linux, where the earlier counts were taken, gives 2255 passed, 3 skipped on 0.19.3.
+
+### Changed
+
+- **`/burgess:kg-diverge` presents the rest of each round.**
+  - After the engine's slate, step 7 lists every other idea ingested that round, in two or three plain
+    lines with an example, and invites pinning any idea of the round.
+  - In the field session, round 1 showed only its slate and round 2 showed the rest as a one-line table.
+    The user could not tell what those ideas were about («Así no sé de qué van»), and pinned one idea that
+    had never been explained.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv
+  is not rebuilt.
+- Where leidenalg loads, nothing else changes either. Where it does not, the next projection draws Leiden
+  communities through igraph instead of label propagation, so they can differ from what label propagation
+  drew.
+- The views carry the 0.19.3 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_leiden_igraph_fallback.py` (7 tests):
+  - Without leidenalg, the projection keeps Leiden communities, and the fallback is igraph's own Leiden,
+    not label propagation; the karate club tells the two apart.
+  - It is deterministic and leaves the global generator alone.
+  - With leidenalg, the result is unchanged. Without igraph, it falls back to label propagation.
+  - regroup's re-partition uses it, and the preload log names it.
+- `tests/test_fix_diverge_presents_rest.py` (2 tests): the rest of the round is presented after the slate,
+  and any idea of the round can be pinned.
+- `tests/test_bootstrap.py` and `tests/test_resilience.py` follow the probe's new wording.
+- Against 0.19.3, 6 of the 9 fail. The 3 that pass pin what 0.19.3 already did: the result with leidenalg,
+  the last resort without igraph, and two cliques, which label propagation also separates.
+- 2255 → 2264 passed, 3 skipped.
+
 ## 0.19.3 — 2026-11-18
 
 Found on the same Windows install, on 0.19.2, with Smart App Control on. A /burgess:kg-diverge session at 62

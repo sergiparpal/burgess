@@ -523,7 +523,7 @@ def test_preload_native_deps_warms_sys_modules():
 
 
 def test_preload_native_deps_is_best_effort_when_a_dep_is_missing(monkeypatch):
-    """A genuinely-absent/broken native dep must DEGRADE (projector falls back to label propagation),
+    """A genuinely-absent/broken native dep must DEGRADE (projector falls back to igraph's own Leiden),
     never crash startup — so an ImportError during preload is swallowed, not raised."""
     import builtins
     real_import = builtins.__import__

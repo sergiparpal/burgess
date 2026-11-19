@@ -816,20 +816,14 @@ _REPART_SEED = 7
 
 def _repartition(und, resolution=_REPART_RESOLUTION, seed=_REPART_SEED) -> "dict | None":
     """Re-run community detection at a DIFFERENT resolution than the stored projection (§8). Higher
-    resolution -> more, smaller communities -> intra-community pairs surface as cross-community. Falls
-    back to a different-seed label propagation when leidenalg is unavailable."""
+    resolution -> more, smaller communities -> intra-community pairs surface as cross-community. Leiden
+    through ``projector.leiden_membership`` (leidenalg, else igraph's own Leiden since 0.19.4); a
+    different-seed label propagation only when igraph cannot run either."""
     if und.number_of_nodes() == 0:
         return {}
     try:
-        import igraph as ig
-        import leidenalg as la
-        nodes = list(und.nodes())
-        idx = {n: i for i, n in enumerate(nodes)}
-        edges = [(idx[u], idx[v]) for u, v in und.edges()]
-        g = ig.Graph(n=len(nodes), edges=edges, directed=False)
-        part = la.find_partition(g, la.RBConfigurationVertexPartition, seed=seed,
-                                 resolution_parameter=resolution)
-        return {nodes[i]: m for i, m in enumerate(part.membership)}
+        from .projector import leiden_membership
+        return leiden_membership(und, seed=seed, resolution=resolution)
     except Exception:  # noqa: BLE001 — degrade to a different-seed label propagation
         try:
             communities = nx.community.asyn_lpa_communities(und, seed=seed)
