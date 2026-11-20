@@ -4069,7 +4069,8 @@ def _register(mcp, engine: KGEngine) -> None:
         return engine.kg_export(kind)
 
     # ------------------------------------------------------------------------- #
-    # Divergence surface (FUSION_PLAN Stage 3) — the /kg-diverge flow's seven tools.
+    # Divergence surface (FUSION_PLAN Stage 3) — the /kg-diverge flow's eight tools (the eighth,
+    # kg_diverge_export, since 0.19.6).
     #
     # Everything here sits BELOW the grounding boundary: these tools organize idea
     # candidates geometrically (embed → MAP-Elites → k-NN novelty → DPP slate →
@@ -4078,7 +4079,7 @@ def _register(mcp, engine: KGEngine) -> None:
     # local and session-ephemeral (.kg/diverge, I4/I10). kg_engine.divergence is
     # imported LAZILY inside each body so this module's import graph stays
     # divergence-free (I3, firewall-tested) and a missing divergence dep degrades
-    # only these seven tools with a clear error (I9) — never a kg_* tool.
+    # only these eight tools with a clear error (I9) — never a kg_* tool.
     # ------------------------------------------------------------------------- #
     @mcp.tool()
     @_tool_result
@@ -4119,7 +4120,10 @@ def _register(mcp, engine: KGEngine) -> None:
         """One divergence cycle: embed the generated candidates, near-dup dedup, place into the
         MAP-Elites archive, score geometric + mechanism novelty, and select a DPP-diverse slate.
         Each candidate: {"id", "text", "descriptor" {axis: value, ...}, optional "fitness" (the
-        judge's bounded validity multiplier), optional "genealogy" {"operator_id", "parents"}}.
+        judge's bounded validity multiplier), optional "genealogy" {"operator_id", "parents"},
+        "explanation" (the two or three plain lines, with a concrete example, that you show the
+        user; the engine keeps it with the idea, returns it on later slates and prints it in
+        kg_diverge_export, and never embeds it: the geometry reads "text" only)}.
         Returns the slate (with niche coords, novelty, why-picked signals), ask_pairs for A-vs-B,
         and the anti-collapse monitor verdict — `mon.collapsing: true` means REGENERATE with more
         diversity pressure (advisory notice to the user, no question). Discarded ids are never
@@ -4221,6 +4225,23 @@ def _register(mcp, engine: KGEngine) -> None:
         `unverified` until supporting sources are added (Part C — never a disposition or verdict)."""
         return engine.kg_diverge_materialize(project, candidate_ids=candidate_ids,
                                              node_type=node_type, edges=edges)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_diverge_export(project: str, brief: str = "") -> dict:
+        """Write every idea of this brief's current session to one Markdown file the user keeps, and
+        return its absolute `path`. Call it when the user ends the session or asks to save the ideas.
+        Per idea, the file holds its text, the `explanation` it was ingested with, its descriptor, its
+        operator and parents, the batch it arrived in and the batches whose slate showed it, and what
+        the user did with it: pinned, discarded, compared, materialized into the graph. `brief` (the
+        user's own words) heads the file. The engine writes it under .kg/diverge/<project>/, one file
+        per session, and never in the project root, which may be the source folder that
+        /burgess:kg-build reads. Nothing reads it back. Never assemble the file yourself, with Bash, a
+        script, or by reading `.kg/diverge/` or the conversation transcript. `unexplained` lists ideas
+        ingested without an `explanation`. Near-duplicates the ingest set aside were never kept, so
+        they are not in it. Purely a record: it changes no state."""
+        from kg_engine.divergence import export_ideas as dexport
+        return dexport.export_ideas(project, brief=brief, home=engine._diverge_home())
 
 
 def _preload_native_deps() -> None:

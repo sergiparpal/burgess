@@ -102,6 +102,13 @@ the knowledge graph unless you explicitly ask to materialize your pins.
 session-ephemeral (a new session id wipes it); **pins, discards and comparisons persist across
 sessions** — they are the durable signal.
 
+**Saving the ideas.** Say you are done, or ask to save the ideas. The engine writes every idea of the
+session to `.kg/diverge/<project>/ideas-<project>-<session>.md`: its text, the explanation you were
+shown, its descriptor, and what you did with it (on which slates it appeared, pinned, discarded,
+compared). It never writes into your project folder, which may be the source folder
+`/burgess:kg-build` reads. If you want the file somewhere else, Claude copies it there, and that copy
+asks for your permission once.
+
 ### Arguments
 
 | Argument | Required | Accepted values | Default |
@@ -1101,7 +1108,7 @@ measured on two field runs. That cost is why the judge is opt-in.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **34 MCP tools** exposed by the `burgess`
+The nine slash commands are a thin language layer over **35 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 

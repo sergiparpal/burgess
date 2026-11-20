@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.19.6 — 2026-11-20
+
+One more follow-up from the second field `/burgess:kg-diverge` session (Windows, 2026-11-19), reviewed after
+0.19.5 was released.
+
+### Fixed
+
+- **`/burgess:kg-diverge` saves every idea through the engine.**
+  - At the end of both field sessions the user asked for every idea in a Markdown file, each one explained.
+    No tool returned the ideas, so the agent built the file itself. On 2026-11-19 it read the session's
+    store and its own transcript with Bash scripts, recovered from that transcript the explanations of the
+    rounds before two compactions, and generated the file with a 37 KB script. That took ten permission
+    prompts and about two hours of waiting. 0.19.5 then told the command never to read `.kg/diverge/`,
+    which left the export with no sanctioned way at all.
+  - New tool `kg_diverge_export(project, brief)`, 35 in all, writes every idea of the session to one
+    Markdown file and returns its path. Each idea carries its text, its explanation, its descriptor, its
+    operator and parents, the slates that showed it, and the user's pins, discards, comparisons and
+    materializations. The divergence CLI has an `export` subcommand too.
+  - A candidate may now carry an `explanation`: the two or three plain lines, with an example, that the
+    agent shows the user. The engine keeps it with the idea and returns it when the idea comes back on a
+    later slate. It is never embedded, so it cannot move an idea. Each record also notes its batch and the
+    batches whose slate showed it.
+  - The command writes the explanation when it generates an idea (step 4), presents it in step 7, and
+    calls the export in a new step 11. It says never to build the file with Bash, a script or Write. If
+    the user wants the file elsewhere, such as Downloads, one copy command asks for permission once.
+  - The file goes under the brief's state folder, `.kg/diverge/<brief>/ideas-<brief>-<session>.md`, and
+    never in the project root. In the field the project folder is also the source folder, and
+    `/burgess:kg-build` reads every `.md` at its top level, so an export there would come back as a source
+    document. The engine never writes to a path the agent names.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv is
+  not rebuilt.
+- A session begun on 0.19.5 can go on. Its earlier ideas have no explanation and no batch number, so the
+  export lists them first, under "Earlier ideas", and names them in `unexplained`.
+- The views carry the 0.19.5 mark, so the first read that projects re-renders them, with the same look.
+
+### Tests
+
+- `tests/test_fix_diverge_export.py` (12 tests):
+  - The explanation is kept on the record and on later slates, and must be text. It never moves an idea:
+    the same ideas with and without explanations land, score and slate identically.
+  - Records note their batch and the slates that showed them.
+  - The export holds every idea with what was done with it, and changes no state. It lands under the
+    brief's state folder, where neither a directory source nor a recursive glob reads it; the same file in
+    the project root would be a source document.
+  - There is one file per session. A second export in the same session replaces it; a later session's
+    export leaves the earlier file alone and names its pin. A project never inited, or whose session was
+    replaced, gets an error that says why. The CLI exports too.
+  - The tool descriptions and the command say what is kept, where the file goes, and that the agent never
+    builds it.
+- `tests/fusion/test_diverge_surface.py` counts 35 tools.
+- Against 0.19.5, 11 of the 12 fail. The one that passes pins what 0.19.5 already did: it ignored the
+  field, so an explanation could not move an idea.
+- 2280 → 2292 passed, 3 skipped.
+
 ## 0.19.5 — 2026-11-20
 
 Three follow-ups from the second field `/burgess:kg-diverge` session (Windows, 2026-11-19, 48 ideas over 3

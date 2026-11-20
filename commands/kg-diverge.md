@@ -1,7 +1,7 @@
 ---
 description: Turn any creative brief into a diverse, non-cliché slate of ideas — pure divergence, no graph and no source document required. Cliché map → mechanism-first generation → engine geometry (MAP-Elites, k-NN novelty, DPP slate, anti-collapse monitor) → the user pins/discards in chat. Pinned ideas can later be materialized into the hypothesized lane.
 argument-hint: "<brief> [domain-template] [reach: conservative|balanced|wild]"
-allowed-tools: Read, mcp__plugin_burgess_burgess__kg_diverge_init, mcp__plugin_burgess_burgess__kg_diverge_ingest, mcp__plugin_burgess_burgess__kg_diverge_remember, mcp__plugin_burgess_burgess__kg_diverge_parents, mcp__plugin_burgess_burgess__kg_diverge_metrics, mcp__plugin_burgess_burgess__kg_diverge_recall, mcp__plugin_burgess_burgess__kg_diverge_materialize
+allowed-tools: Read, mcp__plugin_burgess_burgess__kg_diverge_init, mcp__plugin_burgess_burgess__kg_diverge_ingest, mcp__plugin_burgess_burgess__kg_diverge_remember, mcp__plugin_burgess_burgess__kg_diverge_parents, mcp__plugin_burgess_burgess__kg_diverge_metrics, mcp__plugin_burgess_burgess__kg_diverge_recall, mcp__plugin_burgess_burgess__kg_diverge_materialize, mcp__plugin_burgess_burgess__kg_diverge_export
 ---
 
 # /burgess:kg-diverge — standalone divergence (FUSION Stage 3)
@@ -28,8 +28,9 @@ and `${CLAUDE_PLUGIN_ROOT}/pack/domains/examples/`. Open them with the Read tool
 nothing to search for. A Bash read outside the project asks the user for permission: in the 2026-11-19
 field run seven of them (find, cat, sed on these files and on the session state) waited 96 minutes for
 approval, most of it before the first round. The session's own state needs no file at all:
-`kg_diverge_init` returns the resolved axes, and `kg_diverge_recall` returns them with the session id,
-the seed, the pins, the discards and the comparisons. Never read `.kg/diverge/` files.
+`kg_diverge_init` returns the resolved axes, `kg_diverge_recall` returns them with the session id,
+the seed, the pins, the discards and the comparisons, and `kg_diverge_export` writes every idea of the
+session to a file for the user (step 11). Never read `.kg/diverge/` files.
 
 ## Reach — how far out (the divergence dial)
 
@@ -102,6 +103,13 @@ reach — `wild` means further-out, never incoherent.
      always maximal.
    - *Layer 2 — surface second.* Write the `text` that expresses that mechanism, and make
      it self-explanatory: a reader should grasp *how it works* without a footnote.
+   - *Layer 3 — the explanation.* Write the `explanation` you will show the user in step 7: two or
+     three plain lines on how it works in practice, with one concrete example (for a hypothesis, how
+     it would be tested). Send it in the candidate. The engine keeps it with the idea, returns it when
+     the idea comes back on a later slate, and prints it in the export (step 11). It never embeds it,
+     so it cannot move the idea. If you cannot write it, the idea is incoherent: cut it at step 5. In
+     the 2026-11-19 field run the explanations lived only in the conversation, and the export had to
+     dig those of the early rounds out of the transcript.
    - **Descriptor discipline:** niche placement runs on YOUR descriptor words. No two
      candidates share a `mechanism` string unless they genuinely share a mechanism; spread
      each continuous axis to the extremes **of its reach band** (`boldness` within the band
@@ -119,6 +127,7 @@ reach — `wild` means further-out, never incoherent.
 
    ```json
    [{"id": "c1", "text": "the idea, one or two sentences",
+     "explanation": "two or three plain lines: how it works in practice, and one concrete example",
      "descriptor": {"angle": "…", "scope": "…", "form": "…", "boldness": 0.9,
                      "feasibility": 0.4, "mechanism": "the core how, a few words"},
      "fitness": 0.8,
@@ -133,30 +142,29 @@ reach — `wild` means further-out, never incoherent.
    (one buildable elite per bin) that the axis exists to provide. Skip it only if your `axes` truly
    omit it (e.g. names/taglines, where "buildable" is meaningless).
 
-7. **Present the returned `slate`** — for each idea: its text, mechanism label, niche
-   `coords`, and a one-line *why-picked* (which niche it holds + what its `novelty` says).
-   **De-obscure it:** add a plain "*how it works in practice*" clause and one concrete
-   instantiation ("e.g., …") so a bold idea reads as clear, not cryptic. If you cannot write
-   that clause for an idea, it was incoherent and should have been cut at step 5 — drop it now.
+7. **Present the returned `slate`** — for each idea: its text, its `explanation` (how it works
+   in practice, with a concrete example, so a bold idea reads as clear, not cryptic), mechanism
+   label, niche `coords`, and a one-line *why-picked* (which niche it holds + what its `novelty`
+   says). Present the explanation you ingested, so what the user reads is what the export keeps.
    Field honesty: `novelty` is mean k-NN distance to THIS SESSION's own ideas — a variety
    proxy, not originality vs the world; `mechanism_novelty` is the same for its mechanism.
    Report them as such.
 
-   **Earlier ideas on the slate.** The engine picks the slate from every idea in the archive, not only
-   this round's, so a slate often brings earlier ideas back. Mark each with its round, summarize it in a
-   line, and explain in full only the new ones. A repeat is no reason to discard: a discard is negative
-   memory (never slated again, never a parent), so offer it for an idea the user finds wrong, never as a
-   way to stop one from coming back. In the 2026-11-19 field run the session suggested discards for
-   exactly that («si no quieres verla más», «que ya ha salido tres veces»), and one of those ideas was
-   the parent of two later ideas.
+   **Earlier ideas on the slate.** The engine picks the slate from every idea in the archive, not only this
+   round's, so a slate often brings earlier ideas back. Mark each with its round, summarize it in a line
+   (its slate item carries the explanation it was ingested with), and explain in full only the new ones. A
+   repeat is no reason to discard: a discard is negative memory (never slated again, never a parent), so
+   offer it for an idea the user finds wrong, never as a way to stop one from coming back. In the
+   2026-11-19 field run the session suggested discards for exactly that («si no quieres verla más», «que
+   ya ha salido tres veces»), and one of those ideas was the parent of two later ideas.
 
-   **Then the rest of this round.** After the slate, list every other idea you ingested this round
-   that the slate left out, by id, in two or three plain lines each: what it claims, and one concrete
-   example. Not a table of one-liners, and not ideas from earlier rounds. The slate is the engine's
-   diverse pick, not a filter on what the user may keep: any idea can be pinned, and a pin makes it a
-   parent. In the first field session (2026-11-16 to 11-19) round 1 showed only its slate, and round 2
-   showed the rest as a one-line table. The user could not tell what those ideas were about («Así no sé de
-   qué van»), and pinned one that had never been explained. Then:
+   **Then the rest of this round.** After the slate, list every other idea you ingested this round that the
+   slate left out, by id, in two or three plain lines each: what it claims, and one concrete example.
+   Those lines are the explanation you ingested it with. Not a table of one-liners, and not ideas from
+   earlier rounds. The slate is the engine's diverse pick, not a filter on what the user may keep: any
+   idea can be pinned, and a pin makes it a parent. In the first field session (2026-11-16 to 11-19) round
+   1 showed only its slate, and round 2 showed the rest as a one-line table. The user could not tell what
+   those ideas were about («Así no sé de qué van»), and pinned one that had never been explained. Then:
    - ask only the returned `ask_pairs` as short A-vs-B questions. The answers do not move the slate or
      the parents: the engine only stops asking a pair already answered and tallies the answers for
      `kg_diverge_recall`. They reach the next round through you, when you generate. So a loser coming back
@@ -196,6 +204,20 @@ reach — `wild` means further-out, never incoherent.
     results carried a `surface_mechanism_gap` block): fetch `kg_diverge_metrics(project)` and
     give a short plain-language read of its `gap_log` across the whole session — varied in
     *approach* or only in *wording*? Measurement only; it never steers selection.
+
+11. **Save the ideas** (when the user ends the session or asks to keep the ideas). Call
+    `kg_diverge_export(project, brief)` once, with the brief in the user's own words. The engine
+    writes every idea of this session to one Markdown file and returns its `path`; give the user
+    that path. Each idea carries its text, its explanation, its descriptor, its operator and
+    parents, the slates that showed it, and the user's pins, discards and comparisons. Never build
+    the file yourself: no Bash, no script, no writing it out with Write, no reading `.kg/diverge/`
+    or the transcript. In the 2026-11-19 field run the session did all of that, and the export
+    waited about two hours on ten permission prompts. If the result's `unexplained` lists ids,
+    those ideas were ingested without an explanation; say so, and do not rebuild them. The file
+    lives in the brief's folder under `.kg/diverge/`, never in the project folder, because the
+    project folder can be the source folder /burgess:kg-build reads. If the user wants the file
+    somewhere else (their Downloads folder, say), offer to copy it there: a single copy command,
+    which asks for permission once, and never a second copy of the content written by hand.
 
 ## Notes
 

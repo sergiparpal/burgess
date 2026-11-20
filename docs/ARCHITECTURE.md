@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (34 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (35 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -341,7 +341,7 @@ live compression node was already proposed over (at least half of the other memb
 already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
 2026-11-15 all four compression candidates were of these kinds.
 
-## 5. The MCP tool surface (34 tools)
+## 5. The MCP tool surface (35 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -393,8 +393,11 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   shell; it writes only `derived/generations.json`, refuses a file it cannot read as a ledger, and sets no
   state).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
-- **Divergence surface (7):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
-  `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`.
+- **Divergence surface (8):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
+  `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
+  `kg_diverge_export` (0.19.6: writes every idea of the brief's current session, with the explanation it
+  was ingested with and what the user did with it, to one Markdown file under the brief's state folder;
+  it sets no state, and nothing reads the file back).
 
 Every tool is wrapped in a uniform transport-error envelope (`{ok:false, error, error_kind}` on a
 raised exception), so a tool call never crashes the session.
@@ -441,7 +444,8 @@ anti-collapse monitor reading every round.
   `axes.json`, `session.json`, `materialized.json` and `memory/` are durable; the `session/` dir
   (MAP-Elites archive, candidate records, `embeddings.npz`/`mech_embeddings.npz` vector stores,
   the Voronoi partition) is **session-ephemeral**: a new session id wipes it. The knowledge graph,
-  not the archive, is the durable store.
+  not the archive, is the durable store. An export, `ideas-<brief-slug>-<session>.md`, sits beside the
+  durable files; nothing in the engine reads it.
 
 **Candidate ids are primary keys.** One id keys the archive's `elite_id`, the candidate record store,
 both embedding stores, pins/discards, and the slate's `embedding_ref`, so the contract is: **unique
@@ -467,11 +471,25 @@ The agent writes descriptors from that and resumes after a compaction from `reca
 open: a Bash read outside the project prompts the user, and in the 2026-11-19 field run such reads
 left a round waiting.
 
+**Export** (`export_ideas.py`, `kg_diverge_export`, 0.19.6). A candidate may carry an `explanation`:
+the two or three plain lines, with an example, that the agent shows the user. The record keeps it and a
+slate item returns it. It is never embedded, so the same ideas with and without explanations land,
+score and slate identically (tested). Each record also notes its `batch` (one non-empty ingest,
+numbered like `meta.cycles` after it) and `slated_in`, the batches whose slate showed it. The export
+writes every record of the current session with its text, explanation, descriptor, operator and
+parents, those batches, and the user's pins, discards, comparisons and materializations. The file goes
+under the brief's state folder, one per session, never in the project root: in the field the project
+folder is the source folder, and a directory source is every top-level `.md`, so an export there would
+come back through `/burgess:kg-build` as a source document. The engine never writes a path the agent
+names, because an MCP tool's write passes no permission check. Copying the file elsewhere is a single
+command that asks. Near-duplicates the ingest set aside were never recorded, so they are not in it.
+
 **Cycle response** (`kg_diverge_ingest`): `slate`, `slate_ids`, `ask_pairs`, `ask_policy`, `monitor`,
 `slate_mechanism_novelty`, `open_axis` (+ `surface_mechanism_gap` when the probe is on). `slate_ids`
 is the id list of the slate items and honours neither pins nor discards — **not** breeding parents;
 it was named `parents` before 0.4.0, which invited exactly that misread. The empty-generation
-response carries every key with neutral values, `monitor.variety_erosion` included.
+response carries every key with neutral values, `monitor.variety_erosion` included. A slate item
+carries the `explanation` its idea was ingested with, when it has one.
 
 **`parents` command response**: `{"parents": [{id, text, coords, niche_id, novelty, pinned}]}`, plus
 optional `stale_pins` / `stale_pins_note` — pinned ids with no candidate record, which happens

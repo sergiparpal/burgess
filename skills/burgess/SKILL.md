@@ -96,7 +96,7 @@ afterward. The portico moved from the door of imagination to after generation.
 | `/burgess:kg-view` | (none; direct render) | `kg_export` |
 | `/burgess:kg-eval` | `kg-annotator` | `f4_probe.py`, `kg_engine.harness`, `query_graph` |
 | `/burgess:kg-experiment` | `kg-evaluator`; `kg-judge` with `--judge` | `kg_engine.harness rag-slices`, `kg_engine.harness ideation`, `kg_engine.harness judge-packets` / `judge-aggregate`, `kg_context`, `kg_generate` |
-| `/burgess:kg-diverge` | (none; main agent generates/judges) | `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`, `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` |
+| `/burgess:kg-diverge` | (none; main agent generates/judges) | `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`, `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`, `kg_diverge_export` |
 
 The MCP server is named `burgess`; tools are namespaced `mcp__plugin_burgess_burgess__<tool>`.
 The twenty-two read/write/ground tools (`kg_ping`, `kg_scrub`, `kg_build_plan` — the /burgess:kg-build plan,
@@ -109,14 +109,14 @@ read-only grounded-only associative chain, `kg_context`, `kg_agenda` — the rea
 `kg_export` — the read-only human-facing render) plus the five **generative-layer** tools (`kg_propose` — the
 hypothesized write lane; `kg_generate` — the discovery mechanisms; `kg_operate` — the §8 endo operations;
 `kg_absorption` — the §14 absorption window; `kg_record_generation` — the record a /burgess:kg-generate run
-leaves in that window's ledger) make **twenty-seven** graph tools, and the seven
+leaves in that window's ledger) make **twenty-seven** graph tools, and the eight
 **divergence-surface** tools (`kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
-`kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize` — the
-/burgess:kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse monitor over project-local,
-session-ephemeral state under `.kg/diverge/`, plus the EXPLICIT pin-materialization door into the
-hypothesized lane; advisory ordering only, below the grounding boundary, never a verdict path) make
-**thirty-four** tools in total. These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`,
-etc. are slash commands.
+`kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
+`kg_diverge_export` — the /burgess:kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse
+monitor over project-local, session-ephemeral state under `.kg/diverge/`, plus the EXPLICIT
+pin-materialization door into the hypothesized lane and the end-of-session file of every idea; advisory
+ordering only, below the grounding boundary, never a verdict path) make **thirty-five** tools in total.
+These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`, etc. are slash commands.
 
 ## Core invariants — non-negotiable, enforced by the boundary
 

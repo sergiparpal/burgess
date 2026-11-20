@@ -290,7 +290,7 @@ def _slate_item(record: dict[str, Any]) -> dict[str, Any]:
     deliberately left named ``novelty``: consumers (the skill, the stubbed human)
     read it, so it is documented rather than renamed.
     """
-    return {
+    item = {
         "id": record["id"],
         "text": record.get("text", ""),
         "descriptor": record.get("descriptor", {}),
@@ -310,6 +310,33 @@ def _slate_item(record: dict[str, Any]) -> dict[str, Any]:
         # kept as a distinct field so the contract survives if that ever changes.
         "embedding_ref": record["id"],
     }
+    # The explanation the idea was ingested with (0.19.6), so an earlier idea coming back on a later
+    # slate arrives with the lines the user first saw, even after a compaction. Present only when the
+    # agent sent one; it is display text and plays no part in picking the slate.
+    if record.get("explanation"):
+        item["explanation"] = record["explanation"]
+    return item
+
+
+def _mark_batch(cand_store: dict[str, Any], new_ids: list[str], slate_ids: list[str],
+                batch: int) -> None:
+    """Note on each candidate record the batch it arrived in and every batch whose slate showed it.
+
+    A batch is one non-empty ingest, numbered like ``meta["cycles"]`` after it (the first is 1); a
+    round the agent regenerated is two batches. This is session-zone bookkeeping for the
+    end-of-session export (``export_ideas``, 0.19.6), which until then could only recover it from
+    the conversation. Nothing in dedup, placement, novelty, the slate, the parents or the monitor
+    reads either field."""
+    for cid in new_ids:
+        rec = cand_store.get(cid)
+        if rec is not None:
+            rec["batch"] = batch
+    for cid in slate_ids:
+        rec = cand_store.get(cid)
+        if rec is not None:
+            shown = rec.setdefault("slated_in", [])
+            if batch not in shown:
+                shown.append(batch)
 
 
 def _open_axis_texts(
@@ -1109,6 +1136,8 @@ def _ingest_locked(
         ),
     )
     ask_policy = _ask_policy(econfig, gen_index)
+    # Batch numbers for the export: this ingest is batch gen_index + 1 (meta["cycles"] after it).
+    _mark_batch(cand_store, [c.id for c in survivors], slate_ids, gen_index + 1)
 
     mech_before = len(stored_mech_emb)
     _maybe_prune_state(

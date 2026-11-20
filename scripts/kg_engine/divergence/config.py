@@ -458,6 +458,12 @@ class Candidate:
     descriptor: dict[str, Any] = field(default_factory=dict)
     genealogy: dict[str, Any] = field(default_factory=dict)
     fitness: float = 1.0  # within-niche quality from the judge; NOT novelty
+    # The agent's plain-language presentation of the idea (two or three lines with a concrete
+    # example), kept on the record so the end-of-session export (kg_diverge_export, 0.19.6) still has
+    # it after a compaction: the 2026-11-19 field export had to dig the explanations of earlier rounds
+    # out of its own transcript. Never embedded, and never read by dedup, placement, novelty, the slate
+    # or the monitor — geometry runs on ``text`` alone (I5), so an explanation cannot move an idea.
+    explanation: str = ""
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Candidate":
@@ -489,17 +495,27 @@ class Candidate:
             # A non-finite fitness (NaN/inf) silently poisons elite selection
             # (NaN comparisons are always False) and the DPP quality kernel.
             raise ConfigError(f"candidate {cid!r} 'fitness' must be finite")
+        explanation = d.get("explanation")
+        if explanation is None:
+            explanation = ""
+        if not isinstance(explanation, str):
+            raise ConfigError(f"candidate {cid!r} 'explanation' must be a string")
         return cls(id=cid, text=text, descriptor=descriptor,
-                   genealogy=genealogy, fitness=fitness)
+                   genealogy=genealogy, fitness=fitness, explanation=explanation.strip())
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "id": self.id,
             "text": self.text,
             "descriptor": dict(self.descriptor),
             "genealogy": dict(self.genealogy),
             "fitness": self.fitness,
         }
+        # Only when given, so a record (and every slate item built from it) keeps its old shape for a
+        # caller that sends none.
+        if self.explanation:
+            out["explanation"] = self.explanation
+        return out
 
 
 @dataclass
