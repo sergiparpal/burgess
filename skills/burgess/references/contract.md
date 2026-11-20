@@ -25,7 +25,7 @@ associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only 
 `kg_export` (read-only human-facing render) (plus the five generative-layer tools `kg_propose` (§5a),
 `kg_generate`, `kg_operate`, `kg_absorption`, and `kg_record_generation`, the record a /burgess:kg-generate run
 leaves in the absorption ledger — see the generative-layer references) — twenty-seven in all.
-The seven `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-four; they
+The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-five; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---

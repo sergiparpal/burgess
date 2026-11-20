@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-seven graph tools (§1), then the seven divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-seven graph tools (§1), then the eight divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -26,7 +26,7 @@ the `/burgess:kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20),
 adversarial attack leaves when it writes no counter-edge, `kg_record_edgeless_section` (§1.24), the mark an
 extraction leaves on a section it wrote no edge from, and `kg_record_generation` (§1.25), the record a
 `/burgess:kg-generate` run leaves in the absorption ledger.
-The seven **divergence-surface** tools (§1B) complete the server's **thirty-four**.
+The eight **divergence-surface** tools (§1B) complete the server's **thirty-five**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
@@ -1101,10 +1101,10 @@ tracked node's window is read against.
 
 ---
 
-## 1B · The divergence surface (`kg_diverge_*`) — seven tools
+## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 
 The divergence engine (`scripts/kg_engine/divergence/` — embedder, MAP-Elites archive, k-NN novelty, DPP
-slates, anti-collapse monitor) runs inside the same MCP server as seven tools. They sit **below the
+slates, anti-collapse monitor) runs inside the same MCP server as eight tools. They sit **below the
 grounding boundary**: geometry affects what is proposed and in what order, never what is true (I5); nothing
 under `divergence/` can set or upgrade an epistemic state (I3, import-firewalled); and every `kg_*` graph
 tool keeps working when the divergence deps are blocked (I9) — a `kg_diverge_*` call then returns a
@@ -1158,7 +1158,11 @@ lane and is **not** discarded.
 
 One divergence cycle: embed → near-duplicate dedupe → MAP-Elites placement → k-NN novelty → DPP slate,
 with the monitor reading the round. Candidate shape (see `/burgess:kg-diverge` step 6):
-`{id, text, descriptor: {<axis>: value, …, mechanism: "…"}, fitness?, genealogy: {operator_id, parents}}`.
+`{id, text, explanation?, descriptor: {<axis>: value, …, mechanism: "…"}, fitness?, genealogy: {operator_id, parents}}`.
+`explanation` (0.19.6) is the two or three plain lines, with a concrete example, that you show the user. The
+record keeps it, a slate item returns it, and `kg_diverge_export` prints it; it is never embedded, so it
+cannot move an idea. Each record also notes its `batch` and the batches whose slate showed it (`slated_in`),
+for the export.
 
 ```json
 {"slate": [{"id": "c3", "text": "…", "coords": {"angle": "…"}, "niche_id": "…", "novelty": 0.41,
@@ -1251,6 +1255,36 @@ propose lane** (`kg_propose` → the same boundary as every write):
  "advisory": "A source is already configured. Grounding these pins will correctly leave a novel idea unverified…",
  "propose": {"dispositions": {"ACCEPTED": 2}, "…": "…"}}
 ```
+
+### 1B.8 `kg_diverge_export(project, brief="")`
+
+Writes every idea of the brief's **current session** to one Markdown file and returns where (0.19.6). Call
+it when the user ends the session or asks to save the ideas; never assemble the file yourself (Bash, a
+script, a Write of the whole text, or reading `.kg/diverge/` or the transcript — in the 2026-11-19 field
+run that took ten permission prompts and about two hours).
+
+- Per idea: its text, its `explanation`, its descriptor (the open axis first), operator and parents, the
+  batch it arrived in and the batches whose slate showed it (or "never on the slate"), and what the user
+  did with it: pinned, discarded, beat / lost to in a comparison, in the graph as a materialized node.
+  `brief` heads the file. A pin from an earlier session is named without text: its record ended with
+  that session (I10).
+- The file is `.kg/diverge/<brief-slug>/ideas-<brief-slug>-<session>.md`: one per session (a second
+  export in the same session replaces it), never in the project root. A directory source is every
+  top-level `.md`, so in a project that is its own source folder an export there would be read by
+  `/burgess:kg-build` as a source document. The engine never writes a path you name; to put the file
+  elsewhere, copy it with one command, which asks the user once.
+- Changes no state, and nothing reads the file back. Near-duplicates the ingest set aside were never
+  recorded, so they are not in it. A project never inited, or whose session id was replaced, raises an
+  error that says so.
+
+```json
+{"ok": true, "path": "C:\\…\\.kg\\diverge\\cold-brew-launch\\ideas-cold-brew-launch-sess-20261120-ab12.md",
+ "ideas": 36, "batches": 3, "pinned": ["c1e", "c3a"], "discarded": ["c2g"], "comparisons": 4,
+ "unexplained": [], "session_id": "sess-20261120-ab12", "bytes": 28114}
+```
+
+`unexplained` lists ideas ingested without an `explanation`. The CLI twin is
+`python -m kg_engine.divergence export --project <slug> [--brief "…"]`.
 
 ### Engine constants (drift-guarded by tests)
 
@@ -1568,6 +1602,7 @@ python -m kg_engine.divergence recall   --project <slug> [--k 10]
 python -m kg_engine.divergence remember --project <slug> --event <json>
 python -m kg_engine.divergence parents  --project <slug> [--k 4] [--seed N]
 python -m kg_engine.divergence metrics  --project <slug>
+python -m kg_engine.divergence export   --project <slug> [--brief "…"]  # every idea of the session → .md (§1B.8)
 python -m kg_engine.divergence paths    --project <slug>          # print resolved state paths
 python -m kg_engine.divergence selftest [--live] [--seed N]       # exit 1 on failure
 python -m kg_engine.divergence import-cambrian --project <slug> [--from <dir>]
@@ -1623,6 +1658,7 @@ errors}`.
 | archive health / gap log | `kg_diverge_metrics(project)` |
 | recall a brief's pins/discards/comparisons | `kg_diverge_recall(project)` |
 | carry pinned ideas into the hypothesized lane | `kg_diverge_materialize(project, …)` |
+| save every idea of a diverge session to a file | `kg_diverge_export(project, brief)` |
 | score extraction precision | `f4_probe.py summary|sheet|fill|score` |
 | who wrote the sampled edges, and their verdicts | `kg_engine.harness writers` |
 | validate the pack / glossary coverage | `kg_engine.pack validate|coverage` |

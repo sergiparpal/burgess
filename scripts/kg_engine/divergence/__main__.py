@@ -54,6 +54,12 @@ def _cmd_recall(args) -> int:
     return 0
 
 
+def _cmd_export(args) -> int:
+    from . import export_ideas
+    _emit(export_ideas.export_ideas(args.project, brief=args.brief))
+    return 0
+
+
 def _cmd_ingest(args) -> int:
     candidates = _read_json_file(args.candidates)
     _emit(pipeline.ingest(args.project, candidates, args.axes, seed=args.seed))
@@ -142,6 +148,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("metrics", parents=[common], help="current archive health")
     sp.set_defaults(handler=_cmd_metrics)
+
+    sp = sub.add_parser("export", parents=[common],
+                        help="write every idea of the current session to a Markdown file "
+                             "under the brief's state dir and print where")
+    sp.add_argument("--brief", default="", help="the brief, to head the file")
+    sp.set_defaults(handler=_cmd_export)
 
     sp = sub.add_parser("selftest", parents=[seeded], help="full loop with stubbed LLM + human")
     sp.add_argument("--live", action="store_true", help="use the live embedder")

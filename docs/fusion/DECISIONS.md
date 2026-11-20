@@ -2018,3 +2018,72 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Against 0.19.4, 14 of the 16 fail. The 2 that pass pin what 0.19.4 already did: recall on a project
     never inited, and a comparison leaving the next slate alone. Two of the 14, the calibrated rule and
     the template-like collapse, fail there only because the monitor's helper took no embedder.
+
+## kg-diverge saves every idea through the engine, beside the brief's state and never in the project root (2026-11-20)
+
+- **Decision:**
+  - A candidate may carry an `explanation`: the two or three plain lines, with an example, that the agent
+    shows the user. The record keeps it, a slate item returns it, and nothing in dedup, placement, novelty,
+    the slate, the parents or the monitor reads it. Geometry still runs on `text` alone.
+  - Each record notes its `batch` (one non-empty ingest, numbered like `meta.cycles` after it) and
+    `slated_in`, the batches whose slate showed it. Both live in the session zone, and only the export
+    reads them.
+  - New tool `kg_diverge_export(project, brief)` (35 in all) and CLI `export`. It writes every record of
+    the current session to `.kg/diverge/<brief>/ideas-<brief>-<session>.md` and returns the path. Per idea
+    the file holds the text, the explanation, the descriptor, the operator and parents, the slates, and the
+    user's pins, discards, comparisons and materializations. It changes no state, and nothing reads the
+    file back.
+  - `/burgess:kg-diverge` writes the explanation when it generates (step 4, "Layer 3"), presents it in step
+    7, and calls the export in a new step 11. It never builds the file itself. A copy elsewhere is one
+    command that asks for permission.
+- **Field runs it answers** (both field sessions, Windows, 2026-11-16 to 11-19 and 2026-11-19):
+  - At the end of each the user asked for every idea in a Markdown file, each one explained. The session
+    saved that as a feedback note: take the texts from `session/candidates.json`, and recover the examples
+    of earlier rounds from the transcript.
+  - On 2026-11-19 the session read the store and its own transcript with Bash scripts, and wrote a 37 KB
+    generator script that embedded the texts, then ran it with Bash. A heredoc attempt failed with
+    ENAMETOOLONG. Ten prompts, about two hours of waiting. The explanations of the rounds before the two
+    compactions existed only in the transcript.
+  - 0.19.5 told the command never to read `.kg/diverge/`, so the feedback note and the command now
+    contradicted each other, and no sanctioned way to export was left.
+- **Why the engine writes the file:**
+  - The first session's file was 111 KB for 86 ideas. Written by the agent, every byte is model output.
+    That is what drove the field session to a script, and after a compaction the agent no longer has the
+    early rounds anyway.
+  - The engine holds every idea already. With the explanation stored at ingest, nothing has to be dug out
+    of a conversation.
+- **Why there, and nowhere the agent names:**
+  - In the field the project folder IS the source folder (`source_path`), and a directory source is every
+    `.md` at its top level (`SourceSet.resolve`). An export in the project root would be read by the next
+    `/burgess:kg-build` as a source document, and the session's ideas would come back as spans that ground
+    claims: hypotheses laundered into evidence, the reverse of the propose-lane rule. The dot-directory is
+    skipped by both the directory resolution and a recursive glob (tested).
+  - An MCP tool's write passes no permission check, unlike a Write or a Bash command. A tool that wrote to
+    any path the model gave could plant a file in, say, a `.claude/commands/` folder. A fixed place under
+    the engine's own state folder keeps the tool's reach where it already was.
+  - One file per session id: a second export in a session replaces it with a superset, and a later session
+    cannot overwrite an earlier one's.
+- **Rejected alternatives:**
+  - (a) *`kg_diverge_recall` returns every idea and the agent writes the file with Write.* That costs the
+    file's size in output, and the explanations of compacted rounds are still lost.
+  - (b) *The engine writes to the user's Downloads folder, or to a path the agent passes.* That is a write
+    outside every permission check, decided by the model (above). The user's Downloads habit is served by
+    one copy that asks.
+  - (c) *Write the export into the project folder, where the user looks.* That is source laundering
+    (above).
+  - (d) *Store explanations as a `kg_diverge_remember` event.* Preference memory is durable, so
+    explanations would outlive the records they explain (I10). It would also take twelve more calls per
+    round.
+  - (e) *Record the near-duplicates the ingest drops, so the export holds literally every idea sent.* The
+    ingest has never kept them, and the tool description says so. Recording them is a change to the
+    ingest contract, not to the export.
+- **Accepted trade-offs:**
+  - The file's own labels ("Batch", "pinned", "beat", "lost to") are English, like every view the engine
+    renders. The ideas, explanations and brief are in the user's words.
+  - The brief is not engine state: the agent passes it, and without it the file has no heading quote.
+  - Ideas ingested before 0.19.6 have no explanation or batch. The export lists them first and names them in
+    `unexplained`; it does not rebuild them.
+- **Pinned in:** `tests/test_fix_diverge_export.py` (12 tests). `tests/fusion/test_diverge_surface.py` counts
+  35 tools.
+  - Against 0.19.5, 11 of the 12 fail. The one that passes pins what 0.19.5 already did: it ignored the
+    field, so an explanation could not move an idea.

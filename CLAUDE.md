@@ -25,7 +25,7 @@ claude plugin validate ./ --strict   # real plugin validator (best-effort in CI)
 python scripts/check_donors_clean.py # donor pin gate — see "Donors" below; installed as local pre-commit hook
 ```
 
-Dev extras: `python -m kg_engine.divergence <init-project|paths|ingest|recall|remember|parents|metrics|selftest|import-cambrian>` (divergence CLI, no MCP needed); `python -m kg_engine.backend` (headless API extraction; needs the `backend` extra). Run the plugin live with `claude --plugin-dir /path/to/Burgess` — the MCP server refuses to start until the required `source_path` userConfig is set.
+Dev extras: `python -m kg_engine.divergence <init-project|paths|ingest|recall|remember|parents|metrics|export|selftest|import-cambrian>` (divergence CLI, no MCP needed); `python -m kg_engine.backend` (headless API extraction; needs the `backend` extra). Run the plugin live with `claude --plugin-dir /path/to/Burgess` — the MCP server refuses to start until the required `source_path` userConfig is set.
 
 Notes:
 - **No linter/formatter is configured.** pytest is the only gate.
@@ -37,7 +37,7 @@ Notes:
 
 Two layers, one boundary:
 
-1. **Deterministic Python engine** — `scripts/kg_engine/`. Exposed as the `burgess` MCP server (34 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` is the KGEngine facade + FastMCP tool surface = the trust boundary. The engine is **never installed**: it resolves via `PYTHONPATH=<repo>/scripts` (see `.mcp.json`), so engine source edits need no rebuild; the venv (built by `scripts/bootstrap.py`, triggered by the SessionStart hook, dev fallback `<repo>/.venv`) holds only dependencies.
+1. **Deterministic Python engine** — `scripts/kg_engine/`. Exposed as the `burgess` MCP server (35 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` is the KGEngine facade + FastMCP tool surface = the trust boundary. The engine is **never installed**: it resolves via `PYTHONPATH=<repo>/scripts` (see `.mcp.json`), so engine source edits need no rebuild; the venv (built by `scripts/bootstrap.py`, triggered by the SessionStart hook, dev fallback `<repo>/.venv`) holds only dependencies.
 2. **Language layer** — 9 slash commands (`commands/kg-*.md`), 7 subagents (`agents/`: extractor, grounder, adversarial-grounder, generator, annotator, evaluator, judge), the operating-guide skill (`skills/burgess/SKILL.md` + on-demand `references/`). LLM work happens ONLY here; agents hand structured JSON back across the MCP boundary. The engine stays rule-bound.
 
 `scripts/launch_server.mjs` supervises the Python engine (cold-start venv self-heal, restart policy); `hooks/precontext.mjs` (PreToolUse on Grep/Glob/Read) injects grounded graph context, fails silent.
