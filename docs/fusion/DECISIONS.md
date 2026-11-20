@@ -1939,3 +1939,82 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   (2 tests).
   - Against 0.19.3, 6 of the 9 fail. The 3 that pass pin what 0.19.3 already did: the result with
     leidenalg, the last resort without igraph, and two cliques, which label propagation also separates.
+
+## kg-diverge reads plugin files by path and resumes from recall; the cold-start threshold is the embedder's own (2026-11-20)
+
+- **Decision:**
+  - `/burgess:kg-diverge` names every plugin file it uses by `${CLAUDE_PLUGIN_ROOT}`:
+    `skills/burgess/references/{operators,axis_inference,judge_rubric}.md` and the templates under
+    `pack/domains/` and `pack/domains/examples/`. It says to open them with the Read tool, never with Bash,
+    and never to read `.kg/diverge/` files.
+  - `kg_diverge_init` returns the resolved `axes`, `unit_of_generation` and `candidates_per_generation`.
+    `kg_diverge_recall` returns the same, plus `session_id` and `seed`, from the engine's own state. Step 8
+    gains "After a compaction": call recall first, keep its seed, and never re-init with another session id.
+  - The monitor's cold-start similarity threshold resolves like `dedup_tau`. `engine.monitor_cos_threshold`
+    now defaults to `null`, meaning the embedder family's own value, `monitor.default_cos_threshold`: 0.55
+    for `hash`, 0.67 for `static`. A domain can still pin a number.
+  - `kg_diverge_remember`'s description and step 7 say what comparisons do: the engine only stops asking a
+    pair already answered and tallies the answers for recall. Neither the slate nor the parents read them.
+    Step 7 also says a slate brings earlier ideas back, and that a repeat is no reason to discard.
+- **Field run it answers** (0.19.4, 2026-11-19, Windows session 6cedf547: 3 rounds, 48 ideas,
+  `research_hypotheses`, `/effort max`):
+  - All 19 Bash and PowerShell calls waited for the user's approval. Seven of them hunted for or read
+    plugin files: find, ls, cat and sed on `operators.md` and `research_hypotheses.yaml`. Another read
+    `axes.json` and `pins.json` after a compaction. Those seven waited 5757 s in all, including 845 s and
+    4604 s before the first round, while the user was away.
+  - The command had named `references/operators.md` and `pack/domains/...` as relative paths, which lead
+    nowhere from the project. The first field session had found the same files with Glob and Read, which
+    asked nothing; this one used Bash.
+  - The first batch scored a mean cosine of 0.5807 against the absolute 0.55 (`calibrated: false`). The
+    session regenerated, and told the user the twelve "hablaban de mutación con las mismas palabras". They
+    were twelve distinct mechanisms. The fourth batch scored 0.581 and passed against the calibrated 0.6855.
+  - The session explained a lost idea's return by «las comparaciones pesan poco en la selección». It
+    suggested discarding two ideas because they kept coming back («si no quieres verla más», «que ya ha
+    salido tres veces»); one of them was the parent of two later ideas. The user discarded nothing.
+- **Measurements behind 0.67** (potion-multilingual-128M, WSL, the engine's own embedder and
+  `mean_pairwise_cosine`; the harness reproduced all 11 field values to four decimals):
+  - Field generations of both sessions, 12 ideas of 55–90 words each, all healthy: 0.45–0.58, mean 0.52.
+    The calibrated limits the monitor reached from the third generation: 0.62–0.70.
+  - Batches written for the measurement, twelve variations of one mechanism each:
+    - 57–61 words per idea: 0.56 and 0.62;
+    - 13–28 words per idea: 0.36–0.55 (six batches, Spanish and English).
+  - The healthy field ideas cut to their first 25 words: 0.26–0.41.
+  - Two healthy batches translated to English: 0.53 and 0.54.
+  - The same healthy batch with the brief restated at the start of every idea: 0.77.
+  - The selftest's samey fixtures: 0.89 and 0.90.
+  - So under potion, mean cosine follows idea length about as much as sameness. At equal length a
+    same-mechanism batch scores about 0.05–0.15 above a healthy one, and the ranges overlap.
+- **Why 0.67:**
+  - It is what the calibrated rule computes from a typical healthy baseline: the field mean, 0.52, plus the
+    margin, 0.15. The first generation is then judged as the third will be, and the same similarity no
+    longer gets opposite verdicts in rounds 1 and 4 of one session.
+  - 0.55 sat inside the healthy range, so it fired on a narrow brief's long ideas and not on a short
+    collapse.
+- **Why paths and returned axes, not more search hints:**
+  - A path that resolves needs no search. Claude Code fills `${CLAUDE_PLUGIN_ROOT}` in command text (as
+    `/burgess:kg-eval` relies on; seen in the field as `C:/Users/…/burgess/0.13.2/…`), and in the field sessions
+    that used them, Read and Glob asked nothing for plugin files.
+  - The axes are engine state, and a compaction loses them along with the session id and the seed. One
+    recall call restores all of it, with no file to read.
+- **Rejected alternatives:**
+  - (a) *Keep 0.55 and let the agent overrule an uncalibrated flag by inspecting the mechanisms.* That puts
+    the judge back over the geometry that the monitor exists to keep independent.
+  - (b) *Measure similarity over the `mechanism` strings, or normalize it by length.* Both may separate
+    sameness better under potion, but each needs its own calibration and changes what the monitor
+    measures. That is more than a patch.
+  - (c) *Serve the reference texts through an MCP tool.* The Read tool already reads plugin files without a
+    prompt; a resolvable path was the missing piece.
+  - (d) *Make the slate read comparisons, so that the old wording becomes true.* The slate is the DPP's
+    diverse pick. Letting answers steer it is a design change, not a wording fix.
+- **Accepted trade-offs:**
+  - Under `static`, a same-mechanism batch of long ideas (0.56–0.62) is no longer flagged at cold start.
+    The calibrated rule misses most of those too: only the most similar (0.624) clears the lowest field
+    limit (0.622). A template-like collapse (0.89) is still flagged.
+  - `local` (bge-small) keeps 0.55 for lack of measurements, though the selftest's docstring already
+    expects it to misfire there.
+  - An axis's meaning still lives in the template's comments. Reading them is a Read at a given path.
+- **Pinned in:** `tests/test_fix_diverge_paths_coldstart.py` (16 tests).
+  `tests/fusion/divergence/test_engine_config.py` now expects the `null` default.
+  - Against 0.19.4, 14 of the 16 fail. The 2 that pass pin what 0.19.4 already did: recall on a project
+    never inited, and a comparison leaving the next slate alone. Two of the 14, the calibrated rule and
+    the template-like collapse, fail there only because the monitor's helper took no embedder.

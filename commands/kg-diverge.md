@@ -21,6 +21,16 @@ interpreter to locate and no hand-off files to write — the tools take JSON dir
 `kg_diverge_*` tool errors with a provisioning message (engine deps still installing), relay
 it verbatim and wait; convergence tools are unaffected by design (I9).
 
+**Files: Read tool only, never Bash.** The references this command names are plugin files at fixed
+paths: `${CLAUDE_PLUGIN_ROOT}/skills/burgess/references/operators.md`, `axis_inference.md` and
+`judge_rubric.md` in that same folder, and the domain templates in `${CLAUDE_PLUGIN_ROOT}/pack/domains/`
+and `${CLAUDE_PLUGIN_ROOT}/pack/domains/examples/`. Open them with the Read tool at those paths; there is
+nothing to search for. A Bash read outside the project asks the user for permission: in the 2026-11-19
+field run seven of them (find, cat, sed on these files and on the session state) waited 96 minutes for
+approval, most of it before the first round. The session's own state needs no file at all:
+`kg_diverge_init` returns the resolved axes, and `kg_diverge_recall` returns them with the session id,
+the seed, the pins, the discards and the comparisons. Never read `.kg/diverge/` files.
+
 ## Reach — how far out (the divergence dial)
 
 Maximum divergence is not always what the user wants: it produces extravagant, and
@@ -54,10 +64,11 @@ reach — `wild` means further-out, never incoherent.
    it. Pins and discards always survive across sessions.
 
 2. **Resolve axes** (diversity is only meaningful relative to descriptor axes). Cascade:
-   - the user named a domain that ships as a template (`pack/domains/*.yaml` or
-     `pack/domains/examples/*.yaml` — e.g. `generic`, `marketing`, `product_features`,
-     `research_hypotheses`): pass its name as `axes`;
-   - else **infer** 4–6 descriptor axes from the brief per `references/axis_inference.md`
+   - the user named a domain that ships as a template (`${CLAUDE_PLUGIN_ROOT}/pack/domains/*.yaml` or
+     `${CLAUDE_PLUGIN_ROOT}/pack/domains/examples/*.yaml` — e.g. `generic`, `marketing`,
+     `product_features`, `research_hypotheses`): pass its name as `axes`;
+   - else **infer** 4–6 descriptor axes from the brief per
+     `${CLAUDE_PLUGIN_ROOT}/skills/burgess/references/axis_inference.md`
      (exactly one `open` axis marked `primary_novelty: true` — the mechanism carrier) and
      **confirm them with ONE short question** the user can accept or tweak; pass the result
      as an inline `axes` dict;
@@ -66,7 +77,10 @@ reach — `wild` means further-out, never incoherent.
 
    Then call `kg_diverge_init(project, axes, session)` and `kg_diverge_recall(project)` —
    recall returns prior pins/discards/comparisons for this brief so you generate AWAY from
-   what the user already discarded and FROM what they pinned.
+   what the user already discarded and FROM what they pinned. `kg_diverge_init` returns the
+   resolved `axes` (names, types, ranges, which one is the open axis) and
+   `candidates_per_generation`: write every descriptor with exactly those axis names. A template's
+   comments say what each axis means; if you want them, Read the template at its path above.
 
 3. **Map the clichés (anti-cliché directive), before generating.** Enumerate the **~6 most
    obvious/cliché answers** to *this* brief. Split: **O_train** (first ~3 — keep in view,
@@ -77,7 +91,8 @@ reach — `wild` means further-out, never incoherent.
    the slate. Caveat honestly: "obvious" is your notion of cliché; this hedges cliché, it does
    not guarantee novelty against the world.
 
-4. **Generate candidates yourself, mechanism-first**, using `references/operators.md`
+4. **Generate candidates yourself, mechanism-first**, using
+   `${CLAUDE_PLUGIN_ROOT}/skills/burgess/references/operators.md`
    (apply several DIFFERENT operators per round — biased by the reach dial: recombinative
    under `conservative`, mixed under `balanced`, far-reaching welcome under `wild`):
    - *Layer 1 — mechanism first.* Before writing a candidate's `text`, choose its
@@ -94,10 +109,11 @@ reach — `wild` means further-out, never incoherent.
      middle; make each axis value meaningfully distinct. See `operators.md` →
      "Descriptor discipline".
 
-5. **Prefilter** with `references/judge_rubric.md`: drop ONLY invalid/off-brief candidates.
-   NEVER judge novelty here. You may attach a within-niche `fitness` (0–1) — the engine clips
-   its influence to a bounded multiplier ([0.7, 1.3] at weight 0.3); you may NOT use it to cut
-   variety. If you find yourself dropping more than ~40% of a round, you are over-filtering.
+5. **Prefilter** with `${CLAUDE_PLUGIN_ROOT}/skills/burgess/references/judge_rubric.md`: drop ONLY
+   invalid/off-brief candidates. NEVER judge novelty here. You may attach a within-niche `fitness`
+   (0–1) — the engine clips its influence to a bounded multiplier ([0.7, 1.3] at weight 0.3); you
+   may NOT use it to cut variety. If you find yourself dropping more than ~40% of a round, you are
+   over-filtering.
 
 6. **Ingest.** Call `kg_diverge_ingest(project, candidates, axes, seed)` with the survivors:
 
@@ -126,6 +142,14 @@ reach — `wild` means further-out, never incoherent.
    proxy, not originality vs the world; `mechanism_novelty` is the same for its mechanism.
    Report them as such.
 
+   **Earlier ideas on the slate.** The engine picks the slate from every idea in the archive, not only
+   this round's, so a slate often brings earlier ideas back. Mark each with its round, summarize it in a
+   line, and explain in full only the new ones. A repeat is no reason to discard: a discard is negative
+   memory (never slated again, never a parent), so offer it for an idea the user finds wrong, never as a
+   way to stop one from coming back. In the 2026-11-19 field run the session suggested discards for
+   exactly that («si no quieres verla más», «que ya ha salido tres veces»), and one of those ideas was
+   the parent of two later ideas.
+
    **Then the rest of this round.** After the slate, list every other idea you ingested this round
    that the slate left out, by id, in two or three plain lines each: what it claims, and one concrete
    example. Not a table of one-liners, and not ideas from earlier rounds. The slate is the engine's
@@ -133,7 +157,11 @@ reach — `wild` means further-out, never incoherent.
    parent. In the first field session (2026-11-16 to 11-19) round 1 showed only its slate, and round 2
    showed the rest as a one-line table. The user could not tell what those ideas were about («Así no sé de
    qué van»), and pinned one that had never been explained. Then:
-   - ask only the returned `ask_pairs` as short A-vs-B questions;
+   - ask only the returned `ask_pairs` as short A-vs-B questions. The answers do not move the slate or
+     the parents: the engine only stops asking a pair already answered and tallies the answers for
+     `kg_diverge_recall`. They reach the next round through you, when you generate. So a loser coming back
+     on a later slate is expected; never explain it as comparisons weighing little, because the slate
+     does not read them at all;
    - **explicitly invite pinning any idea** — "pin any idea of this round to keep exploring from,
      from the slate or the rest, not just A/B" (pins are the strongest, durable signal: always parents,
      recalled across sessions, and later materializable into the graph via /burgess:kg-generate's propose lane);
@@ -146,6 +174,13 @@ reach — `wild` means further-out, never incoherent.
    `{"type":"comparison","winner":…,"loser":…}`. Then `kg_diverge_parents(project)` for
    diverse stepping stones (pins always kept, discards always excluded) and loop from step 4,
    or stop on the user's word.
+
+   **After a compaction.** If the conversation was compacted between rounds, call
+   `kg_diverge_recall(project)` before anything else: it returns this session's `session_id`, the
+   `seed`, the resolved `axes`, the pins, the discards and the comparisons. Keep passing that seed.
+   Do not call `kg_diverge_init` with another session id, which would wipe the archive, and do not read
+   `.kg/diverge/` files: in the 2026-11-19 field run that read went through Bash and waited for the
+   user's approval.
 
 9. **React to the monitor** (the `mon` block in every ingest result — advisory notice to the
    user, never a question):

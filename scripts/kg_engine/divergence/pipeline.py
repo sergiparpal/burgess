@@ -41,7 +41,8 @@ from .session import Session
 # every value (review-r5: these used to be hand-mirrored literals whose only sync
 # mechanism was a guard test).
 #
-# The near-duplicate cosine threshold is per-embedder (see ``embed.default_dedup_tau``).
+# The near-duplicate cosine threshold is per-embedder (see ``embed.default_dedup_tau``), and so is
+# the monitor's cold-start similarity threshold (see ``monitor.default_cos_threshold``).
 _DEFAULTS = config.EngineConfig()
 KNN_K = _DEFAULTS.knn_k
 # Open-axis (mechanism) niching. The partition is data-adaptive: cold-start fixed
@@ -99,6 +100,12 @@ def init_project(
     that state is reset and the geometry-coupled meta series dropped; preference memory
     is preserved. Identical axes within one session -> idempotent, nothing reset.
     Runs under the project lock (see ``ingest``).
+
+    The result carries the resolved axes (name, type, range, the open axis) plus the unit
+    and how many candidates to draft, so the agent can write descriptors without opening
+    the domain template. In the 2026-11-19 field run the agent went looking for the
+    template with Bash, and every such read outside the project asked the user for
+    permission while the round waited.
     """
     spec, settings, econfig = config.load_all(axes_source)
     sess = Session(project, home=home, seed=seed).ensure()
@@ -141,6 +148,9 @@ def init_project(
         state.write_meta(meta)
     return {"ok": True, "domain": spec.domain, "reset": reset,
             "session_id": session_id, "new_session": new_session,
+            "axes": [a.to_dict() for a in spec.axes],
+            "unit_of_generation": spec.unit_of_generation,
+            "candidates_per_generation": settings.candidates_per_generation,
             "paths": state.paths()}
 
 
@@ -162,14 +172,41 @@ def paths(project: str, home: Path | None = None) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # recall
 # --------------------------------------------------------------------------- #
+def _session_context(state: "State") -> dict[str, Any]:
+    """What an agent needs to go on with this project's session after its conversation was
+    compacted: the session id the archive belongs to (the one ``init_project`` last began or
+    resumed), the seed, and the resolved axes with the unit and the per-generation count.
+    All of it is the engine's own state, so the agent never has to read ``.kg/diverge/``
+    files. In the 2026-11-19 field run it read them with Bash after a compaction, and the
+    read waited on a permission prompt. Keys absent from the state are left out."""
+    out: dict[str, Any] = {}
+    session_id = state.read_session().get("session_id")
+    if session_id:
+        out["session_id"] = session_id
+    meta = state.read_meta()
+    if "seed" in meta:
+        out["seed"] = meta["seed"]
+    axes = state.read_axes()
+    if isinstance(axes, dict) and axes.get("axes"):
+        out["axes"] = axes["axes"]
+        if axes.get("unit_of_generation"):
+            out["unit_of_generation"] = axes["unit_of_generation"]
+    if meta.get("candidates_per_generation"):
+        out["candidates_per_generation"] = meta["candidates_per_generation"]
+    return out
+
+
 def recall(project: str, k: int = 10, home: Path | None = None) -> dict[str, Any]:
-    """Return memory for in-context injection: recent choices, pins, win tallies."""
+    """Return memory for in-context injection: recent choices, pins, win tallies, plus the
+    session context (session id, seed, axes) a compacted conversation needs to go on."""
     sess = Session(project, home=home)
     # Reads comparisons + pins + discards + the candidate store together; take the
     # project lock so a concurrent ingest can't be observed mid-rewrite (see
     # State.project_read_lock — best-effort, never blocks for long).
     with sess.state.project_read_lock():
-        return memory.recall(sess.state, sess.domain, k=k)
+        out = memory.recall(sess.state, sess.domain, k=k)
+        out.update(_session_context(sess.state))
+        return out
 
 
 # --------------------------------------------------------------------------- #
@@ -606,13 +643,20 @@ def _run_gap_probe(cyc: "_Cycle", slate_ids: list[str], open_axis, dim: int):
 
 
 def _evaluate_monitor(vecs: np.ndarray, niche_counts: list[int], baseline: list[float],
-                      econfig: "config.EngineConfig") -> dict[str, Any]:
+                      econfig: "config.EngineConfig", embedder_name: str) -> dict[str, Any]:
     """The ONE place econfig's monitor knobs map onto ``monitor.evaluate`` (review-r5: the
     five-kwarg threading was duplicated between the empty-cycle and real-cycle paths, so a new
-    monitor knob could silently evaluate under defaults on one of them)."""
+    monitor knob could silently evaluate under defaults on one of them).
+
+    The cold-start threshold resolves like ``dedup_tau``: a pinned ``monitor_cos_threshold``
+    wins, else the embedder family's own (``monitor.default_cos_threshold``) — 0.55 was tuned
+    on the hash fixture and flagged a healthy first generation under ``static`` in the field."""
+    cos_threshold = (econfig.monitor_cos_threshold
+                     if econfig.monitor_cos_threshold is not None
+                     else monitor.default_cos_threshold(embedder_name))
     return monitor.evaluate(
         vecs, niche_counts, baseline=baseline,
-        cos_threshold=econfig.monitor_cos_threshold,
+        cos_threshold=cos_threshold,
         entropy_threshold=econfig.monitor_entropy_threshold,
         margin=econfig.monitor_margin,
         cos_ceiling=econfig.monitor_cos_ceiling,
@@ -636,6 +680,7 @@ def _empty_cycle(
     arc: "archive_mod.Archive",
     spec: AxesSpec,
     econfig: "config.EngineConfig",
+    embedder_name: str,
 ) -> dict[str, Any]:
     """Result dict for a generation with no candidates to ingest.
 
@@ -647,7 +692,7 @@ def _empty_cycle(
     meta = state.read_meta()
     gen_index = int(meta.get("cycles", 0))
     mon = _evaluate_monitor(np.zeros((0, 1)), arc.niche_counts(),
-                            list(meta.get("cos_window", [])), econfig)
+                            list(meta.get("cos_window", [])), econfig, embedder_name)
     mon["submitted"] = 0
     mon["target_candidates"] = int(meta.get("candidates_per_generation", 0) or 0)
     mon["under_generation"] = False
@@ -971,7 +1016,7 @@ def _ingest_locked(
 
     arc = archive_mod.Archive.from_dict(spec, state.read_archive())
     if not cand_list:
-        return _empty_cycle(state, arc, spec, econfig)
+        return _empty_cycle(state, arc, spec, econfig, sess.embedder.name)
 
     cyc = _Cycle(state=state, spec=spec, econfig=econfig, embedder=sess.embedder, seed=seed,
                  arc=arc, cand_store=state.read_candidates(),
@@ -1040,7 +1085,7 @@ def _ingest_locked(
     # The baseline is the rolling window of prior generations' mean cosine, so the
     # similarity flag is calibrated to this project rather than a fixed constant.
     baseline = list(meta_now.get("cos_window", []))
-    mon = _evaluate_monitor(vecs, arc.niche_counts(), baseline, econfig)
+    mon = _evaluate_monitor(vecs, arc.niche_counts(), baseline, econfig, embedder.name)
 
     erosion = _apply_advisory_sensors(mon, meta_now, econfig,
                                       submitted=len(cand_list),

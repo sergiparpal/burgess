@@ -51,7 +51,7 @@ the natural scale of similarity.
 | `novelty_ref_cap` | 500 | cap on the dedup/novelty reference (most-novel elites) |
 | `max_dpp_pool` | 200 | cap on the elite pool fed to the DPP |
 | `quality_weight` | 0.3 | weight of the (bounded, [0.7–1.3]-clipped) judge fitness in the DPP slate; 0 ⇒ pure diversity |
-| `monitor_cos_threshold` | 0.55 | absolute similarity fallback (until the baseline window fills) |
+| `monitor_cos_threshold` | `null` | absolute similarity fallback (until the baseline window fills); `null` ⇒ per-embedder default (0.55 `hash`, 0.67 `static`) |
 | `monitor_entropy_threshold` | 0.50 | concentration-collapse threshold (≥3 occupied niches) |
 | `monitor_margin` | 0.15 | relative similarity flag: `baseline + margin` |
 | `monitor_cos_ceiling` | 0.80 | absolute safety ceiling for the similarity flag |
