@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-eight graph tools (§1), then the eight divergence-surface
+Load on demand. The MCP **tool surface** — the thirty-one graph tools (§1), then the eight divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,7 +17,7 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-eight** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-one** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
@@ -26,8 +26,10 @@ the `/burgess:kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20),
 adversarial attack leaves when it writes no counter-edge, `kg_record_edgeless_section` (§1.24), the mark an
 extraction leaves on a section it wrote no edge from, `kg_record_generation` (§1.25), the record a
 `/burgess:kg-generate` run leaves in the absorption ledger, and `kg_record_unsupported(target_id, kind="node", note)`
-(§1.26), the mark a grounder leaves on a `[diverge]` pin it judged and found no support for.
-The eight **divergence-surface** tools (§1B) complete the server's **thirty-six**.
+(§1.26), the mark a grounder leaves on a `[diverge]` pin it judged and found no support for, and the
+external-sources trio `kg_source_add` (§1.27), `kg_source_list` (§1.28) and `kg_source_set` (§1.29), which
+register outside texts with an epistemic level so grounders can cite verbatim spans from them (0.21.0).
+The eight **divergence-surface** tools (§1B) complete the server's **thirty-nine**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
@@ -35,7 +37,8 @@ Mutation tools (`kg_write`, `kg_propose`, `kg_ground`, `kg_rename`, `kg_merge`) 
 the single source of truth) — `kg_propose` (§1.12) is the hypothesized write lane and `kg_operate` (§1.14) writes
 through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
 `kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon, and
-`kg_record_generation` (§1.25) only the absorption ledger in the derived dir. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+`kg_record_generation` (§1.25) only the absorption ledger in the derived dir, and `kg_source_add` /
+`kg_source_set` (§1.27, §1.29) only the project's `evidence/` directory. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -151,7 +154,7 @@ A write may never set a non-`unverified` state or claim parser/human authorship:
 `agent` (`human-claim-stripped`); `deterministic` → `agent` (`deterministic-claim-stripped`, so an
 extractor can't dodge span-present by self-declaring parser authorship). None are accepted as-is.
 
-### 1.4 `mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind="edge", note="", support_span="", support_note="", lead="")`
+### 1.4 `mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind="edge", note="", support_span="", support_note="", lead="", refuted_by="")`
 
 **The ONLY path that may set a verdict** (§1.4/§1.8). Stamps the epistemic_state and appends a `ground.audit`
 record so the reconciler treats the transition as legitimate.
@@ -167,9 +170,32 @@ record so the reconciler treats the transition as legitimate.
   `hypothesized` edge to `grounded` you MUST supply one, and it **upgrades the edge's provenance**:
   `support_span` (a verbatim source substring, span-verified) → `span-present`; `support_note` (an external
   citation, no span) → `inferred`. Ignored for non-hypothesized edges and for any verdict other than `grounded`.
-  A support span also records its file (0.16.1). An edge that names no declared source takes the first file
-  that holds the span as its `source_file`; one that names a declared source keeps it. A node's body gets a
-  `grounding source: <file>` paragraph after its `grounding span:` one.
+  A support span also records its file (0.16.1). An edge that names no declared source takes the file that
+  holds the span as its `source_file` (since 0.21.0: a configured source first, else the usable registered copy
+  of the highest level); one that names a declared source keeps it. A node's body gets a
+  `grounding source: <file>` paragraph after its `grounding span:` one. A `support_note` is recorded as
+  `citation (unchecked): <note>` (0.21.0; `citation: ` before) and the return says `"support":
+  "unchecked-citation"`; a span promotion returns `"support_source"`, the file's class and level.
+- `refuted_by: str = ""` (0.21.0) — with `verdict="failed"`: the id of the counter-edge (`attacked_by`,
+  `confounded_by` or `collapses_into`, touching the claim, with a span) whose span refutes the claim. Required
+  once any external source is registered (`failed-needs-refuted-by`), so the engine knows where the refuting
+  span lies; appended to the notes (a node's body) as `refuted by: <id>` and echoed as `"refuted_by"`. Refused:
+  `refuted-by-not-found`, `refuted-by-not-a-counter-edge`, `refuted-by-is-the-claim`, `refuted-by-unrelated`,
+  and the level veto below.
+
+**Levels of external sources (0.21.0).** Spans verify against the configured sources and the registered
+external copies (§1.27). The level measures the filter the text passed, never the truth of a claim, so it only
+decides what may be used:
+- support (a promotion span, or the span of a non-hypothesized edge being grounded) must lie in a configured
+  source or in a usable copy: level 1–4, not `retracted` nor `superseded`. Otherwise `support-not-usable`, with
+  `"source"` (the file) and `"unusable"` (`unfiltered`, `retracted`, `superseded`). A span the notes also hold is
+  supported by the notes.
+- a `failed` is vetoed (`evidence.failed_veto`) when the refuting span lies in an unusable source
+  (`failed-by-unusable-source`), when one side is the configured sources and the other an external copy
+  (`failed-across-own-and-external`: the user's notes and an external source never fail each other), or when an
+  external refutation has a lower level than the external support (`failed-by-lower-level`). A refusal returns
+  `claim_source`, `refuting_source` and a `hint`; the counter-edge stands as a visible dispute. With no source
+  registered, a `failed` without `refuted_by` behaves as through 0.20.2.
 - `lead: str = ""` (0.9.0) — with `verdict="rejected"` on an edge only: the edge the rejected span does state
   instead, `"<head-id> <relation> <tail-id>"` (`groundplan.parse_lead`: the ids slugged, the relation a pack
   edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
@@ -202,8 +228,8 @@ still appended, and the audit log records the call. Note: the return `key` for a
 
 > Adversarial grounding (§1.7): the adversarial grounder writes counter-edges typed `attacked_by`,
 > `confounded_by` or `collapses_into`, which stay `unverified` for the next pass's grounders, and calls
-> `kg_ground(target_id=<the refuted claim's edge id>, verdict="failed")` only on a claim one of them
-> genuinely refutes, never on its own counter-edge. Failed/rejected edges are NEGATIVE INFORMATION — never
+> `kg_ground(target_id=<the refuted claim's edge id>, verdict="failed", refuted_by=<the counter-edge id>)` only
+> on a claim one of them genuinely refutes, never on its own counter-edge. Failed/rejected edges are NEGATIVE INFORMATION — never
 > pruned, surfaced by `kg_context.falsification_counters`.
 
 ### 1.5 `mcp__plugin_burgess_burgess__kg_rename(old_id, new_id)`
@@ -953,6 +979,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   degree counted every edge, so every pass offered the same five hubs and left ten new unverified
   counter-edges behind.
 - `source` — the configured source, as in `kg_status`, for the adversarial grounder's searches.
+- `evidence` (0.21.0) — `{path, files: [{name, level, level_name, role, title}]}`: the usable registered external
+  sources (§1.27), which the adversarial grounder may search too. An unusable one refutes nothing and is not
+  listed.
 - An item leaves the plan once it carries a verdict, so calling it again between waves is the progress probe.
 
 ### 1.22 `mcp__plugin_burgess_burgess__kg_ground_item(target_id, kind="edge")`
@@ -972,7 +1001,12 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
 ```
 
 - `span_in_source` — the engine's own check, now: does the span still verify against its file? `false` is a
-  stale or broken span; `null` for a span-less (hypothesized) edge.
+  stale or broken span; `null` for a span-less (hypothesized) edge. Registered external copies count (0.21.0).
+- `span_source` (0.21.0) — where the span lies: `{"class": "own", "file"}` for a configured source, the copy's
+  label for a registered external source (`class: "external"`, `level`, `level_name`, `role`, `marks`, `usable`,
+  `title`, `url`, `published`), `{"class": "none"}` when no file holds it; `null` for a span-less edge. Every
+  `context`, `shared_context` section and `passage` from an external copy carries the same label as `source`;
+  one with no `source` is from the configured sources.
 - `context` — the excerpt of the source section that holds the span (`groundplan.span_excerpt`), or `null`.
   It is the paragraph and its neighbours, at most 3000 characters, and for a long table the rows around the
   span under the table's header and rule rows, with a `…` line where rows were skipped (0.8.0: before, a row
@@ -1021,6 +1055,10 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
     A pin or a cliché has none, so its grounder could only search the spans other edges cited, as the field
     pass of 2026-11-21 reported.
   - The section index is cached on the sources' signature.
+  - Registered external copies (0.21.0): the index also holds every usable copy (an unusable one, level 5,
+    retracted or superseded, can support nothing and is left out), and after the best 3 sections come up to 3
+    more from external copies, so a source registered for a node is never crowded out by the notes. Each of
+    those carries `source`, its label.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
   placeholders included, restores and verifies.
 - `ok: false` for an unknown id, or a `kind` other than `edge`/`node`.
@@ -1150,6 +1188,97 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   unreadable ledger only offers those pins to one more grounder.
 - `ok: false` for an unknown item or kind, an empty or overlong note, or an item that is not an unverified
   `[diverge]` pin; nothing is written then.
+- Registering an external source (§1.27) changes the source signature, so every waiting pin is offered again
+  to the next pass, which judges it against the new source too (0.21.0).
+
+---
+
+### 1.27 `mcp__plugin_burgess_burgess__kg_source_add(url="", path="", level="", role="", title="", published="", marks="", derives_from="", note="", preview=False)`
+
+Register an external source (0.21.0, `evidence.py`): the engine copies an outside text into
+`<project>/evidence/` and records its epistemic level, so a grounder can cite a verbatim span from it. Through
+0.20.2 the only outside support was a `support_note`, a citation the engine could not check. **The level
+measures the filter the text passed before it was published, never whether a claim is true.**
+
+- Exactly one of `url` (http/https) or `path` (a local file, relative to the project). The engine fetches the
+  bytes itself, with a generic User-Agent that says nothing about the user, and extracts the text by a fixed
+  rule (stdlib `html.parser`: headings become `##`/`###` lines, list items `- ` lines, table rows `a | b`
+  lines; scripts, styles, navigation, footers and forms are dropped). **Never register WebFetch output**: it is
+  a small model's answer about the page, not the page. A local `.md`/`.markdown`/`.txt` is copied verbatim;
+  `.html`/`.htm` is extracted by the same rule. PDF is refused (`pdf-not-supported`): convert it to Markdown
+  and register that file.
+- `preview=True` — fetch or read it and return `{title, chars, content_type, extractor, published, meta,
+  final_url, excerpt}` (the first 1500 characters) without writing anything: what the command proposes a level
+  and role from. `meta` holds the page's `citation_*`, `dc.*`, `og:*` and `article:published_time` values.
+- `level` — required: `1` reviewed (peer review), `2` institutional (official statistics, standards, official
+  documentation, university textbooks), `3` editorial (press with corrections, edited books), `4` author or
+  community (preprints, code, changelogs, company docs and blogs, forums, Wikipedia), `5` unfiltered (no
+  filter, or made to sell, persuade or rank). Also `"N3"` or the names.
+- `role` — required: `primary` (the origin of the fact), `secondary` (analyses and cites primaries),
+  `tertiary` (summarizes without the origin).
+- `marks` — comma-separated, from `interest`, `corrected`, `retracted`, `superseded`. A level-5 source, and a
+  retracted or superseded one, supports and refutes nothing.
+- `published` — `YYYY`, `YYYY-MM` or `YYYY-MM-DD`; when empty the date the page declares is kept, with
+  `published_from: "page"`. `retrieved_at` is the one date the engine certifies.
+- `derives_from` — a registered source this one repeats (so it is not independent of it); `title`; `note`
+  (why this level).
+
+```json
+{"ok": true, "name": "ext-study-of-degree-8c40b8d9.md",
+ "source": {"class": "external", "file": "ext-study-of-degree-8c40b8d9.md", "level": 1, "level_name": "reviewed",
+            "role": "primary", "marks": [], "usable": true, "title": "Study of degree",
+            "url": "https://example.org/paper", "published": "2023-04-02"},
+ "chars": 172, "retrieved_at": "2026-11-21T20:00:00+00:00", "published_from": "page",
+ "directory": "/path/to/project/evidence"}
+```
+
+- Per source the directory holds the copy (`ext-<slug>-<8 hex of its sha256>.md`), its record
+  (`<same stem>.source.json`: level, `level_by`, role, marks, dates, url, `sha256_raw`, `sha256_text`,
+  extractor) and, for a fetched page or a local HTML file, the bytes as received under `raw/`. The `ext-`
+  prefix keeps a copy from sharing a basename with a configured source.
+- `level_by` is always `agent` through this tool; only a hand edit of the record says `human`.
+- A copy is **never extracted**: `kg_build_plan`, `kg_section`, coverage and the specificity corpus read the
+  configured sources only. It is used for span verification (`kg_write`, `kg_ground`, the R3 staleness scan),
+  the grounder's evidence (`kg_ground_item`), the adversarial grounder's search (`kg_ground_plan`'s
+  `evidence`), and the source signature that wakes waiting pins.
+- Refusals: `give-url-or-path`, `url-not-http`, `fetch-failed` (with the HTTP status or reason), `too-large`
+  (over 5 MB), `undecodable`, `no-text` (the page needs JavaScript: save its text as `.md` and register the
+  file), `pdf-not-supported`, `content-type-not-supported`, `file-type-not-supported`, `file-not-found`,
+  `already-a-configured-source`, `already-in-evidence`, `bad-level`, `bad-role`, `bad-marks`,
+  `bad-published`, `derives-from-unknown`, and `already-registered` (the same text, with its `name`). A URL
+  registered before with other text is accepted and named in `same_url_as`, so the old copy can be marked
+  superseded.
+
+---
+
+### 1.28 `mcp__plugin_burgess_burgess__kg_source_list()`
+
+The registered external sources and what the grounded claims rest on (0.21.0). Read-only.
+
+- `sources[]` — each one's `name`, label (`level`, `level_name`, `role`, `marks`, `usable`, `unusable`, `title`,
+  `url`, `published`, `derives_from`), `retrieved_at`, `published_from`, `level_by`, `note`, `origin` and
+  `chars`; `by_level` and `usable` count them.
+- `problems[]` — records left out, with `problem`: `text-edited` (the copy no longer matches its sha256, so the
+  engine no longer vouches for it: register the source again instead of editing the copy), `text-missing`,
+  `name-mismatch`, `sidecar-malformed`, `sidecar-unreadable`, or a field's parse error. `unregistered[]` — text
+  files in the directory that no record claims; they are ignored.
+- `support` — `edges` and `nodes`, each `{own, external: {level: n}, unchecked_citation, unlocated}`: grounded
+  claims whose support lies in the configured sources, in external copies by level, in a `support_note` (an
+  `inferred` promotion the engine cannot check), or in a span no file holds now. `external_items`,
+  `unchecked_items` (at most 50 each) and `on_unusable` (claims grounded on a source since marked unusable, with
+  `on_unusable_total`) name them.
+
+---
+
+### 1.29 `mcp__plugin_burgess_burgess__kg_source_set(name, level=None, role=None, marks=None, published=None, derives_from=None, title=None, note=None)`
+
+Change a registered source's record (0.21.0). A parameter left out is unchanged; `marks` replaces the whole set
+(`""` clears it), and `published` / `derives_from` take `""` to clear. The copy itself is never rewritten. A
+level set here is recorded as the agent's. Returns `{ok, name, changed: [fields], source: <label>}`; refusals
+`source-not-found` (with `registered`), `bad-level`, `bad-role`, `bad-marks`, `bad-published`,
+`derives-from-unknown`. A change bears on verdicts from now on: a source marked retracted or superseded
+supports and refutes nothing. Verdicts already given keep their state, and `kg_source_list` names those now
+resting on an unusable source.
 
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 

@@ -1131,20 +1131,23 @@ class Projector:
         try:
             if self._source_set is None:
                 return []
-            from .sources import SourceSet
             # list-of-lists so it round-trips through json identically to the stored value (tuples would
-            # compare unequal to the json-decoded lists in is_stale).
-            return [list(x) for x in SourceSet.signature(self._source_set().path)]
+            # compare unequal to the json-decoded lists in is_stale). The set's own stat signature covers the
+            # registered external copies too (0.21.0), so registering one triggers a projection like any
+            # source edit; with none it is the configured files' signature, unchanged.
+            return [list(x) for x in self._source_set().stat_signature()]
         except Exception:  # noqa: BLE001 — a source-stat hiccup degrades to "no signature", never crashes a read
             return []
 
     def _source_hash(self) -> str:
-        """sha256 of the source payload (the SourceSet concat); '' when no source. R3's stale-verdict
-        recompute pre-gate — moves on any add/remove/edit of any source file. Computed only inside a
-        projection (off the hot path); is_stale gates a source-only edit on the cheap _source_stat_sig."""
+        """sha256 of the source payload (the SourceSet's `full_concat`: the configured sources, then any
+        registered external copy, 0.21.0); '' when no source. R3's stale-verdict recompute pre-gate — moves
+        on any add/remove/edit of any source file or copy. With no external copy the payload is the concat,
+        so a 0.20.2 index is not invalidated. Computed only inside a projection (off the hot path); is_stale
+        gates a source-only edit on the cheap _source_stat_sig."""
         try:
             sources = self._source_set() if self._source_set else None
-            payload = sources.concat if sources is not None else self._src_text()
+            payload = sources.full_concat if sources is not None else self._src_text()
         except Exception:  # noqa: BLE001 — a source-read hiccup degrades to "" (no source), matching _src_text's posture
             return ""
         return hashlib.sha256(payload.encode()).hexdigest() if payload else ""

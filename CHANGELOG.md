@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.21.0 — 2026-11-21
+
+Outside evidence for grounding. Until now every verdict was judged against your configured sources, your own
+notes, so `grounded` meant "my notes say it", and the only outside support a grounder could give was a citation
+the engine could not check.
+
+### Added
+
+- **`/burgess:kg-sources` registers external sources, each with an epistemic level.**
+  - `add <url or path>` copies a web page or a local `.md`, `.txt` or `.html` file into the project's
+    `evidence/` folder. Claude shows a preview and proposes a level, a role and any marks, with a reason, and
+    waits for you to confirm before anything is written.
+  - Levels: 1 reviewed (peer review), 2 institutional (official statistics, standards, official documentation),
+    3 editorial (press and publishers with an editor), 4 author or community (preprints, code, company blogs,
+    forums, Wikipedia), 5 unfiltered (no filter, or made to sell, persuade or rank). Roles: primary,
+    secondary, tertiary. Marks: interest, corrected, retracted, superseded.
+  - `list` shows the sources and what your grounded claims rest on: your notes, external sources by level, or
+    citations the engine cannot check. `set` changes a source's level, role, marks, date or note.
+  - Grounders can then support an unverified item with a verbatim passage from a registered source, and the
+    adversarial grounder can refute a claim with one. The ideas waiting for new sources come back to the next
+    `/burgess:kg-ground` on their own.
+- **The level measures the filter a text passed, never whether a claim is true.** It only bounds what may be
+  used:
+  - A level-5 source, and a retracted or superseded one, supports and refutes nothing.
+  - Your notes and an external source never fail each other: a paper that contradicts your notes leaves its
+    counter-claim beside yours as a visible dispute, and correcting the note is your call.
+  - Between external sources, a lower level cannot fail a claim a higher one supports.
+- **The engine makes the copy.** It fetches the page itself, with a generic User-Agent that says nothing about
+  you, and keeps the bytes it received and the hash of the copy. A copy edited by hand is left out and reported.
+  PDF is refused: convert it to Markdown and add that file.
+- **A registered source is never extracted into the graph.** `/burgess:kg-build` and the specificity weights
+  read your configured sources only.
+- Three MCP tools: `kg_source_add`, `kg_source_list`, `kg_source_set` (39 in all).
+
+### Changed
+
+- `kg_ground(verdict="failed")` takes `refuted_by`, the counter-edge whose passage refutes the claim. Once any
+  external source is registered it is required, so the engine knows where the refutation comes from.
+- A grounding based on a citation is recorded as `citation (unchecked): …`.
+- `kg_ground_item` says where a span lies (`span_source`) and labels every passage from an external source with
+  its level. `kg_ground_plan` lists the usable external sources for the adversarial grounder.
+
+### Upgrading
+
+- Nothing to do until you register a source: with none, every verdict and source signature is what 0.20.2
+  gives, and the pins waiting for new sources keep waiting.
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The views carry the 0.20.2 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.20.2 — 2026-11-21
 
 A follow-up from the first grounding pass on 0.20.1, whose own report said its grounders had searched only

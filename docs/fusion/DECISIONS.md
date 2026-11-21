@@ -2353,3 +2353,92 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - `tests/test_fix_ground_unsupported_pins.py` now checks that a record without an evidence version no longer
     waits.
   - `tests/test_kg_ground_plan.py`'s queue shape gains `reexamine`.
+
+## External sources with an epistemic level: the level vetoes a verdict, never decides one (2026-11-21)
+
+- **Decision:**
+  - `kg_source_add` (`evidence.py`) registers an outside text. The engine fetches a URL itself (stdlib urllib,
+    a generic User-Agent) or reads a local `.md`/`.markdown`/`.txt` (verbatim) or `.html` file, extracts the text
+    by a fixed stdlib `html.parser` rule (`html-text/1`), and writes `ext-<slug>-<8 hex>.md`, its record
+    `<stem>.source.json` and, for a fetched page or HTML file, the bytes under `raw/`, into `<project>/evidence/`.
+    PDF is refused. `preview=true` returns what to propose a level from and writes nothing.
+  - The record holds a **level** (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered),
+    a **role** (primary, secondary, tertiary), **marks** (interest, corrected, retracted, superseded),
+    `retrieved_at` (the one date the engine certifies), `published` with `published_from` (`page` or `caller`),
+    `level_by` (always `agent` through the tool), and the sha256 of the raw bytes and of the copy.
+  - `SourceSet(path, extra=…, exclude=…)` appends the registered copies after the configured sources. The
+    per-file views (`texts`, `verifies`, `files_containing`, `has_file`) see them; `concat` and `normalized` stay
+    the configured corpus, and `full_concat` covers both. `_SourceResolver.verify()` builds that set; the
+    projector, `kg_write`'s boundary, `kg_ground` and `kg_ground_item` read it, while `kg_build_plan`,
+    `kg_section`, coverage and the specificity corpus keep reading the configured sources.
+  - `kg_ground`: support (a promotion span, or the span of a non-hypothesized edge being grounded) must lie in a
+    configured source or a usable copy (level 1–4, neither retracted nor superseded), else `support-not-usable`.
+    A promotion records the named file if usable, else the first configured source, else the usable copy of the
+    highest level. A `support_note` is recorded as `citation (unchecked): …` and returns
+    `support: unchecked-citation`.
+  - `kg_ground(verdict="failed", refuted_by=<counter-edge id>)`: required once any source is registered. The
+    counter-edge must exist, be typed `attacked_by` / `confounded_by` / `collapses_into`, touch the claim and
+    carry a span the engine can place. `evidence.failed_veto` then refuses `failed-by-unusable-source`,
+    `failed-across-own-and-external` and `failed-by-lower-level`. The id is appended as `refuted by: <id>`.
+  - `kg_source_list` reports the registry, its `problems` and `unregistered` files, and `support`: grounded edges
+    and nodes by where their support lies (`own`, `external` by level, `unchecked_citation`, `unlocated`), with
+    the claims resting on a source since marked unusable. `kg_source_set` changes a record, never the copy.
+  - `kg_ground_item` adds `span_source` and labels every external excerpt with `source`; a node's
+    `source_context` adds up to 3 sections from usable copies after its best 3. `kg_ground_plan` adds
+    `evidence`, the usable copies, for the adversarial grounder's search.
+  - `/burgess:kg-sources` (`add` with a preview and the user's confirmation, `list`, `set`) is the command; it
+    may call only the three tools. The grounder and adversarial-grounder prompts and `/burgess:kg-ground`'s
+    Stage 2 template carry the levels and `refuted_by`.
+- **Origin:** the user asked for a command that finds sources able to verify, positively or negatively, what
+  the graph leaves unverified, with sources classified by epistemic level, and pasted a five-level pyramid
+  (peer-reviewed, institutional, journalism, opinion and community, noise) to improve. Two follow-ups the same
+  day settled the rules: whether the higher level should win a contradiction, and, in a side chat the user
+  agreed with, whether the newer source should win between equals. The user approved building it with my
+  recommendations («Sí, empieza»). The search itself is the next step: this release registers the sources the
+  user names.
+- **Why a level, a role and marks, not one scale:** the pyramid ranked by kind of publication, but what a source
+  is worth depends on the claim. A maintainer's post is the best source for "the maintainer announced X"; in AI
+  the primary literature is arXiv; a vendor's documentation is the authority on what its product does, not on
+  whether it is better. So the level says only what filter the text passed, the role how far it is from the fact,
+  and the marks what qualifies it. The three stay separate, like the canon's three axes. The user's notes sit
+  outside the scale (`own`): through 0.20.2 every `grounded` meant "my notes say it".
+- **Why the level vetoes and never decides** (the user proposed "the higher level wins"): the level is the
+  weakest field in the record (an agent proposes it, a click confirms it), while a span is checked letter by
+  letter. A source of a higher level can be outdated, retracted or simply wrong (in the 2015 psychology
+  replication project about 36 % of the results replicated). Many apparent contradictions differ in scope,
+  time or definition, which `reconciles_with` exists to record. And a `failed` is negative memory that is never
+  pruned, while an error in a view is only a wrong order. So a veto removes what a refutation may do and the
+  text still has to refute the claim.
+- **Why the notes and an external source never fail each other:** "do my notes say it?" and "does outside
+  evidence support it?" are two questions. Overwriting the first with the second would erase what the notes
+  say. The clash stays a visible counter-edge, and correcting the note is the user's call (R3 then flags the
+  verdict whose span left). The user accepted this through the side chat.
+- **Why the engine fetches:** WebFetch answers a prompt about a page with a small model, so a span copied from
+  its answer would be verbatim of a paraphrase. A copy the engine made, with its hash, is what makes an outside
+  span checkable. The extraction is stdlib-only because Smart App Control blocks unsigned native code on the
+  user's Windows machine (sklearn, 2026-11-16).
+- **Why copies are never extracted:** they are evidence for items the graph already has. Extracting a paper
+  would flood the graph with its content and move the specificity corpus.
+- **Rejected alternatives:**
+  - (a) *One reliability score per source.* It collapses the filter, the distance from the fact and the
+    qualifications into one number the claim's type would contradict.
+  - (b) *The higher level wins a contradiction* (the user's first proposal). See above. Its ordering survives as
+    the default order of a dispute in the views, planned with the clash classification.
+  - (c) *The newer source wins between equals* (the side chat). It fits one kind of clash, a fact that changed,
+    and that is `obsolete`, not `failed`. It fails for facts that do not change (history, attribution, a given
+    experiment's result), for copies, for results that alternate, and for unclear dates. Planned with the clash
+    classification, with three refinements: supersession recorded on the claim, not the source; publication
+    dates compared, never the retrieval date; the newer source primary for the new state or of an equal or
+    higher level.
+  - (d) *Let a hand edit of a copy count.* It would let anyone forge a span the engine vouches for.
+- **Accepted trade-offs:**
+  - `level_by` is `agent` for everything registered through the tool, since the tool surface cannot prove a
+    human chose it; the command asks the user to confirm before registering.
+  - The HTML rule is simple: navigation and footers go, boilerplate inside the body stays. A page the rule reads
+    badly can be saved as `.md` and registered as a file.
+  - Some sites refuse a generic User-Agent; the fallback is the same.
+  - Registering any source wakes every waiting pin, so the next pass judges them all once more against the
+    larger corpus.
+- **Open:** the search for sources (`find`), and the clash classification with `obsolete` and the dispute view.
+- **Pinned in:** `tests/test_fix_external_sources.py` (42 tests). `tests/fusion/test_diverge_surface.py` counts
+  39 tools; `tests/test_fix_command_names_and_judge_cost.py` counts 10 commands.

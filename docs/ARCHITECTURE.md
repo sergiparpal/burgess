@@ -16,11 +16,11 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (36 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (39 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
-2. **Language layer** — 9 slash commands (`commands/kg-*.md`), 7 subagents (`agents/`), the
+2. **Language layer** — 10 slash commands (`commands/kg-*.md`), 7 subagents (`agents/`), the
    operating-guide skill (`skills/burgess/SKILL.md` + on-demand `references/`). All LLM work
    happens here; agents hand structured JSON back across the MCP boundary. The engine stays
    rule-bound: it validates, projects, measures and orders — it never invents content and never
@@ -40,6 +40,7 @@ verdict path.
 | `atomicio.py` | Stdlib-only leaf: crash-safe atomic writes (temp + fsync + replace) |
 | `graphio.py` | Version-robust NetworkX node-link (de)serialization for `graph.json` |
 | `sources.py` | `SourceSet`: resolve a file/dir/glob of `.md`/`.txt` into ordered `{basename → text}`, source-aware span verification, `##` section splitting |
+| `evidence.py` | External sources (0.21.0): the level/role/marks vocabulary, the engine's own fetch and fixed HTML→text rule, the `evidence/` registry with its integrity check, and the level veto on `failed` |
 | `scrub.py` | Egress PII/secret scrubbing (§1.9) with consistent placeholders |
 | `pack.py` | Domain-pack contract/loader/coverage |
 | `boundary.py` | The write boundary: strict payload validation → dispositions (span-present, never-forge-a-verdict, dedup, flood cap) |
@@ -163,7 +164,7 @@ re-parse the whole canon per write.
 
 ### 3.4 Verdict monopoly
 
-Only `kg_ground(target_id, verdict, kind, note, support_span, support_note, lead)` sets epistemic
+Only `kg_ground(target_id, verdict, kind, note, support_span, support_note, lead, refuted_by)` sets epistemic
 states. `verdict ∈ {grounded, rejected, failed, obsolete}`. Promoting a `hypothesized` item to
 `grounded` **requires support**, which upgrades provenance: `support_span` (verbatim, span-verified)
 → `span-present`, or `support_note` (external citation) → `inferred`; neither →
@@ -179,6 +180,29 @@ with `lead (from <rejected-edge-id>)`, and the next `/burgess:kg-ground` judges 
 that recorded it (0.11.1): a verdict that changes the edge's state and records no lead of its own appends
 `lead: none`, which withdraws it, so a lead whose rejection was overturned is never offered again. Every legitimate transition appends one record to the append-only audit
 ledger `<project>/.kg-ground-audit.jsonl` (with a `.ckpt` sidecar for O(1) recovery).
+
+**External sources (0.21.0, `evidence.py`).** Through 0.20.2 every verdict was judged against the configured
+sources, the user's own notes, so `grounded` meant "my notes say it", and the only outside support was a
+`support_note` the engine could not check. `kg_source_add` registers an outside text: the engine fetches the
+bytes itself (stdlib urllib, a generic User-Agent; never WebFetch, whose answer is a model's paraphrase of the
+page) or reads a local `.md`/`.txt`/`.html` file, extracts the text by a fixed stdlib rule, and writes the copy
+`ext-<slug>-<hash>.md`, a record `<stem>.source.json` and the raw bytes under `raw/` into
+`<project>/evidence/`. PDF is refused, as for the configured sources. The record carries a **level** (1 reviewed,
+2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a **role** (primary, secondary, tertiary),
+**marks** (interest, corrected, retracted, superseded), the certified `retrieved_at`, the claimed `published`, and
+the sha256 of the copy: a copy whose bytes no longer match is left out and reported, so a hand edit never
+becomes a span the engine vouches for. The design razor carries over: **the level measures the filter a text
+passed, never the truth of a claim**. The grounder still judges only whether a passage states a claim, and the
+level bounds what may be used: support must lie in a configured source or a usable copy (level 1–4, neither
+retracted nor superseded; `support-not-usable` otherwise); a `failed` names in `refuted_by` the counter-edge
+whose span refutes the claim (required once any source is registered) and the level vetoes it, never decides
+it (`evidence.failed_veto`): an unusable source refutes nothing, the configured sources and an external copy
+never fail each other (the clash stays a visible dispute), and a lower level never fails a higher one. A
+`support_note` is recorded as `citation (unchecked): …`. The copies are verification-only: `SourceSet(extra=…)`
+appends them for span checks, the R3 staleness scan, `kg_ground_item`'s evidence and the source digests (so a
+registered source wakes the pins waiting for one), while `concat`, which feeds extraction planning, coverage and
+the specificity corpus, stays the configured sources alone. The directory is durable user data, not engine
+state.
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged
@@ -341,7 +365,7 @@ live compression node was already proposed over (at least half of the other memb
 already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
 2026-11-15 all four compression candidates were of these kinds.
 
-## 5. The MCP tool surface (36 tools)
+## 5. The MCP tool surface (39 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -400,6 +424,11 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   of support, with its note, keyed by the signatures of the sources and of the pin, so the ground plan leaves
   it out until either changes or a focus names it; it refuses anything but an unverified `[diverge]`-pinned
   hypothesis, writes only the unsupported-pin ledger and sets no state).
+- **External sources (3, 0.21.0):** `kg_source_add` (register an outside text: the engine fetches or reads it,
+  copies it into `evidence/` with its level, role and marks, and `preview=true` shows what to propose a level
+  from without writing), `kg_source_list` (the registry, its problems, and what grounded claims rest on:
+  the notes, external sources by level, or unchecked citations), `kg_source_set` (change a record; the copy is
+  never rewritten). They write only the evidence directory and set no state (§3.4).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (8):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,

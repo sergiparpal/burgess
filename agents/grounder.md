@@ -91,7 +91,9 @@ in place without support.
 - **Support.** Support from the source is a `support_span` copied from one of the excerpts, placeholders
   included. The span must state THIS relation between what the two nodes name, as **What each relation
   asserts** defines it. Two concepts named in one passage are not a relation between them. A citation from
-  outside the source still goes in `support_note`, as above.
+  outside the source still goes in `support_note`, as above. But when the outside text is a registered source
+  (an excerpt with `source`), cite its passage as `support_span` instead: the engine can check a span, while a
+  `support_note` is recorded as an unchecked citation.
 - **No shared section.** When both ends have sections but `sections` is empty, the source never discusses the
   two together and holds no support for the proposal: reject it `no-support`, unless you cite support from
   outside the source. A `[diverge]` pin stays `unverified`, as the next section says.
@@ -194,6 +196,16 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     it shares and an `excerpt`. A node has no span to locate its text by, so this is its evidence: judge what
     the node claims against those excerpts, and copy a `support_span` verbatim from one that states it. Through
     0.20.1 a node came with no source text, and its grounder could only search the spans other edges cited.
+  - **External sources (0.21.0).** The user can register outside texts with `/burgess:kg-sources`; the engine
+    copies each one and records its level. An excerpt or section that carries `source` comes from such a copy:
+    `source.level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), `role`,
+    `marks`, `title`, `url`, `published`, and `usable`. Every other excerpt is from the user's own notes, and an
+    edge's `span_source` says which one its span lies in (`class`: `own` or `external`). A node's
+    `source_context` lists up to three more sections from external copies after its best three. A support
+    span from a usable external copy grounds an item exactly as one from the notes does; the engine refuses
+    support that lies only in an unusable copy (level 5, retracted or superseded: `support-not-usable`).
+    **The level is not your verdict.** Judge only whether the passage states the claim; a high level never
+    makes a claim true, and a low one never makes it false.
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
   For a proposal, the excerpts are those of `shared_context`.
