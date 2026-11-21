@@ -169,7 +169,10 @@ reach — `wild` means further-out, never incoherent.
      the parents: the engine only stops asking a pair already answered and tallies the answers for
      `kg_diverge_recall`. They reach the next round through you, when you generate. So a loser coming back
      on a later slate is expected; never explain it as comparisons weighing little, because the slate
-     does not read them at all;
+     does not read them at all. A pair can name an idea of this round that the slate left out: when no
+     slate pair names one, the engine swaps in a pair that does. Ask it by its id, as you explained it in
+     the rest of the round. In the 2026-11-20 field session the slate did not change in rounds 2 to 4,
+     so rounds 3 and 4 asked only about ideas of rounds 1 and 2;
    - **explicitly invite pinning any idea** — "pin any idea of this round to keep exploring from,
      from the slate or the rest, not just A/B" (pins are the strongest, durable signal: always parents,
      recalled across sessions, and later materializable into the graph via /burgess:kg-generate's propose lane);
@@ -181,7 +184,11 @@ reach — `wild` means further-out, never incoherent.
    event)` with `{"type":"pin","id":…}` / `{"type":"discard","id":…}` /
    `{"type":"comparison","winner":…,"loser":…}`. Then `kg_diverge_parents(project)` for
    diverse stepping stones (pins always kept, discards always excluded) and loop from step 4,
-   or stop on the user's word.
+   or stop on the user's word. The parents are every pin plus at least two diverse ideas, however
+   many pins there are, so leave `k` alone. Until 0.19.7 the pins counted toward the default four, and
+   in the 2026-11-20 field session `k` was raised by hand from round 3 on to keep two diverse parents.
+   The diverse ones are drawn again each round, so they change from one round to the next even when
+   the pins do not.
 
    **After a compaction.** If the conversation was compacted between rounds, call
    `kg_diverge_recall(project)` before anything else: it returns this session's `session_id`, the

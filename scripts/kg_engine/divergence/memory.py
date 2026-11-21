@@ -145,12 +145,34 @@ def _compared_set(comparisons: Sequence[dict[str, Any]]) -> set[frozenset]:
     return out
 
 
+def _pair_score(
+    a: dict[str, Any],
+    b: dict[str, Any],
+    emb_by_id: dict[str, Sequence[float]],
+    weights: tuple[float, float, float],
+) -> float:
+    """Informativeness of asking ``a`` vs ``b``: weighted similarity + uncertainty + novelty."""
+    w_sim, w_unc, w_nov = weights
+    va = emb_by_id.get(a["id"])
+    vb = emb_by_id.get(b["id"])
+    if va is None or vb is None or len(va) != len(vb):
+        # Missing, or mismatched width across an embedder switch — treat as
+        # uninformative rather than letting np.dot raise and abort selection.
+        sim = 0.0
+    else:
+        sim = float(np.dot(np.asarray(va), np.asarray(vb)))
+    uncertainty = 1.0 - abs(float(a.get("fitness", 1.0)) - float(b.get("fitness", 1.0)))
+    mean_nov = 0.5 * (float(a.get("novelty", 0.0)) + float(b.get("novelty", 0.0)))
+    return w_sim * sim + w_unc * uncertainty + w_nov * mean_nov
+
+
 def select_ask_pairs(
     slate: list[dict[str, Any]],
     emb_by_id: dict[str, Sequence[float]],
     comparisons: Sequence[dict[str, Any]] | None = None,
     max_pairs: int = 2,
     weights: tuple[float, float, float] | None = None,
+    fresh: Sequence[dict[str, Any]] | None = None,
 ) -> list[list[Any]]:
     """Pick the most-informative A-vs-B pairs from the slate.
 
@@ -161,40 +183,32 @@ def select_ask_pairs(
     it defaults to the module constants. A non-positive ``w_sim`` flips the policy
     from "compare similar" (learn preferences) to "compare region-separating"
     (explore).
+
+    ``fresh`` (0.19.7) is this round's ideas, as items shaped like the slate's (``id``,
+    ``fitness``, ``novelty``), on the slate or not. When none of the chosen pairs names
+    one of them, the last chosen pair gives way to the most informative undecided pair
+    that does, its other side taken from the slate or from this round. That pair is
+    appended when fewer than ``max_pairs`` were found. The slate is picked from the whole
+    archive, so it can stop changing: in the 2026-11-20 field session it was the same in
+    rounds 2, 3 and 4, and the questions of rounds 3 and 4 named only ideas of rounds 1
+    and 2, so 24 ideas were never compared. A pair that already names a fresh idea
+    leaves the selection as it was.
     """
-    w_sim, w_unc, w_nov = weights if weights is not None else (
-        W_SIM, W_UNCERTAIN, W_NOVELTY
-    )
+    w = weights if weights is not None else (W_SIM, W_UNCERTAIN, W_NOVELTY)
     comparisons = comparisons or []
     decided = _compared_set(comparisons)
     n = len(slate)
-    if n < 2:
-        return []
+    framing = "region-separating" if w[0] <= 0 else "similar"
 
     scored: list[tuple[float, int, int]] = []
     for i in range(n):
         for j in range(i + 1, n):
             a, b = slate[i], slate[j]
-            ida, idb = a["id"], b["id"]
-            if frozenset({ida, idb}) in decided:
+            if frozenset({a["id"], b["id"]}) in decided:
                 continue  # already resolved by the user
-            va = emb_by_id.get(ida)
-            vb = emb_by_id.get(idb)
-            if va is None or vb is None or len(va) != len(vb):
-                # Missing, or mismatched width across an embedder switch — treat as
-                # uninformative rather than letting np.dot raise and abort selection.
-                sim = 0.0
-            else:
-                sim = float(np.dot(np.asarray(va), np.asarray(vb)))
-            uncertainty = 1.0 - abs(
-                float(a.get("fitness", 1.0)) - float(b.get("fitness", 1.0))
-            )
-            mean_nov = 0.5 * (float(a.get("novelty", 0.0)) + float(b.get("novelty", 0.0)))
-            score = w_sim * sim + w_unc * uncertainty + w_nov * mean_nov
-            scored.append((score, i, j))
+            scored.append((_pair_score(a, b, emb_by_id, w), i, j))
 
     scored.sort(key=lambda t: (-t[0], t[1], t[2]))
-    framing = "region-separating" if w_sim <= 0 else "similar"
     pairs = [
         AskPair(
             a_id=slate[i]["id"],
@@ -202,8 +216,37 @@ def select_ask_pairs(
             reason=(f"informative pair (score {score:.2f}): {framing}, undecided, "
                     f"on the novel frontier"),
         )
-        for score, i, j in scored[:max_pairs]
+        for score, i, j in scored[:max(0, max_pairs)]
     ]
+
+    fresh_ids = {str(f["id"]) for f in fresh or ()}
+    if max_pairs > 0 and fresh_ids and not any(
+        p.a_id in fresh_ids or p.b_id in fresh_ids for p in pairs
+    ):
+        on_slate = {s["id"] for s in slate}
+        pool = list(slate) + [f for f in fresh or () if f["id"] not in on_slate]
+        kept = pairs[:max_pairs - 1] if len(pairs) >= max_pairs else pairs
+        taken = {frozenset({p.a_id, p.b_id}) for p in kept}
+        best: tuple[float, int, int] | None = None
+        for i in range(len(pool)):
+            for j in range(i + 1, len(pool)):
+                a, b = pool[i], pool[j]
+                key = frozenset({a["id"], b["id"]})
+                if a["id"] not in fresh_ids and b["id"] not in fresh_ids:
+                    continue
+                if key in decided or key in taken or len(key) < 2:
+                    continue
+                cand = (_pair_score(a, b, emb_by_id, w), i, j)
+                if best is None or (-cand[0], cand[1], cand[2]) < (-best[0], best[1], best[2]):
+                    best = cand
+        if best is not None:
+            score, i, j = best
+            pairs = kept + [AskPair(
+                a_id=pool[i]["id"],
+                b_id=pool[j]["id"],
+                reason=(f"informative pair (score {score:.2f}): {framing}, undecided, "
+                        f"brings in an idea from this round"),
+            )]
     # serialize at the edge: the persisted/JSON shape stays the positional [a, b, reason] triple
     # every consumer (the skill, the CLI output) already reads (review-r5: the NamedTuple names the
     # positions internally without changing the wire shape).
@@ -213,25 +256,38 @@ def select_ask_pairs(
 # --------------------------------------------------------------------------- #
 # diverse parents (honoring pins)
 # --------------------------------------------------------------------------- #
+# The fewest non-pinned elites a round's parents carry, however many pins there are (0.19.7).
+# Pins count toward ``k``, so with the default k=4 four pins used to leave no diverse parent at
+# all: in the 2026-11-20 field session the agent raised k by hand in rounds 3 to 5 to keep two.
+# Two is what the default already gives with two pins, so nothing changes for up to two pins.
+MIN_DIVERSE_PARENTS = 2
+
+
 def select_parents(
     elite_ids: list[str],
     emb_by_id: dict[str, Sequence[float]],
     pins: list[str],
     k: int,
     discards: Sequence[str] | None = None,
+    rng: np.random.Generator | None = None,
 ) -> list[str]:
     """Diverse parent ids for the next generation; pins are ALWAYS included.
 
-    Starts from the pinned stepping stones and greedily adds the elites farthest
-    (in cosine distance) from everything chosen so far, until ``k`` is reached.
-    Pins are never dropped, even if there are more pins than ``k``.
+    Starts from the pinned stepping stones and adds elites far (in cosine distance)
+    from everything chosen so far, until ``k`` is reached. Without ``rng`` each pick
+    is the single farthest elite (the max-min walk); with ``rng`` each pick is drawn
+    with probability proportional to its squared distance (``diversity.d2_sampling``),
+    so the diverse parents vary with the generator while staying far from the pins.
+    Pins are never dropped, even if there are more pins than ``k``: a caller that
+    wants diverse parents beside many pins sizes ``k`` for them
+    (``pipeline.parents`` adds :data:`MIN_DIVERSE_PARENTS`).
 
     ``discards`` are the user's vetoed ids — dropped from the elite pool so they are
     never bred from. They cannot collide with pins: ``add_pin``/``add_discard`` keep
     the two sets mutually exclusive (latest action wins), so a discard never strips a
     pin here.
     """
-    from .diversity import farthest_point_sampling
+    from .diversity import d2_sampling, farthest_point_sampling
 
     discarded = set(discards or ())
 
@@ -256,19 +312,22 @@ def select_parents(
         np.asarray(emb_by_id[s], dtype=np.float64) for s in selected if s in emb_by_id
     ]
 
+    def walk(vecs: np.ndarray, k: int, seeds: Sequence[int] | None = None) -> list[int]:
+        if rng is None:
+            return farthest_point_sampling(vecs, k, seeds=seeds)
+        return d2_sampling(vecs, k, rng, seeds=seeds)
+
     if not seed_vecs:
-        # no usable seed (e.g. pins lack embeddings): plain farthest-point fill
-        idx = farthest_point_sampling(pool_vecs, remaining)
+        # no usable seed (e.g. pins lack embeddings): plain far-apart fill
+        idx = walk(pool_vecs, remaining)
         return selected + [pool[i] for i in idx]
 
-    # Seed the farthest-point frontier with the already-chosen vectors, then pick
-    # the `remaining` pool items farthest from everything selected so far. We
-    # stack [seeds; pool] so the seeds are plain indices into one matrix; picks
-    # come back seeds-first, so we keep only the pool half (index >= n_seeds).
+    # Seed the frontier with the already-chosen vectors, then pick the `remaining`
+    # pool items far from everything selected so far. We stack [seeds; pool] so the
+    # seeds are plain indices into one matrix; picks come back seeds-first, so we
+    # keep only the pool half (index >= n_seeds).
     n_seeds = len(seed_vecs)
     combined = np.vstack([np.asarray(seed_vecs, dtype=np.float64), pool_vecs])
-    picks = farthest_point_sampling(
-        combined, k=n_seeds + remaining, seeds=range(n_seeds)
-    )
+    picks = walk(combined, n_seeds + remaining, seeds=range(n_seeds))
     selected += [pool[i - n_seeds] for i in picks if i >= n_seeds]
     return selected

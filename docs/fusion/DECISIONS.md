@@ -2087,3 +2087,70 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   35 tools.
   - Against 0.19.5, 11 of the 12 fail. The one that passes pins what 0.19.5 already did: it ignored the
     field, so an explanation could not move an idea.
+
+## kg-diverge keeps two diverse parents, draws them again each round, and asks about the round's ideas (2026-11-21)
+
+- **Decision:**
+  - `kg_diverge_parents` returns every pin plus at least `memory.MIN_DIVERSE_PARENTS` = 2 diverse elites.
+    `k` is still the total, but it grows to the pins plus two when it is smaller than that. Fewer come
+    back only when the archive has fewer elites to offer.
+  - The diverse elites are drawn by `diversity.d2_sampling`, the k-means++ seeding rule, from
+    `np.random.default_rng([seed, meta.cycles])`. Each pick is drawn with probability proportional to its
+    squared cosine distance from the nearest idea already chosen, the pins first. Without a generator
+    `memory.select_parents` is still the max-min walk, which the ported donor suite pins.
+  - `memory.select_ask_pairs(fresh=...)`: when none of the chosen pairs names an idea of this round, the
+    last chosen pair gives way to the most informative unanswered pair that does. The other side of that
+    pair comes from the slate or from this round. With fewer pairs than asked for, it is appended instead.
+    The ingest passes the round's survivors that hold a niche, minus discards.
+  - `/burgess:kg-diverge` step 7 asks such a pair by the idea's id, as it was explained in the rest of the
+    round. Step 8 says to leave `k` alone.
+- **Field run it answers** (andamiaje-ia-clasica, Windows, 2026-11-20/21, on 0.19.6, five rounds, 60 ideas):
+  - The pins went 2, 3, 4, 5 over rounds 2 to 5. The agent passed `k=5` in round 3 on its own, then the pins
+    plus two at the user's request. With the default, round 4 would have had no diverse parent at all.
+  - The diverse parents were c2g and c2k in rounds 3 and 4. In round 5, after a new pin, they were c2g and
+    c1k. Every one of the 60 ideas held a niche of its own with fitness 1.0, so the walk had nothing but the
+    fixed geometry to go on.
+  - The slate was c1d c2k c2g c2e c1k c2n in rounds 2, 3 and 4; in round 5 c5c replaced c2n. The questions
+    of rounds 3 and 4 were c1d-vs-c2e, c1d-vs-c2n, c2e-vs-c1k and c1d-vs-c2g, so the 24 ideas of those
+    rounds were never compared. c1d was in five of the eight questions the user answered.
+- **Why a floor, not a new meaning for `k`:**
+  - Reading `k` as the number of diverse parents would change what every caller gets. The floor changes
+    nothing with up to two pins, the common case that the donor tests cover, and adds only when pins crowd
+    the default. Two is what the default already gives with two pins, and what the field agent kept by
+    itself.
+- **Why D² sampling:**
+  - It keeps the purpose of the walk, distance from the pins and from each other, while a different far
+    idea can come up each round. Uniform sampling would drop that purpose. A k-DPP sample is the textbook
+    choice, but it needs an eigendecomposition of the elite kernel to pick two ideas. D² is the standard
+    randomized form of the max-min walk, with the same seeds-first contract.
+  - Keyed by the seed and `meta.cycles`, so it persists nothing. The same call within a round returns the
+    same parents, and the agent may call twice. The slate stays deterministic (`select_diverse`,
+    review-r8-19). The parents affect which stepping stones are offered, never what is true (I5).
+- **Why one fresh question, not a fresh slate:**
+  - The slate is the archive-wide diverse pick by design, and when it does not change that is a reading too:
+    the round's ideas did not widen the spread. The questions are where the stuck slate hurt, because the
+    user could compare only old ideas.
+  - Only the last pair gives way, and only when no chosen pair names a fresh idea. So round 1, whose slate is
+    all new, and a round whose slate already brings a new idea into a question are unchanged (tested).
+  - Fresh items are niche holders only. A state prune always keeps elites, so a question never names an idea
+    the store may drop before the user answers.
+- **Rejected alternatives:**
+  - (a) *Read `k` as the number of diverse parents.* It changes every caller (above).
+  - (b) *Rotate the diverse parents away from ideas already bred from.* The genealogy is what the agent
+    declares, and a session that does not fill it in would keep the old behaviour.
+  - (c) *Reserve slate places for this round's ideas.* That changes what the slate is and how it is picked.
+    The command already explains every idea of the round, and the export keeps all of them.
+  - (d) *Make both questions name new ideas.* The slate pair still compares the ideas the engine finds most
+    spread out. One question out of two is enough to end the drought.
+- **Accepted trade-offs:**
+  - The diverse parents of a round are no longer the two most extreme ideas, only far ones. Two sessions
+    with the same seed and the same history still get the same parents.
+  - A fresh question may name an idea that is not on the slate. The command explains every idea of the
+    round, so the agent asks it by id.
+  - NumPy may change a Generator's streams between versions. Reproducibility holds within one install, and
+    a session needs no more. The tests pin properties, not particular picks.
+  - The export's English labels, a 0.19.6 trade-off, stay as they are.
+- **Pinned in:** `tests/test_fix_diverge_parents_and_pairs.py` (24 tests).
+  - Against 0.19.6, 17 of the 24 fail. The 7 that pass pin what must not change: four parents with up to two
+    pins, an explicit larger `k`, the same parents twice within a round, the max-min walk without a
+    generator, and round 1's questions on its own slate.
