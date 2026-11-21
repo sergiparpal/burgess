@@ -1,6 +1,6 @@
 ---
 description: Drain the grounding queue — verdict unverified edges, attack hub candidates, then report verdict counts and falsification memory.
-argument-hint: "[query-or-node-filter]"
+argument-hint: "[--reexamine] [query-or-node-filter]"
 allowed-tools: Task, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_agenda, mcp__plugin_burgess_burgess__kg_merge
 ---
 
@@ -23,6 +23,11 @@ to need a shell or a file, stop and report it instead of working around it. (Nev
 An optional focus: a word or a node id (e.g. `betweenness`, `compression`). Pass the line verbatim as
 `kg_ground_plan`'s `focus`, which keeps the items touching a node it names. Empty = the whole queue.
 
+If the line starts with the word `--reexamine`, drop that word, pass the rest as the focus, and call the plan
+with `reexamine: true` (0.20.2). The plan then also queues the rejected hypothesized nodes the focus names (all of
+them with no focus), marked `"reexamine": true`, to be judged again. Through 0.20.1 a node's grounder got no source
+text, so a node rejected then was judged only against the spans other edges cited.
+
 ## Stage 0 — Plan the pass (read-only)
 
 Find what is actually pending before spending any subagent budget.
@@ -33,8 +38,9 @@ Find what is actually pending before spending any subagent budget.
 
    ```
    mcp__plugin_burgess_burgess__kg_ground_plan(
-     focus: "<the arguments line above, verbatim; empty if nothing was typed>",
-     configured_wave_size: "${user_config.extract_wave_size}"
+     focus: "<the arguments line above, verbatim, less a leading --reexamine; empty if nothing was typed>",
+     configured_wave_size: "${user_config.extract_wave_size}",
+     reexamine: <true only when the line started with --reexamine>
    )
    ```
 
@@ -55,7 +61,9 @@ Find what is actually pending before spending any subagent budget.
      are not this command's work, but `/burgess:kg-build --leads`'s. `unsupported_waiting` (0.20.1) counts
      the `[diverge]` pins a grounder already judged unsupported against the current sources. They stay out of
      the batches until the sources or the pin change, or until a focus names them; in the field, 120 such
-     pins were re-judged on every pass until 0.20.1.
+     pins were re-judged on every pass until 0.20.1. A record made before 0.20.2 does not count, because its
+     grounder saw no source text, so those pins come back once. `reexamine` (0.20.2) counts the rejected nodes
+     queued again with `--reexamine`. In a batch, list such an item as `<id> (node, re-examine)`.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
    - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
@@ -154,12 +162,16 @@ You are grounding ONE batch of the grounding queue (focus: <the focus, or none>)
 items:
 - e_generality-confound__attacked-by__specificity (edge)
 - e_span-present__grounds__claim (edge)
+- idea-cold-brew-launch-c3 (node)
+- cliche-cold-brew-launch-o2 (node, re-examine)
 
 For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>", kind: "<edge|node>") and
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
 of the source (for an edge with no span, a proposal: shared_context, the source sections where both its ends
 are discussed, and, for a proposal from /burgess:kg-perturb, passage, the span a second reading of the source
-wrote it from, with its excerpt). Do not read files. Then apply ONE verdict with
+wrote it from, with its excerpt; for a node: source_context, the source sections that share the most of its
+words, with excerpts). Do not read files. An item marked re-examine is a rejected node judged again: stamp
+your verdict even though its `from` is that rejection. Then apply ONE verdict with
 mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), per your contract:
   - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction,
     between what the two nodes name, as your contract's relation table defines it, and the relation is

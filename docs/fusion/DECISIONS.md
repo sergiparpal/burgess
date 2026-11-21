@@ -2293,3 +2293,63 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_ground_unsupported_pins.py` (17 tests). Against 0.20.0 the file does not
   even import, since the helpers and the tool are new. `tests/fusion/test_diverge_surface.py` now counts 36
   tools, and `tests/test_kg_ground_plan.py`'s queue shape gains `unsupported_waiting`.
+
+## A node's grounder reads the source sections that share its words, and a rejected node can be judged again (2026-11-21)
+
+- **Decision:**
+  - `kg_ground_item(kind="node")` adds `source_context` to the node and its incident edges. It holds the node's
+    `terms` (`groundplan.node_terms`: the label and body without lineage lines or verdict paragraphs) and up to
+    `NODE_SECTIONS` = 3 source `sections`, each `{source_file, section, title, matched, excerpt}`.
+    - The units scored are paragraphs (`groundplan.text_units`), and the lines of a table longer than an
+      excerpt. A unit must share at least two of the terms, and a term weighs log(units / units that use it)
+      (`groundplan.rank_units`). A section ranks by its best unit.
+    - The excerpt is that unit with its neighbours, cut by offset from the source text itself
+      (`groundplan.unit_excerpt`), so a span copied from it verifies.
+    - The index is cached on the sources' signature.
+  - An unsupported-pin record carries `evidence: 2`, and `waits_for_sources` honours only that version. The
+    0.20.1 records, made by grounders that saw no source text, offer their pins again once.
+  - `kg_ground_plan(reexamine=True)`, the command's `--reexamine`, also queues the rejected hypothesized nodes
+    the focus names, all of them with no focus. Each item is `{id, kind: "node", reexamine: true}`, counted in
+    `queue.reexamine`. A `failed` node is not offered.
+  - The grounder contract reads `source_context` for a node and stamps its verdict on a `re-examine` item
+    although its `from` is a verdict. `kg_ground` already allows that transition.
+- **Field pass it answers** (Windows, 2026-11-21, on 0.20.1):
+  - The pass over 120 pins recorded all 120 as unsupported. Its report said: "they searched the spans of edges
+    already in the graph, not the full source files. So 'unsupported' means no extracted claim states the idea;
+    a passage no edge cites could still exist." The code confirmed it: a node's evidence was `{node, edges}`.
+  - Earlier that day the 6 clichés of `memoria-fabrica-agentes` had been judged the same way. One, o3, grounded
+    on a passage an edge happened to cite. Five were rejected, permanently.
+- **Why words, not spans:** the 0.18.0 `shared_context` places an edge's ends by the spans of their live edges.
+  A pin or a cliché has no edge and no span, so the only handle on its text is its own words.
+- **Why paragraphs, not sections:** I checked the draft by hand on the field corpus (9 documents, 93 sections,
+  1655 units).
+  - Scoring whole sections with a +1 inverse frequency let long sections win. They held many common words
+    ("escriben", "mantienen", "junto") in unrelated paragraphs, and the passage that states cliché o3 did not
+    make the top three.
+  - Scored by paragraph, without the +1, o3's first section is Síntesis §Arquitectura with «El «Brain» guarda la
+    memoria del proyecto y las decisiones de arquitectura previas…».
+  - The hidden-test-suite pin's first section holds «la batería visible sube y la oculta no».
+  - Cliché o2 (a vector store queried by RAG) gets the table row «Memoria … herr: bases vectoriales · patrón:
+    RAG».
+  - From WSL a call took 1.3 s, almost all of it in stat calls on `/mnt/c`. The scoring itself took about
+    26 ms per node.
+- **Why a version in the record, not a wiped ledger:** the ledger is engine state that a clone may not have,
+  and the plan already reads it fail-open. A version says what the judgment saw, so a later change to the
+  evidence can stale the records the same way.
+- **Why `--reexamine` is explicit:** a rejection is permanent negative memory, and re-opening one is the user's
+  call, the same as naming a hub to attack again. Detecting the old rejections automatically would mean
+  stamping evidence into the §1.8 audit log, whose records back forge detection, for a one-time repair.
+- **Rejected alternatives:**
+  - (a) *Let a node's grounder read the source files.* The contract keeps grounders off files so that every
+    batch judges the same scrubbed excerpts, and the excerpt is the check.
+  - (b) *Give a node every section that names any of its words.* On the field corpus that is most sections. The
+    rarity weighting, the two-word floor and the paragraph unit keep it to the ones that discuss the node.
+  - (c) *Re-open the old rejections automatically.* See above: it needs an audit-log format change.
+- **Accepted trade-offs:**
+  - Words match by form (`buildplan._forms`: plurals folded), not by meaning. A node phrased in other words than
+    its source gets weaker sections, and the grounder still judges what the excerpt states.
+  - The first pass after the update judges every unverified pin once more, about 2.50 USD on the field graph.
+- **Pinned in:** `tests/test_fix_ground_node_evidence.py` (16 tests).
+  - `tests/test_fix_ground_unsupported_pins.py` now checks that a record without an evidence version no longer
+    waits.
+  - `tests/test_kg_ground_plan.py`'s queue shape gains `reexamine`.

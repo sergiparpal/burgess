@@ -122,7 +122,8 @@ def test_the_queue_is_the_unverified_edges_in_source_order(eng):
     assert _ids(plan) == [(RADAR, "edge"), (MUTACION, "edge"), (CLAVE, "edge")]   # §Riesgo, §Calidad, §Clave
     assert plan["queue"] == {"edges": 3, "weak_edges": 0, "nodes": 0, "extractor_nodes_not_queued": 6,
                              "leads_pending": 0,                                   # 0.9.0
-                             "unsupported_waiting": 0}                             # 0.20.1
+                             "unsupported_waiting": 0,                             # 0.20.1
+                             "reexamine": 0}                                       # 0.20.2
     assert plan["source"]["files"] == ["doc.md"]
 
 
@@ -257,7 +258,9 @@ def test_kg_ground_declares_no_shell_and_plans_through_the_engine():
     assert "```bash" not in CMD
     flat = " ".join(CMD.split())
     assert "This command needs no shell and no file access." in flat
-    assert 'focus: "<the arguments line above, verbatim; empty if nothing was typed>"' in CMD
+    assert ('focus: "<the arguments line above, verbatim, less a leading --reexamine; empty if nothing was '
+            'typed>"') in CMD                                                     # 0.20.2
+    assert "reexamine: <true only when the line started with --reexamine>" in CMD
     assert 'configured_wave_size: "${user_config.extract_wave_size}"' in CMD
     assert "mcp__plugin_burgess_burgess__kg_ground_item(target_id:" in CMD
     assert "examples/source.md" not in CMD

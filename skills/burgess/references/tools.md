@@ -884,7 +884,7 @@ response adds `construction`. Through 0.18.1 the second reading read the whole f
 the field test of 2026-11-16 it gave 13 of its 39 nodes an id the graph had, and 18 of its 22 edges could not
 be compared.
 
-### 1.21 `mcp__plugin_burgess_burgess__kg_ground_plan(focus="", configured_wave_size="", batch_size=None)`
+### 1.21 `mcp__plugin_burgess_burgess__kg_ground_plan(focus="", configured_wave_size="", batch_size=None, reexamine=False)`
 
 The `/burgess:kg-ground` plan (0.7.0): what the grounding loop verdicts, in batches for parallel grounders. It
 replaces listing the queue through `query_graph`, which on a real canon came back as 300 000 characters,
@@ -896,7 +896,13 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   text uses, and the claims about it are its edges. They are counted in `queue.extractor_nodes_not_queued`.
 - **`queue.unsupported_waiting` (0.20.1):** the `[diverge]` pins a grounder judged unsupported against the
   current sources and recorded with `kg_record_unsupported` (§1.26). They stay out of the batches until the
-  sources or the pin change; a `focus` offers them again, and the count is then 0.
+  sources or the pin change; a `focus` offers them again, and the count is then 0. A record made before 0.20.2
+  does not count, since its grounder saw no source text: those pins come back once.
+- **`reexamine=True` (0.20.2):** `/burgess:kg-ground --reexamine` also queues the REJECTED hypothesized nodes the
+  focus names (all of them with no focus), each item `{id, kind: "node", reexamine: true}`, counted in
+  `queue.reexamine`. A node rejected through 0.20.1 was judged without source text, so this is how the user asks
+  for it to be judged again against its `source_context` (§1.22). A `failed` node is not offered, since it was
+  refuted by a counter-span. The grounder stamps its verdict even though the item's `from` is that rejection.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
   for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
@@ -1002,8 +1008,19 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
   source_file, in_source}`, plus `section`, `title` and `excerpt` when `in_source` is true (the engine's own
   check, now). `null` for every other edge. The grounder judges it as it judges an extractor's span and may
   copy it as `support_span`; `shared_context` still comes with it.
-- For `kind="node"`: `{node, edges}`, the node with its body (where a `[diverge]` marker shows) and up to 20
-  incident edges.
+- For `kind="node"`: `{node, edges, source_context}`, the node with its body (where a `[diverge]` marker shows),
+  up to 20 incident edges, and `source_context` (0.20.2): `{terms, sections, sections_total}`.
+  - `terms` are the node's content words, from its label and body without its lineage lines (`[diverge] …`,
+    `[cliche] …`) and verdict paragraphs.
+  - `sections` holds up to 3 source sections, ranked by their best paragraph (a long table counts line by line):
+    one that shares at least two of the terms, each term weighing log(paragraphs / paragraphs that use it), so
+    a word nearly every paragraph uses weighs almost nothing. Each is `{source_file, section, title, matched,
+    excerpt}`, with the words that paragraph shares and the excerpt around it, cut from the source text itself.
+  - A node has no span to locate its text by, so this is its evidence: the grounder copies a `support_span`
+    verbatim from an excerpt that states the node's claim. Through 0.20.1 a node got only itself and its edges.
+    A pin or a cliché has none, so its grounder could only search the spans other edges cited, as the field
+    pass of 2026-11-21 reported.
+  - The section index is cached on the sources' signature.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
   placeholders included, restores and verifies.
 - `ok: false` for an unknown id, or a `kind` other than `edge`/`node`.

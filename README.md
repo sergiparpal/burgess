@@ -217,7 +217,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 | Command | What it does | The detail in brackets |
 | --- | --- | --- |
 | `/burgess:kg-build [--leads] [subset] [wave_size]` | Extract a span-anchored graph from the configured source, one section per extractor | *Optional:* `--leads`, to write the leads `/burgess:kg-ground` recorded instead; a file, folder or glob inside the configured source, to build only that part; concurrent sections per wave |
-| `/burgess:kg-ground [query-or-node-filter]` | Drain the grounding queue, challenge hubs, and assign verdicts through the sole verdict path | *Optional:* limit the run to one topic or node area |
+| `/burgess:kg-ground [--reexamine] [query-or-node-filter]` | Drain the grounding queue, challenge hubs, and assign verdicts through the sole verdict path | *Optional:* limit the run to one topic or node area; `--reexamine` also judges again the rejected proposed nodes it names |
 | `/burgess:kg-query <question>` | Answer from the grounded graph, with provenance and falsification counters attached | **Required:** your question |
 | `/burgess:kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`, which then stay current; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
 | `/burgess:kg-generate [mechanism-set] [k]` | Propose unverified candidates from graph structure | *Optional:* `default`, `all`, or one of seven mechanisms; number of candidates |
@@ -254,7 +254,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **2365 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **2381 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

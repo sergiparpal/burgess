@@ -189,7 +189,11 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     `sections_total` counts every such section, and `source_node_sections` / `target_node_sections` list
     where each end is discussed. A proposal from `/kg-perturb` may also carry `passage` (0.19.0): the span a
     second reading of the source wrote this edge from, `in_source`, and the `excerpt` around it.
-  - For a node: the node (with its body, where a `[diverge]` marker shows) and its incident edges.
+  - For a node: the node (with its body, where a `[diverge]` marker shows), its incident edges, and
+    `source_context` (0.20.2): the source sections that share the most of the node's words, each with the words
+    it shares and an `excerpt`. A node has no span to locate its text by, so this is its evidence: judge what
+    the node claims against those excerpts, and copy a `support_span` verbatim from one that states it. Through
+    0.20.1 a node came with no source text, and its grounder could only search the spans other edges cited.
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
   For a proposal, the excerpts are those of `shared_context`.
@@ -303,7 +307,8 @@ concept as another node, `get_node` the id you suspect.
       defeasible → `grounded`, note quoting the deciding clause.
 2. **Stamp the verdict** with `kg_ground(target_id=<id>, verdict=..., kind=..., note=...)`, using the id exactly as
    your batch lists it. Confirm `ok:true` and `from == "unverified"`. If `from` was already a verdict, skip —
-   someone else ruled.
+   someone else ruled. The exception is an item your batch marks `re-examine` (0.20.2): it is a rejected node
+   the user asked to have judged again, so its `from` is that earlier verdict and yours replaces it.
 3. **A node in your batch** is a hypothesized one (a `/kg-diverge` pin or a generated proposal), groundable on
    its own even with no incident edge. If the source verbatim-supports the idea, promote it with
    `kg_ground(target_id=<node.id>, kind="node", verdict="grounded", support_span="<verbatim run>")` (or

@@ -2272,7 +2272,7 @@ class KGEngine:
 
     # ---- the /kg-ground plan (0.7.0) -------------------------------------------------------------------
     def kg_ground_plan(self, focus: "str | None" = "", configured_wave_size: "str | int | None" = None,
-                       batch_size: "int | str | None" = None) -> dict:
+                       batch_size: "int | str | None" = None, reexamine: bool = False) -> dict:
         """What `/kg-ground` verdicts, in batches for parallel grounders: the grounding loop's Stage 0, which
         through 0.6.1 the orchestrator assembled from `query_graph`. On a real canon that call returned
         300 000 characters, which Claude Code saved to a file, and the orchestrator read it with scripts run
@@ -2297,7 +2297,15 @@ class KGEngine:
         A `[diverge]` pin a grounder left unverified and recorded with `kg_record_unsupported` stays out of
         the queue while the sources and the pin are the ones it was judged against (0.20.1), counted in
         `queue.unsupported_waiting`. A change to either offers it again, and so does a `focus`, as for an
-        attacked hub. Through 0.20.0 every pass judged every pin again.
+        attacked hub. Through 0.20.0 every pass judged every pin again. A record made before 0.20.2, when a
+        node's grounder saw no source text, does not count: the pin is offered again once.
+
+        `reexamine=True` (0.20.2, the command's `--reexamine`) also queues the REJECTED hypothesized nodes
+        the focus names (all of them with no focus), each item marked `"reexamine": true`, counted in
+        `queue.reexamine`. Through 0.20.1 a node was judged without any source text, so such a rejection
+        rested on the spans other edges cited; this is how the user asks for those nodes to be judged
+        again with the sections `kg_ground_item` now gives a node. A failed node is not offered: it was
+        refuted by a counter-span, not judged unsupported.
 
         `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
         channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
@@ -2386,7 +2394,14 @@ class KGEngine:
                               e.id, "edge"))
                 ends[e.id] = (slug(e.source), slug(e.target))
         skipped = 0
+        reexamined = 0
         for n in nodes:
+            if (reexamine and n.epistemic_state == EpistemicState.REJECTED and n.id in in_focus
+                    and n.provenance == Provenance.HYPOTHESIZED):
+                # a rejection judged again on request (0.20.2), queued with the other hypotheses
+                items.append(((1, 0, 1, (len(texts), 0), n.id), n.id, "node:reexamine"))
+                reexamined += 1
+                continue
             if n.epistemic_state != EpistemicState.UNVERIFIED or n.id not in in_focus:
                 continue
             if n.provenance != Provenance.HYPOTHESIZED:
@@ -2401,7 +2416,8 @@ class KGEngine:
         # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
         # grounder judges a generated compression and its star together, instead of parallel grounders
         # rejecting the node while grounding an edge into it.
-        planned = node_star_batches([{"id": i, "kind": k} for _, i, k in items], ends, size)
+        planned = node_star_batches([{"id": i, "kind": "node", "reexamine": True} if k == "node:reexamine"
+                                     else {"id": i, "kind": k} for _, i, k in items], ends, size)
         # attacks that wrote no counter-edge (0.10.0), each counted like a counter-edge judged at its time
         for hub, times in self._hub_attacks().items():
             attacks.setdefault(hub, []).extend((ATTACK_RECORDED, at) for at in times)
@@ -2417,6 +2433,8 @@ class KGEngine:
             "ok": True, "focus": focus or None,
             "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
                       "nodes": sum(1 for _, _, k in items if k == "node"),
+                      # rejected hypothesized nodes queued to be judged again (0.20.2, `reexamine=True`)
+                      "reexamine": reexamined,
                       "extractor_nodes_not_queued": skipped,
                       # pins judged unsupported against these sources, left out until the sources change
                       # (0.20.1); always 0 with a focus, which offers them again
@@ -2595,7 +2613,8 @@ class KGEngine:
                          "epistemic_state": e.epistemic_state.value}
                         for m in nodes.values() for e in m.edges
                         if n.id in (slug(e.source), slug(e.target))][:20]
-            return {"ok": True, "kind": "node", "node": view(n), "edges": incident}
+            return {"ok": True, "kind": "node", "node": view(n), "edges": incident,
+                    "source_context": self._node_source_context(n, scrub)}
         try:
             owner = self._owner_of_edge(target_id)
         except EdgeOwnerUnreadable as e:
@@ -2616,6 +2635,60 @@ class KGEngine:
                 "span_in_source": self.source_set().verifies(e.span, e.source_file) if has_span else None,
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
                 "context": context, "shared_context": shared, "passage": passage}
+
+    def _section_index(self) -> dict:
+        """The units of every section of the configured sources (`groundplan.text_units`: paragraphs, and the
+        lines of a long table) with the forms of their content words (`groundplan.text_forms`), for
+        `_node_source_context`. `sections` holds `(file, section, units, first unit index)` in source order;
+        `forms` and `owner` run over every unit. Cached on the sources' signature: a pass asks for a node's
+        sections once per node, and the field corpus is 445 000 characters."""
+        from .groundplan import text_forms, text_units
+        sig = self._source_signature()
+        cached = getattr(self, "_section_index_cache", None)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        texts = self.source_set().texts
+        sections, forms, owner = [], [], []
+        for fname in texts:
+            for s in plan_sections(texts[fname])[1]:
+                units = text_units(s.text)
+                sections.append((fname, s, units, len(forms)))
+                for a, b in units:
+                    forms.append(text_forms(s.text[a:b]))
+                    owner.append(len(sections) - 1)
+        index = {"sections": sections, "forms": forms, "owner": owner}
+        self._section_index_cache = (sig, index)
+        return index
+
+    def _node_source_context(self, node, scrub) -> dict:
+        """What a grounder judges a node against (0.20.2): the source sections whose best paragraph shares the
+        most of the node's words, rare words weighing more (`groundplan.rank_units`), at most `NODE_SECTIONS`,
+        each with the words that paragraph shares (`matched`) and the excerpt around it, cut from the source
+        text itself (`groundplan.unit_excerpt`). `terms` are the node's words, from its label and body without
+        its lineage and verdict lines; `sections_total` counts every section with such a paragraph.
+
+        The paragraph is what is scored, not the section: a long section uses many common words in unrelated
+        paragraphs, and on the field corpus such sections outranked the one paragraph that states a cliché.
+
+        Through 0.20.1 a node's grounder got only the node and its incident edges. A pin or a cliché has no
+        edge, so it got no source text, and could find support only among the spans other edges already
+        cited. The field pass of 2026-11-21 judged 120 pins and 6 clichés that way, and its report said so."""
+        from .groundplan import NODE_SECTIONS, node_terms, rank_units, unit_excerpt
+
+        terms = node_terms(node.label, node.body)
+        index = self._section_index()
+        best: "dict[int, tuple[float, int, list[str]]]" = {}
+        for score, ui, matched in rank_units(index["forms"], terms):
+            best.setdefault(index["owner"][ui], (score, ui, matched))
+        order = sorted(best.items(), key=lambda kv: (-kv[1][0], kv[0]))
+        sections = []
+        for sec, (_score, ui, matched) in order[:NODE_SECTIONS]:
+            fname, s, units, first = index["sections"][sec]
+            sections.append({"source_file": fname, "section": s.index,
+                             "title": scrub(s.title) if s.title else "(whole file)",
+                             "matched": [scrub(t) for t in matched],
+                             "excerpt": scrub(unit_excerpt(s.text, units, ui - first))})
+        return {"terms": [scrub(t) for t in terms], "sections": sections, "sections_total": len(best)}
 
     def _span_context(self, span: str, source_file: str, scrub) -> "dict | None":
         """The excerpt of the source section that holds ``span`` (``groundplan.span_excerpt``), in
@@ -3993,7 +4066,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_ground_plan(focus: str = "", configured_wave_size: str | int | None = "",
-                       batch_size: int | None = None) -> dict:
+                       batch_size: int | None = None, reexamine: bool = False) -> dict:
         """Plan a /burgess:kg-ground: the grounding queue (every unverified edge, and every unverified
         HYPOTHESIZED node) as compact `{id, kind}` items in batches of `batch_size` (1-20, default 12), one
         batch per kg-grounder, `wave_size` grounders at a time, plus the `hubs` for the adversarial grounder
@@ -4003,8 +4076,13 @@ def _register(mcp, engine: KGEngine) -> None:
         touch it, node first, so one grounder judges a compression and its star. Pass
         the command's `$ARGUMENTS` as `focus` (it keeps the items touching a node it names) and the
         `extract_wave_size` option as the command text carries it. `queue.leads_pending` counts the leads
-        rejected claims carry that `/burgess:kg-build --leads` has yet to write. Read-only."""
-        return engine.kg_ground_plan(focus, configured_wave_size, batch_size)
+        rejected claims carry that `/burgess:kg-build --leads` has yet to write. `queue.unsupported_waiting`
+        counts the [diverge] pins a grounder already judged unsupported against these sources; they stay out
+        until the sources or the pin change, or a focus names them. `reexamine=true` (the command's
+        `--reexamine`) also queues the rejected hypothesized nodes the focus names, each item marked
+        `"reexamine": true` and counted in `queue.reexamine`: a node rejected before 0.20.2 was judged without
+        source text. Read-only."""
+        return engine.kg_ground_plan(focus, configured_wave_size, batch_size, reexamine=bool(reexamine))
 
     @mcp.tool()
     @_tool_result
@@ -4017,8 +4095,11 @@ def _register(mcp, engine: KGEngine) -> None:
         where each end is discussed (`source_node_sections`, `target_node_sections`). A proposal from
         /burgess:kg-perturb may also carry `passage`: the span a second reading of the source wrote this
         very edge from, with `in_source` (does it verify now) and, when it does, the section and `excerpt`
-        around it; any other edge has `passage: null`. For a node (`kind="node"`): the node and its
-        incident edges. Text is egress-scrubbed with the session's placeholders. Read-only."""
+        around it; any other edge has `passage: null`. For a node (`kind="node"`): the node, its incident
+        edges, and `source_context`: the node's `terms` and up to 3 source `sections` that share the most of
+        them, rare words weighing more, each with the words it shares (`matched`) and an `excerpt` of its part
+        that uses most of them. A support_span for a node is copied verbatim from one of those excerpts.
+        Text is egress-scrubbed with the session's placeholders. Read-only."""
         return engine.kg_ground_item(target_id, kind)
 
     @mcp.tool()

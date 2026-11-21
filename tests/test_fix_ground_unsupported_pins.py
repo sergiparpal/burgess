@@ -173,8 +173,10 @@ def test_a_verdicted_pin_cannot_be_recorded(rig):
 def test_a_change_to_the_pin_changes_its_signature():
     node = SimpleNamespace(label="Idea", body="text\n\n[diverge] pinned candidate=c0")
     sig = item_signature("node", node)
-    record = {"at": "t", "source_sig": "s", "item_sig": sig}
+    record = {"at": "t", "source_sig": "s", "item_sig": sig, "evidence": 2}
     assert waits_for_sources(record, "s", sig)
+    # a 0.20.1 record carries no evidence version: its grounder saw no source text (0.20.2), so it is stale
+    assert not waits_for_sources({"at": "t", "source_sig": "s", "item_sig": sig}, "s", sig)
     assert not waits_for_sources(record, "s2", sig)                      # the sources changed
     edited = SimpleNamespace(label="Idea", body="text, edited\n\n[diverge] pinned candidate=c0")
     assert not waits_for_sources(record, "s", item_signature("node", edited))   # the pin changed

@@ -54,7 +54,7 @@ afterward. The portico moved from the door of imagination to after generation.
    `wave_size`), and each extractor fetches its own section with `kg_section` and emits one `kg_write`
    payload. No shell and no file reads, so auto mode never stops it on a prompt. Output edges land
    `unverified`.
-2. **`/burgess:kg-ground [node_or_query]`** — adjudicate `unverified` **edges AND nodes** (a materialized
+2. **`/burgess:kg-ground [--reexamine] [node_or_query]`** — adjudicate `unverified` **edges AND nodes** (a materialized
    `/burgess:kg-diverge` pin is a hypothesized node — often with no incident edge — groundable via
    `kg_ground(kind="node")`; "no edge → can't ground" is false). **kg-grounder** confirms or
    rejects on the merits and stamps verdicts via `kg_ground`; **kg-adversarial-grounder** tries to

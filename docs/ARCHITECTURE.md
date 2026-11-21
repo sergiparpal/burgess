@@ -359,12 +359,17 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   grounders, a queued node in one batch with the queued edges that touch it (0.17.1), plus the wave size and the hubs no adversarial pass has attacked since their last grounded
   claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge and from the
   attack ledger `kg_record_attack` writes, and the count of pending leads; a claim's time is its
-  `verdict_at`, when it entered its state, which a re-verdict that keeps the state keeps, 0.10.2),
+  `verdict_at`, when it entered its state, which a re-verdict that keeps the state keeps, 0.10.2; it leaves
+  out a `[diverge]` pin recorded unsupported against the current sources and pin, 0.20.1, unless the record
+  predates node evidence, 0.20.2; with `reexamine`, it also queues the rejected hypothesized nodes the focus
+  names, 0.20.2),
   `kg_ground_item` (one queued item's evidence: the edge, whether its span still verifies, its nodes
   and the excerpt of the source around the span, a long table's rows under its header, so a grounder
   reads no file; for an edge with no span, a proposal, the source sections where both its ends are
   discussed, located by the spans of their live edges, 0.18.0, and for a `/burgess:kg-perturb` proposal the
-  passage a second reading wrote it from, with its excerpt, 0.19.0), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
+  passage a second reading wrote it from, with its excerpt, 0.19.0; for a node, the source sections that share
+  the most of its words, rare words weighing more, each with an excerpt, since a node has no span to locate
+  its text by, 0.20.2), `query_graph` (every filter applies to nodes and edges alike; `text` finds nodes and
   edges by what they say, edgeless nodes included), `get_node`,
   `get_neighbors`,
   `shortest_path` (never routes through a non-live edge — §3.2), `kg_explain_path`
