@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (35 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (36 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -341,7 +341,7 @@ live compression node was already proposed over (at least half of the other memb
 already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
 2026-11-15 all four compression candidates were of these kinds.
 
-## 5. The MCP tool surface (35 tools)
+## 5. The MCP tool surface (36 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -379,7 +379,7 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   view stays current (0.15.0): every projecting read re-renders each view that exists and is older than
   `graph.json` or was rendered by an older engine (0.15.1), unless the projection is degraded. A read never
   creates a view. An `inferred` edge is drawn lighter in any state (0.15.1).
-- **Write/ground (9):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
+- **Write/ground (10):** `kg_write`, `kg_propose`, `kg_ground` (the verdict monopoly),
   `kg_rename` (strict), `kg_merge` (deliberate merge; negative information sticky), `kg_operate`,
   `kg_record_attack` (0.10.0: an adversarial attack that wrote no counter-edge, with its falsifying
   question, so the plan stops offering that hub; it writes only the attack ledger and sets no state),
@@ -391,7 +391,10 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   no state), `kg_record_generation` (0.17.0: one `/burgess:kg-generate` run, which advances the absorption
   ledger's generation counter and tracks each node the run proposed at its live degree, so the command needs no
   shell; it writes only `derived/generations.json`, refuses a file it cannot read as a ledger, and sets no
-  state).
+  state), `kg_record_unsupported` (0.20.1: a `[diverge]` pin a grounder judged and left `unverified` for want
+  of support, with its note, keyed by the signatures of the sources and of the pin, so the ground plan leaves
+  it out until either changes or a focus names it; it refuses anything but an unverified `[diverge]`-pinned
+  hypothesis, writes only the unsupported-pin ledger and sets no state).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (8):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
@@ -717,6 +720,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-reconcile-state.json      reconciler cache (gitignored)
   .kg-hub-attacks.jsonl         attacks that wrote no counter-edge (gitignored engine state, 0.10.0)
   .kg-edgeless-sections.jsonl   build sections an extraction wrote no edge from (gitignored engine state, 0.14.0)
+  .kg-unsupported-pins.jsonl    [diverge] pins judged unsupported (gitignored engine state, 0.20.1)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
   .kg/constructions/<slug>/     /burgess:kg-perturb second construction (alt canon/ + derived/; ephemeral)
 <data dir>/                     $KG_DATA (or <project>/.kg-data)

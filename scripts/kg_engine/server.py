@@ -25,7 +25,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__, envconfig
-from .canon import EDGELESS_SECTIONS, HUB_ATTACKS, Canon
+from .canon import EDGELESS_SECTIONS, HUB_ATTACKS, UNSUPPORTED_PINS, Canon
 from .groundaudit import GroundAuditLog
 from .model import (
     AuthoredBy,
@@ -2294,6 +2294,11 @@ class KGEngine:
         than `batch_size` is a batch of its own (0.17.1, `groundplan.node_star_batches`). So one grounder
         judges a generated compression together with its star.
 
+        A `[diverge]` pin a grounder left unverified and recorded with `kg_record_unsupported` stays out of
+        the queue while the sources and the pin are the ones it was judged against (0.20.1), counted in
+        `queue.unsupported_waiting`. A change to either offers it again, and so does a `focus`, as for an
+        attacked hub. Through 0.20.0 every pass judged every pin again.
+
         `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
         channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
         1–20, default 12.
@@ -2310,7 +2315,8 @@ class KGEngine:
         attack's own counter-edges included, so every pass offered the same hubs again (field report on
         0.7.0). Read-only; it never projects."""
         from .groundplan import (ATTACK_RECORDED, DEFAULT_BATCH_SIZE, DIVERGE_MARK, already_attacked,
-                                 attacked_hub, clamp_batch_size, focus_matches, is_weak, node_star_batches)
+                                 attacked_hub, clamp_batch_size, focus_matches, is_weak, item_signature,
+                                 node_star_batches, waits_for_sources)
 
         size = clamp_batch_size(batch_size) if batch_size not in (None, "") else DEFAULT_BATCH_SIZE
         cfg = envconfig.clean(str(configured_wave_size)) if configured_wave_size is not None else ""
@@ -2343,6 +2349,15 @@ class KGEngine:
                                                   # (verdict_at; a re-confirmation keeps it, 0.10.2)
         attacks: "dict[str, list[tuple[str, str | None]]]" = {}   # hub -> (state, verdict_at) per counter-edge
         weak_edges = 0
+        # Pins a grounder judged unsupported against these sources (0.20.1) wait for the sources to change.
+        # A focus skips that memory, as it does for an attacked hub: naming a pin asks for a fresh look.
+        unsupported = {} if focus else self._unsupported_pins()
+        current_sig = self._source_signature() if unsupported else ""
+        unsupported_waiting = 0
+
+        def waits(kind: str, item) -> bool:
+            return waits_for_sources(unsupported.get((kind, item.id)), current_sig, item_signature(kind, item))
+
         for n in nodes:
             for e in n.edges:
                 if e.id in seen:
@@ -2361,6 +2376,9 @@ class KGEngine:
                 if focus and slug(e.source) not in in_focus and slug(e.target) not in in_focus:
                     continue
                 pinned = DIVERGE_MARK in (e.notes or "")
+                if pinned and unsupported and waits("edge", e):
+                    unsupported_waiting += 1
+                    continue
                 hypothesized = e.provenance == Provenance.HYPOTHESIZED
                 weak = not hypothesized and is_weak(e.confidence, e.confidence_score)
                 weak_edges += weak
@@ -2375,6 +2393,9 @@ class KGEngine:
                 skipped += 1
                 continue
             pinned = DIVERGE_MARK in (n.body or "")
+            if pinned and unsupported and waits("node", n):
+                unsupported_waiting += 1
+                continue
             items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
         items.sort(key=lambda row: row[0])
         # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
@@ -2397,6 +2418,9 @@ class KGEngine:
             "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
                       "nodes": sum(1 for _, _, k in items if k == "node"),
                       "extractor_nodes_not_queued": skipped,
+                      # pins judged unsupported against these sources, left out until the sources change
+                      # (0.20.1); always 0 with a focus, which offers them again
+                      "unsupported_waiting": unsupported_waiting,
                       # leads rejected claims carry that no edge has taken yet (0.9.0): `/kg-build --leads`
                       # writes them; the whole canon's, whatever the focus
                       "leads_pending": len(self._pending_leads(nodes))},
@@ -2460,6 +2484,79 @@ class KGEngine:
         finally:
             self.canon.release_lock()
         return {"ok": True, "hub": hub, "at": at, "reason": reason}
+
+    def _unsupported_pins(self) -> "dict[tuple[str, str], dict[str, str]]":
+        """The pins the ledger records as judged unsupported (`groundplan.unsupported_records`), keyed by
+        (kind, id). Fail-open like `_hub_attacks`: a missing or unreadable ledger is no record, so the pins
+        are offered again. Never creates the ledger (the plan is read-only)."""
+        from .groundplan import unsupported_records
+        try:
+            with open(self.canon.root / UNSUPPORTED_PINS, encoding="utf-8", errors="replace") as f:
+                return unsupported_records(f)
+        except OSError:
+            return {}
+
+    def kg_record_unsupported(self, target_id: str, kind: str = "node", note: str = "") -> dict:
+        """Record that a grounder judged a `[diverge]`-pinned hypothesis and left it `unverified` for want
+        of support (0.20.1), so `kg_ground_plan` leaves it out until the sources or the pin change.
+
+        Only an `unverified`, hypothesized item whose body (a node) or notes (an edge) carry the
+        `[diverge] pinned` marker can be recorded: any other item gets a verdict from `kg_ground`, so this
+        can never hide an ordinary proposal from the queue. `note` says what the grounder looked for and
+        did not find. The record goes to the ledger beside the canon (`canon.UNSUPPORTED_PINS`), one
+        fsync'd JSON line under the writer lease, with the signatures of the current sources and of the
+        pin. It sets no state: no node, edge or verdict changes. Through 0.20.0 nothing recorded such a
+        judgment, and every pass judged every pin again (field pass of 2026-11-21: 120 pins, about $2.50,
+        all left unverified)."""
+        from .atomicio import fsync_dir
+        from .groundplan import (DIVERGE_MARK, MAX_UNSUPPORTED_NOTE_CHARS, item_signature,
+                                 unsupported_record)
+        kind = (kind or "").strip().lower()
+        if kind not in ("node", "edge"):
+            return {"ok": False, "error": f"invalid kind {kind!r}; expected node|edge"}
+        if not (target_id or "").strip():
+            return {"ok": False, "error": "name the pin you judged"}
+        item_id = slug(target_id.strip()) if kind == "node" else target_id.strip()
+        note = " ".join((note or "").split())
+        if not note:
+            return {"ok": False, "error": "a record carries a note on what you looked for and did not find",
+                    "item": item_id}
+        if len(note) > MAX_UNSUPPORTED_NOTE_CHARS:
+            return {"ok": False, "error": f"the note is over {MAX_UNSUPPORTED_NOTE_CHARS} characters",
+                    "item": item_id}
+        if not self._try_writer_lease():
+            return {"ok": False, "error": self._LOCKED_ERROR, "item": item_id}
+        try:
+            nodes = self._canon_baseline()
+            item = None
+            if kind == "node":
+                item = nodes.get(item_id)
+                marked = item is not None and DIVERGE_MARK in (item.body or "")
+            else:
+                item = next((e for n in nodes.values() for e in n.edges if e.id == item_id), None)
+                marked = item is not None and DIVERGE_MARK in (item.notes or "")
+            if item is None:
+                return {"ok": False, "error": f"{kind} not found", "item": item_id}
+            if (item.provenance != Provenance.HYPOTHESIZED or item.epistemic_state != EpistemicState.UNVERIFIED
+                    or not marked):
+                return {"ok": False, "item": item_id,
+                        "error": "only an unverified [diverge]-pinned hypothesis can be recorded as "
+                                 "unsupported; give any other item its verdict with kg_ground"}
+            at = utcnow()
+            path = self.canon.root / UNSUPPORTED_PINS
+            line = unsupported_record(kind, item_id, at, self._source_signature(),
+                                      item_signature(kind, item), note)
+            try:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+                fsync_dir(path.parent)
+            except OSError as e:
+                return {"ok": False, "error": self._scrub_error(f"record not written: {e}"), "item": item_id}
+        finally:
+            self.canon.release_lock()
+        return {"ok": True, "item": item_id, "kind": kind, "at": at}
 
     def kg_ground_item(self, target_id: str, kind: str = "edge") -> dict:
         """Everything a grounder judges ONE queued item by (0.7.0), so it never reads a file.
@@ -3933,6 +4030,18 @@ def _register(mcp, engine: KGEngine) -> None:
         listed in `attacked_hubs`) until it gains a newer grounded claim, as a counter-edge's mark does.
         Writes only the attack ledger beside the canon: no node, edge or verdict changes."""
         return engine.kg_record_attack(hub_id, question, reason)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_record_unsupported(target_id: str, kind: str = "node", note: str = "") -> dict:
+        """Record that you judged a `[diverge]`-pinned hypothesis and left it `unverified` because no
+        source supports it yet. Call it for each such pin, with a `note` on what you looked for and did
+        not find. `kg_ground_plan` then leaves the pin out (counted in `queue.unsupported_waiting`) until
+        the sources or the pin change, so the next pass does not judge it again for the same answer.
+        Refused for any other item: an ordinary proposal, a verdicted item, or one without the marker
+        gets its verdict from kg_ground. Writes only the ledger beside the canon: no node, edge or verdict
+        changes."""
+        return engine.kg_record_unsupported(target_id, kind, note)
 
     @mcp.tool()
     @_tool_result

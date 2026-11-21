@@ -22,6 +22,7 @@ uv.lock
 .kg-ground-audit.jsonl*
 .kg-hub-attacks.jsonl
 .kg-edgeless-sections.jsonl
+.kg-unsupported-pins.jsonl
 .tmp-*
 /derived/
 **/derived/lightrag/
