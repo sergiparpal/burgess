@@ -113,8 +113,10 @@ genuinely different mechanisms. You can change it any round.
 What happens next is a guided back-and-forth:
 
 1. Claude first jots down the **most obvious, clichéd answers** to your brief — and then deliberately
-   steers *away* from them. (Honesty note: "obvious" is Claude's guess at what's obvious. This
-   hedges against clichés; it can't promise the world has never thought of your idea.)
+   steers *away* from them. Round 1 opens with the ones it is avoiding. A few more are kept aside and
+   shown at the end, with the ideas that came closest to them. If you ask, the clichés can go into the
+   graph too. (Honesty note: "obvious" is Claude's guess at what's obvious. This hedges against
+   clichés; it can't promise the world has never thought of your idea.)
 2. Claude generates a batch of candidates, each built around a *different underlying mechanism* —
    not just different wording, but a genuinely different way the idea works.
 3. Burgess's local engine measures how spread-out the batch is and picks a **diverse slate** to show

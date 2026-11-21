@@ -1121,6 +1121,7 @@ session/                                                  EPHEMERAL (I10)
   embeddings.npz        surface vectors (binary npz)
   mech_embeddings.npz   open-axis/mechanism vectors (npz)
   open_nicher.json      the open-axis Voronoi partition
+  cliches.json          the session's cliché map (0.20.0; read by nothing in the geometry)
 memory/<domain-slug>/                                     durable
   pins.json  discards.json  comparisons.jsonl
 ```
@@ -1154,7 +1155,7 @@ lane and is **not** discarded.
 `axes` is the resolved geometry: write every candidate's `descriptor` with exactly these names (the
 `open` axis is the mechanism). There is no template file to open for it.
 
-### 1B.2 `kg_diverge_ingest(project, candidates, axes=None, seed=0)`
+### 1B.2 `kg_diverge_ingest(project, candidates, axes=None, seed=0, cliches=None)`
 
 One divergence cycle: embed → near-duplicate dedupe → MAP-Elites placement → k-NN novelty → DPP slate,
 with the monitor reading the round. Candidate shape (see `/burgess:kg-diverge` step 6):
@@ -1163,6 +1164,13 @@ with the monitor reading the round. Candidate shape (see `/burgess:kg-diverge` s
 record keeps it, a slate item returns it, and `kg_diverge_export` prints it; it is never embedded, so it
 cannot move an idea. Each record also notes its `batch` and the batches whose slate showed it (`slated_in`),
 for the export.
+
+`cliches` (0.20.0), sent with the first ingest, is the cliché map of `/burgess:kg-diverge` step 3:
+`{"avoided": [text, …], "held_out": [text, …]}`, at most six of each, one plain sentence each. The engine
+numbers them `o1`, `o2`, … (avoided first), stores them in `session/cliches.json` (replacing any earlier map
+of the session), and adds `cliches_stored` to the result. Nothing in the geometry reads them: the slate, the
+parents and the monitor are the same with or without them (tested). A malformed map is an error, raised
+before any state is touched.
 
 ```json
 {"slate": [{"id": "c3", "text": "…", "coords": {"angle": "…"}, "niche_id": "…", "novelty": 0.41,
@@ -1221,7 +1229,8 @@ Archive health: `{entropy, mean_cosine, coverage, n, mechanism_spread, mechanism
 The brief's preference memory, for injection into generation: `{domain, preferences, pins, discards,
 summary: {n_comparisons, win_counts, preferred_values}}`, plus the session context: `session_id` (the
 session the archive belongs to, the one `init` last began or resumed), `seed`, `axes`,
-`unit_of_generation` and `candidates_per_generation` (each left out when the state has none). After a
+`unit_of_generation`, `candidates_per_generation` and the session's `cliches` (each `{id, text, role}`;
+each key left out when the state has none). Show a `held_out` cliché only when the session ends. After a
 compaction in the same chat this one call restores what the next round needs; never read `.kg/diverge/`
 files for it. Like `init`, it first syncs materialized fates
 (I8) — generate AWAY from `discards`, FROM `pins`. On a source change it also surfaces `failed`-fated
@@ -1230,7 +1239,7 @@ auto-un-sealed). Pass `reexamine=[candidate_ids]` to EXPLICITLY un-seal those ca
 `discards` and has its failure fate cleared, returning to the proposal pool (reported under
 `reexamined_unsealed`); un-sealing never changes a graph verdict.
 
-### 1B.7 `kg_diverge_materialize(project, candidate_ids=None, node_type="claim", edges=None)`
+### 1B.7 `kg_diverge_materialize(project, candidate_ids=None, node_type="claim", edges=None, cliche_ids=None)`
 
 The **explicit door** from divergence into the graph — the ONLY way an idea leaves `.kg/diverge/`.
 Materializes pinned ideas (`candidate_ids` defaults to all pins) as nodes routed **exclusively through the
@@ -1254,6 +1263,14 @@ propose lane** (`kg_propose` → the same boundary as every write):
 - When a source is already configured and ≥1 pin materialized, the result carries an advisory-only
   `advisory` string (grounding these novel pins against the existing source will correctly leave them
   `unverified` until sources are added) — never a disposition, verdict, or ledger write.
+- **Clichés (0.20.0).** `cliche_ids` (e.g. `["o1", "o4"]`) carries clichés of the session's map through the
+  same door, on the user's word. Each becomes `cliche-<project-slug>-<id>`, its body ending with
+  `[cliche] id=<id> role=<avoided|held_out> brief=<project> session=<id>`. An id not in the map is `refused`
+  (`unknown-cliche`). A cliché needs no pin, and a call with `cliche_ids` and no `candidate_ids` carries no
+  pins. Its results carry `cliche` instead of `candidate`. The ledger keeps it under `_cliches`, which the
+  fate sync skips, so a failed cliché never joins the brief's discards. The grounder treats it as an
+  ordinary hypothesis — grounded with support, `rejected` without (the user's choice, 2026-11-21) — and the
+  result says so in `cliche_advisory`.
 
 ```json
 {"ok": true, "materialized": 2,
@@ -1275,6 +1292,12 @@ run that took ten permission prompts and about two hours).
   did with it: pinned, discarded, beat / lost to in a comparison, in the graph as a materialized node.
   `brief` heads the file. A pin from an earlier session is named without text: its record ended with
   that session (I10).
+- When the session stored a cliché map, a `## Clichés` section lists it before the ideas, and the result's
+  `cliches` gives each `{id, text, role[, closest][, node]}`. Only a `held_out` cliché carries `closest`:
+  the three ideas nearest to it by cosine similarity in this session's embedding space (the cliché embedded
+  with the session's own embedder). The avoided ones steered the generation, so a distance to them would
+  only grade the steering. Advisory: it ranks nothing, and an embedder that differs from the session's or
+  fails to load gives `closest: []` instead of an error. `node` names a materialized cliché.
 - The file is `.kg/diverge/<brief-slug>/ideas-<brief-slug>-<session>.md`: one per session (a second
   export in the same session replaces it), never in the project root. A directory source is every
   top-level `.md`, so in a project that is its own source folder an export there would be read by
@@ -1664,7 +1687,7 @@ errors}`.
 | diverse stepping stones (pins in, discards out) | `kg_diverge_parents(project)` |
 | archive health / gap log | `kg_diverge_metrics(project)` |
 | recall a brief's pins/discards/comparisons | `kg_diverge_recall(project)` |
-| carry pinned ideas into the hypothesized lane | `kg_diverge_materialize(project, …)` |
+| carry pinned ideas, or mapped clichés, into the hypothesized lane | `kg_diverge_materialize(project, …)` |
 | save every idea of a diverge session to a file | `kg_diverge_export(project, brief)` |
 | score extraction precision | `f4_probe.py summary|sheet|fill|score` |
 | who wrote the sampled edges, and their verdicts | `kg_engine.harness writers` |

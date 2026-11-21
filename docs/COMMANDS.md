@@ -117,6 +117,14 @@ compared). It never writes into your project folder, which may be the source fol
 `/burgess:kg-build` reads. If you want the file somewhere else, Claude copies it there, and that copy
 asks for your permission once.
 
+**The clichés.** Before generating, Claude writes down the obvious answers to your brief. It steers
+away from some of them and sets the others aside to check the ideas against. Round 1 opens with the ones
+it is avoiding, each with an id (`o1`, `o2`, …). The ones set aside are shown when you end the
+session, each with the three ideas closest to it, so your choices cannot steer the ideas away from them
+before the check. The saved file lists them all. If you ask, the clichés go into the graph too, as
+hypotheses like the pins. They are judged like any proposal: verified when your sources state them,
+rejected when they do not.
+
 ### Arguments
 
 | Argument | Required | Accepted values | Default |

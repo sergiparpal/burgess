@@ -193,6 +193,50 @@ def _session_context(state: "State") -> dict[str, Any]:
             out["unit_of_generation"] = axes["unit_of_generation"]
     if meta.get("candidates_per_generation"):
         out["candidates_per_generation"] = meta["candidates_per_generation"]
+    cliches = state.read_cliches()
+    if cliches:
+        out["cliches"] = cliches
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# the cliché map (0.20.0)
+# --------------------------------------------------------------------------- #
+CLICHE_ROLES = ("avoided", "held_out")
+MAX_CLICHES_PER_ROLE = 6
+MAX_CLICHE_CHARS = 400
+
+
+def parse_cliches(cliches) -> list[dict[str, Any]]:
+    """Validate the agent's cliché map and give each entry its id.
+
+    ``cliches`` is ``{"avoided": [text, ...], "held_out": [text, ...]}``: the obvious answers the agent
+    generated away from (its O_train) and the ones it set aside to check the ideas against at the end
+    (its O_test). Ids run ``o1, o2, ...`` over the avoided ones first, then the held-out ones, so the
+    user can name a cliché. Raises :class:`config.ConfigError` on anything else, before any state is
+    touched."""
+    if not isinstance(cliches, dict):
+        raise config.ConfigError('cliches must be {"avoided": [...], "held_out": [...]}')
+    unknown = sorted(set(cliches) - set(CLICHE_ROLES))
+    if unknown:
+        raise config.ConfigError(f"cliches has unknown keys {unknown}; use avoided and held_out")
+    out: list[dict[str, Any]] = []
+    for role in CLICHE_ROLES:
+        items = cliches.get(role) or []
+        if not isinstance(items, list):
+            raise config.ConfigError(f"cliches.{role} must be a list of texts")
+        if len(items) > MAX_CLICHES_PER_ROLE:
+            raise config.ConfigError(f"cliches.{role} holds {len(items)} texts; at most "
+                                     f"{MAX_CLICHES_PER_ROLE}")
+        for item in items:
+            if not isinstance(item, str) or not item.strip():
+                raise config.ConfigError(f"cliches.{role} must hold non-empty texts")
+            text = " ".join(item.split())
+            if len(text) > MAX_CLICHE_CHARS:
+                raise config.ConfigError(f"a cliché is at most {MAX_CLICHE_CHARS} characters")
+            out.append({"id": f"o{len(out) + 1}", "text": text, "role": role})
+    if not any(c["role"] == "avoided" for c in out):
+        raise config.ConfigError("cliches.avoided needs at least one text")
     return out
 
 
@@ -991,6 +1035,7 @@ def ingest(
     axes_source,
     seed: int = 0,
     home: Path | None = None,
+    cliches=None,
 ) -> dict[str, Any]:
     """Embed → dedup → place → novelty → archive → DPP → monitor for one cycle.
 
@@ -998,8 +1043,13 @@ def ingest(
     runs under a best-effort cross-process lock (``State.project_lock``) so two
     concurrent cycles on the same project can't clobber each other's generation (a
     lost update). On lock timeout it proceeds unlocked rather than deadlock.
+
+    ``cliches`` (0.20.0), when given, replaces the session's cliché map (:func:`parse_cliches`).
+    The geometry never reads it: the slate, the parents and the monitor come out the same with or
+    without it.
     """
     spec, econfig = config.load_axes_and_engine(axes_source)
+    cliche_list = parse_cliches(cliches) if cliches is not None else None
     sess = Session(project, home=home, seed=seed).ensure()
     cand_list = _parse_candidates(candidates)
     if cand_list:
@@ -1011,7 +1061,12 @@ def ingest(
         # an empty (0, dim) array; once loaded, this is a no-op on every later cycle.
         sess.embedder.embed([])
     with sess.state.project_lock():
-        return _ingest_locked(sess, spec, econfig, project, cand_list, seed)
+        if cliche_list is not None:
+            sess.state.write_cliches(cliche_list)
+        out = _ingest_locked(sess, spec, econfig, project, cand_list, seed)
+    if cliche_list is not None:
+        out["cliches_stored"] = len(cliche_list)
+    return out
 
 
 def _ingest_locked(

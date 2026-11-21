@@ -92,6 +92,13 @@ reach — `wild` means further-out, never incoherent.
    the slate. Caveat honestly: "obvious" is your notion of cliché; this hedges cliché, it does
    not guarantee novelty against the world.
 
+   Send the map with the first ingest (step 6) as `cliches`: `{"avoided": [O_train texts],
+   "held_out": [O_test texts]}`, one plain sentence each. The engine numbers them `o1`, `o2`, …
+   (avoided first) and keeps them for this session; `kg_diverge_recall` returns them after a
+   compaction, `kg_diverge_export` prints them, and nothing in the geometry reads them. Round 1
+   shows the avoided ones (step 7); the held-out ones stay unshown until the session ends (step 11),
+   so the user's choices cannot steer the ideas away from them and spoil the check.
+
 4. **Generate candidates yourself, mechanism-first**, using
    `${CLAUDE_PLUGIN_ROOT}/skills/burgess/references/operators.md`
    (apply several DIFFERENT operators per round — biased by the reach dial: recombinative
@@ -123,7 +130,8 @@ reach — `wild` means further-out, never incoherent.
    may NOT use it to cut variety. If you find yourself dropping more than ~40% of a round, you are
    over-filtering.
 
-6. **Ingest.** Call `kg_diverge_ingest(project, candidates, axes, seed)` with the survivors:
+6. **Ingest.** Call `kg_diverge_ingest(project, candidates, axes, seed)` with the survivors, and
+   in round 1 also `cliches` (step 3):
 
    ```json
    [{"id": "c1", "text": "the idea, one or two sentences",
@@ -149,6 +157,12 @@ reach — `wild` means further-out, never incoherent.
    Field honesty: `novelty` is mean k-NN distance to THIS SESSION's own ideas — a variety
    proxy, not originality vs the world; `mechanism_novelty` is the same for its mechanism.
    Report them as such.
+
+   **Round 1 opens with the clichés you are avoiding**, before its slate: each avoided one by its id
+   (`o1`…), in one line, then one line saying that a few more obvious answers are set aside, to be
+   shown at the end with the ideas closest to them. Never list the held-out ones before the session
+   ends. In the 2026-11-21 test sessions two agents listed what they avoided and one named a single
+   cliché in passing; the user asked for the list to open every session.
 
    **Earlier ideas on the slate.** The engine picks the slate from every idea in the archive, not only this
    round's, so a slate often brings earlier ideas back. Mark each with its round, summarize it in a line
@@ -199,7 +213,8 @@ reach — `wild` means further-out, never incoherent.
 
    **After a compaction.** If the conversation was compacted between rounds, call
    `kg_diverge_recall(project)` before anything else: it returns this session's `session_id`, the
-   `seed`, the resolved `axes`, the pins, the discards and the comparisons. Keep passing that seed.
+   `seed`, the resolved `axes`, the pins, the discards, the comparisons and the `cliches` you sent
+   with the first ingest. Keep passing that seed.
    Do not call `kg_diverge_init` with another session id, which would wipe the archive, and do not read
    `.kg/diverge/` files: in the 2026-11-19 field run that read went through Bash and waited for the
    user's approval.
@@ -233,6 +248,12 @@ reach — `wild` means further-out, never incoherent.
     somewhere else (their Downloads folder, say), offer to copy it there: a single copy command,
     which asks for permission once, and never a second copy of the content written by hand.
 
+    **Then show the set-aside clichés**, each by its id, with the ideas the export result's
+    `cliches[].closest` names as nearest to it and their similarity. Say what the number is: cosine
+    similarity in this session's embedding space, a hint of which ideas stayed close to an obvious
+    answer, not a verdict. Then say that the clichés can go into the graph too, all of them or the
+    ones the user names, when the user asks (see *Materializing pins* in the notes).
+
 ## Notes
 
 - **Selftest** (engine correctness contract, offline): `python -m kg_engine.divergence selftest`
@@ -251,8 +272,14 @@ reach — `wild` means further-out, never incoherent.
   first with `kg_diverge_remember` (`{"type":"pin","id":…}`), then materialize it, and say what that
   pin also does: it is a parent of every later round of this brief, and it lifts the idea's discard
   if it had one (pin and discard are exclusive per id; the latest wins). Each idea in the graph comes
-  back in every `/burgess:kg-ground` pass while it stays `unverified`. No source in the project? The
-  ideas simply WAIT in the lane. Optional `edges` link materialized ideas to existing nodes (same
+  back in every `/burgess:kg-ground` pass while it stays `unverified`. **Clichés go in the same way,
+  on the user's word:** `kg_diverge_materialize(project, cliche_ids=["o1", …])` writes each as a
+  `cliche-<brief>-<id>` node, hypothesized and `unverified`, with a `[cliche]` line in its body. A
+  cliché needs no pin, and a call with `cliche_ids` alone carries no pins. /burgess:kg-ground judges
+  it like any proposal: grounded when a source supports it, rejected when none does. An obvious
+  answer claims what is usual, so a source that does not say it is worth knowing. It never joins the
+  brief's discards. No source in the project? The pinned ideas simply WAIT in the lane. Optional
+  `edges` link materialized ideas to existing nodes (same
   boundary: forged verdicts stripped, text claims refused) — but they are **extras, not required**: a pin
   is materialized as a **node**, and that node is grounded on its own via `kg_ground(kind="node")`.
   A pin with **no wired edge is still fully groundable** — "no edge → can't be grounded" is false;
