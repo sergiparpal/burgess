@@ -175,10 +175,17 @@ reach — `wild` means further-out, never incoherent.
      so rounds 3 and 4 asked only about ideas of rounds 1 and 2;
    - **explicitly invite pinning any idea** — "pin any idea of this round to keep exploring from,
      from the slate or the rest, not just A/B" (pins are the strongest, durable signal: always parents,
-     recalled across sessions, and later materializable into the graph via /burgess:kg-generate's propose lane);
+     recalled across sessions, and the only ideas that can go into the graph, when the user asks; see
+     *Materializing pins* in the notes);
    - **offer the discard lever** — "drop any of these so we stop building on them?" (a discard
      is durable negative memory: never re-slated, never bred from; re-pinning un-discards).
-     Discarding is the user's call, never yours.
+     Discarding is the user's call, never yours;
+   - **end the round by saying what reaches the graph**, in one line, every round: nothing goes into
+     the knowledge graph unless the user asks; when they ask, the pinned ideas go in, and any other idea
+     they name is pinned first. For example: "Nothing goes into the graph unless you ask. If you do, the
+     pinned ideas go in; name any others and I'll pin them first." After two test sessions on
+     2026-11-21 the user asked whether the ideas had gone into the graph, and then why only the 10
+     pinned ideas of 120 could.
 
 8. **Record & continue.** For each answer/pin/discard call `kg_diverge_remember(project,
    event)` with `{"type":"pin","id":…}` / `{"type":"discard","id":…}` /
@@ -240,9 +247,13 @@ reach — `wild` means further-out, never incoherent.
   `epistemic_state=unverified`, full `[diverge]` lineage in the body), routed exclusively
   through the propose door. Nothing enters the graph implicitly: only on the user's word,
   only pins, only during a session that still holds the idea's record (I10 — a stale pin is
-  reported `skipped`; re-ingest it first). No source in the project? The ideas simply WAIT
-  in the lane. Optional `edges` link materialized ideas to existing nodes (same boundary:
-  forged verdicts stripped, text claims refused) — but they are **extras, not required**: a pin
+  reported `skipped`; re-ingest it first). When the user names an idea that is not pinned, pin it
+  first with `kg_diverge_remember` (`{"type":"pin","id":…}`), then materialize it, and say what that
+  pin also does: it is a parent of every later round of this brief, and it lifts the idea's discard
+  if it had one (pin and discard are exclusive per id; the latest wins). Each idea in the graph comes
+  back in every `/burgess:kg-ground` pass while it stays `unverified`. No source in the project? The
+  ideas simply WAIT in the lane. Optional `edges` link materialized ideas to existing nodes (same
+  boundary: forged verdicts stripped, text claims refused) — but they are **extras, not required**: a pin
   is materialized as a **node**, and that node is grounded on its own via `kg_ground(kind="node")`.
   A pin with **no wired edge is still fully groundable** — "no edge → can't be grounded" is false;
   grounding operates on nodes, not just edges. Materialized pins may be ground FIRST by

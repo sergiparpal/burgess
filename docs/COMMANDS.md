@@ -106,7 +106,9 @@ sessions** — they are the durable signal.
 idea of the round, and asks two A-vs-B questions. The slate is picked from all of the session's ideas,
 so it can stay the same for several rounds; when it holds none of this round's ideas, one question
 still brings one in. The next round breeds from your pins plus at least two ideas the engine picks for
-diversity, drawn again each round, so pinning many ideas never crowds the exploration out.
+diversity, drawn again each round, so pinning many ideas never crowds the exploration out. Each round
+ends with a one-line reminder: nothing goes into the graph unless you ask, and when you ask, your
+pinned ideas go in, plus any other idea you name, which is pinned first.
 
 **Saving the ideas.** Say you are done, or ask to save the ideas. The engine writes every idea of the
 session to `.kg/diverge/<project>/ideas-<project>-<session>.md`: its text, the explanation you were
@@ -197,8 +199,10 @@ Materialize my pins into the graph
 
 Each pin becomes a node in the hypothesized lane (`provenance=hypothesized`,
 `epistemic_state=unverified`) with its `[diverge]` lineage recorded in the body. Nothing enters
-implicitly: only on your word, only pins. If your project has no source document, they simply wait
-in the lane until you add one.
+implicitly: only on your word, only pins. To carry an idea you have not pinned, name it: Claude pins
+it first, which also makes it a parent of every later round of the brief and lifts its discard if it
+had one. If your project has no source document, they simply wait in the lane until you add one.
+While a materialized idea stays unverified, every `/burgess:kg-ground` pass judges it again.
 
 ### Notes and honest limits
 
