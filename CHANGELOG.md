@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.19.8 — 2026-11-21
+
+A follow-up from two `/burgess:kg-diverge` test sessions on 0.19.7 (Windows, 2026-11-21, 60 ideas each),
+after their ideas were carried into the graph.
+
+### Fixed
+
+- **Every round ends by saying what reaches the graph.**
+  - No round said that nothing enters the graph unless the user asks, or that only pinned ideas can be
+    carried. After the two sessions the user asked whether the ideas had gone into the graph, and then why
+    only the 10 pinned ideas of 120 could.
+  - Each round now ends with one line: nothing goes into the graph unless you ask; when you do, the pinned
+    ideas go in, and any other idea you name is pinned first.
+- **The command says how to carry an idea that is not pinned.**
+  - `kg_diverge_materialize` takes pins only, so the agent pins a named idea first with
+    `kg_diverge_remember`. It also says what that pin does besides: the idea becomes a parent of every later
+    round of the brief, and its discard is lifted if it had one.
+  - It also says that every idea in the graph comes back in each `/burgess:kg-ground` pass while it stays
+    unverified. In the test, the pass over the 120 cost about $2.55.
+- **The pin prompt names the right door.** It said pinned ideas reach the graph through
+  `/burgess:kg-generate`'s propose lane. They go in through `kg_diverge_materialize`, from
+  `/burgess:kg-diverge` itself.
+
+### Upgrading
+
+- Nothing to do. The engine and the canon are unchanged, and `pyproject.toml` changes only its version line,
+  so the venv is not rebuilt.
+- A session that already ran `/burgess:kg-diverge` keeps the old text. A new session uses the new one.
+- The views carry the 0.19.7 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.19.7 — 2026-11-21
 
 Three follow-ups from the first field `/burgess:kg-diverge` session on 0.19.6 (Windows, 2026-11-20/21, five

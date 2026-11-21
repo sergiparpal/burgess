@@ -1238,7 +1238,8 @@ propose lane** (`kg_propose` → the same boundary as every write):
 
 - Only **pinned** candidates with a live session record materialize; a non-pinned id is `refused`
   (`not-pinned`); a pin whose session record is gone (I10) is `skipped` (`no-session-record` — re-ingest it
-  first).
+  first). To carry an idea the user names that is not pinned, pin it first with `kg_diverge_remember`;
+  that pin also makes it a parent of every later round and lifts its discard (latest event wins).
 - Node id `idea-<project-slug>-<candidate-slug>`; the body carries the full lineage:
   `[diverge] pinned candidate=<id> brief=<project> session=<id> mechanism=<open-axis value>
   operator=<genealogy.operator_id>`.

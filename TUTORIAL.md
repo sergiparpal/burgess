@@ -142,7 +142,8 @@ yet — pins just live in your brainstorming space.
 When you want to carry your favorite pinned ideas into your actual knowledge graph, just say so in
 chat — for example, *"let's move these pinned ideas into the graph."* This is a deliberate step:
 **nothing enters your graph automatically.** Pinning keeps an idea; *materializing* is the separate,
-explicit act of promoting it.
+explicit act of promoting it. Every round ends with a one-line reminder of this. Only pinned ideas
+are materialized; to carry one you have not pinned, just name it, and it is pinned first.
 
 Each materialized idea enters as a **hypothesis** (a dotted-line, "no evidence yet" node), with a
 note in its body recording that it came from this brainstorm. Two things to expect:

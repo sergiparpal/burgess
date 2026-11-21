@@ -2154,3 +2154,43 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Against 0.19.6, 17 of the 24 fail. The 7 that pass pin what must not change: four parents with up to two
     pins, an explicit larger `k`, the same parents twice within a round, the max-min walk without a
     generator, and round 1's questions on its own slate.
+
+## kg-diverge says at the end of every round what reaches the graph (2026-11-21)
+
+- **Decision:**
+  - `/burgess:kg-diverge` step 7 ends every round with one line on what reaches the graph: nothing goes in
+    unless the user asks; when they ask, the pinned ideas go in, and any other idea they name is pinned
+    first.
+  - The command's *Materializing pins* note says how to carry an idea that is not pinned: pin it with
+    `kg_diverge_remember`, then materialize it. It also says what that pin does besides: it is a parent of
+    every later round of the brief, and it lifts the idea's discard (pin and discard are exclusive per id;
+    the latest event wins). And it says that an idea in the graph comes back in every `/burgess:kg-ground`
+    pass while it stays `unverified`.
+  - Step 7's pin bullet named `/burgess:kg-generate`'s propose lane as the way into the graph. It now says
+    the pins are the only ideas that can go in, when the user asks, through the materialize note.
+  - The engine is unchanged: `kg_diverge_materialize` still takes pins only.
+- **Sessions it answers** (two test sessions, Windows, 2026-11-21, on 0.19.7; the developer's WSL session
+  answered every round at the user's request):
+  - Each session had five rounds and 60 ideas, and five pins at the end. When the user asked to carry them
+    into the graph, 10 nodes went in.
+  - The user then asked whether the ideas had gone into the graph as candidates, and later why only 10 of
+    the 120 could. No round had said that nothing enters the graph unless the user asks, or that only pins
+    can be carried.
+  - The user asked for all 120. The other 110 had to be pinned first, which made all 60 ideas of each brief
+    parents and lifted the six discards of those sessions. The command said nothing about that path or its
+    cost. The next `/burgess:kg-ground` judged all 120, at about $2.55, and left them `unverified`. Every
+    later pass will judge them again.
+- **Why every round:** pinning is a per-round choice, so the reminder sits where the choice is made, next to
+  the pin and discard prompts. The user asked for it at the end of every round. One line is the cost.
+- **Rejected alternatives:**
+  - (a) *Materialize the pins at the end of the session unless the user says no.* The user chose the reminder
+    over it on 2026-11-21. It would reverse the kickoff's Q5 decision that nothing enters the graph
+    implicitly, and every session's pins would join every later `/burgess:kg-ground` pass.
+  - (b) *Say it only when the session ends.* By then the pins are chosen, and the user asked for every round.
+  - (c) *Let `kg_diverge_materialize` take ideas that are not pinned.* The pin is the explicit selection, and
+    pinning first makes the side effects visible: a new parent and a lifted discard.
+- **Accepted trade-offs:** one more line in every round's presentation.
+- **Pinned in:** `tests/test_fix_diverge_graph_notice.py` (6 tests).
+  - Against 0.19.7, 4 of the 6 fail: the round notice, the pin bullet, the materialize note and the user
+    docs. The 2 that pass pin the engine path the text now promises. An idea the user names is refused
+    until pinned and accepted after. Pinning a discarded idea lifts the discard and makes it a parent.
