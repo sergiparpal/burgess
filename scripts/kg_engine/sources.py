@@ -177,12 +177,21 @@ def _dedupe_stable(cands: list[Path]) -> list[Path]:
 
 
 class SourceSet:
-    """An ordered, deterministic ``{basename → raw_text}`` view over the configured source(s)."""
+    """An ordered, deterministic ``{basename → raw_text}`` view over the configured source(s).
 
-    def __init__(self, path: "str | Path | None" = None):
+    ``extra`` (0.21.0) appends the text files of registered external sources (``evidence.py``) AFTER the
+    configured ones, for verification only: every per-file view (``texts``, ``verifies``,
+    ``files_containing``, ``has_file``) sees them, while ``concat`` and ``normalized``, which feed the
+    specificity corpus, the flood budget and the egress scrub of the configured source, stay the configured
+    corpus alone. ``full_concat`` covers both, for the digests that must move when evidence is added.
+    ``exclude`` keeps a directory's files out of the configured set (the evidence directory, for a glob
+    source that would otherwise reach into it). With neither, the set is byte-identical to 0.20.2."""
+
+    def __init__(self, path: "str | Path | None" = None, *, extra=None, exclude: "str | Path | None" = None):
         self.path = Path(path) if path is not None else None
+        self._exclude = Path(exclude) if exclude is not None else None
         self._texts: dict[str, str] = {}
-        for p in self.resolve(self.path):
+        for p in self.resolve(self.path, exclude=self._exclude):
             try:
                 self._texts[p.name] = p.read_text(encoding="utf-8")
             except (OSError, ValueError):
@@ -191,12 +200,32 @@ class SourceSet:
                 # of propagating out of the constructor and disabling the whole tool surface (review-H3).
                 # Skip — never decode with errors='replace', which could forge phantom span matches.
                 continue  # mirrors canon.all_nodes()'s "one bad file must not crash every read" tolerance
+        self._primary: list[str] = list(self._texts)
+        self._extra_paths: list[Path] = [Path(p) for p in (extra or [])]
+        self._extra: set[str] = set()
+        for p in self._extra_paths:
+            if p.name in self._texts:
+                continue  # a configured source keeps its basename (an external copy's name is ext-prefixed)
+            try:
+                self._texts[p.name] = p.read_text(encoding="utf-8")
+            except (OSError, ValueError):
+                continue
+            self._extra.add(p.name)
         # normalized form per file, computed once for source-aware verification (off the hot path)
         self._norm: dict[str, str] = {name: normalize_text(t) for name, t in self._texts.items()}
 
     # ---- resolution
+    @staticmethod
+    def _inside(p: Path, directory: "Path | None") -> bool:
+        if directory is None:
+            return False
+        try:
+            return p.resolve().is_relative_to(directory.resolve())
+        except (OSError, ValueError):
+            return False
+
     @classmethod
-    def resolve(cls, path: "str | Path | None") -> list[Path]:
+    def resolve(cls, path: "str | Path | None", exclude: "str | Path | None" = None) -> list[Path]:
         """The ordered list of source files for ``path``.
 
         - an explicit **file** → just that file (ANY extension — single-file back-compat: the user
@@ -206,6 +235,10 @@ class SourceSet:
           deduped by basename — on a cross-dir collision the lexicographically-first full path wins
           (a stable, platform-independent order);
         - a nonexistent path → ``[]`` (so ``source_text()`` degrades to ``""`` exactly as before).
+
+        ``exclude`` (0.21.0) drops a dir/glob member that lies inside that directory: the evidence
+        directory, so a ``**`` glob over the project never takes an external copy for a configured source.
+        An explicit single file is still always honored.
         """
         if path is None:
             return []
@@ -222,25 +255,33 @@ class SourceSet:
             cands = [Path(x) for x in _glob.glob(s, recursive=True)]
         else:
             return []  # nonexistent literal path
+        if exclude is not None:
+            cands = [q for q in cands if not cls._inside(q, Path(exclude))]
         # The dir/glob candidates run through the platform-stable dedup pipeline (sort + dotfile/suffix
         # filter + first-path-wins by basename) so the resolved order is identical across machines.
         return _dedupe_stable(cands)
 
     @classmethod
-    def signature(cls, path: "str | Path | None") -> tuple:
+    def signature(cls, path: "str | Path | None", extra=None, exclude: "str | Path | None" = None) -> tuple:
         """A cheap ``(basename, size, mtime_ns)`` tuple over the resolved files (no content reads).
         KGEngine keys its SourceSet cache on this so an added/removed/edited source is picked up, else the
         cache is served — keeping the resolve+read off the hot path. Uses ``st_mtime_ns`` + ``st_size``
         (not float ``st_mtime``) to match ``projector._cheap_sig``, so a same-second in-place edit
-        reliably invalidates the cache rather than serving stale text past the one-projection-lag (R3)."""
+        reliably invalidates the cache rather than serving stale text past the one-projection-lag (R3).
+        ``extra`` files follow the configured ones (0.21.0), so with none the tuple is unchanged."""
         sig = []
-        for p in cls.resolve(path):
+        for p in list(cls.resolve(path, exclude=exclude)) + [Path(q) for q in (extra or [])]:
             try:
                 st = p.stat()
                 sig.append((p.name, st.st_size, st.st_mtime_ns))
             except OSError:
                 sig.append((p.name, None, None))
         return tuple(sig)
+
+    def stat_signature(self) -> tuple:
+        """``signature`` over this set's own files, external copies included (what the projector's
+        source-only staleness gate compares)."""
+        return self.signature(self.path, self._extra_paths, self._exclude)
 
     # ---- views
     @property
@@ -254,14 +295,31 @@ class SourceSet:
 
     @property
     def concat(self) -> str:
-        """All sources concatenated in deterministic order (one ``\\n`` between files). For a single
-        file this is byte-identical to the file's text. Feeds the IDF corpus + the flood-budget size."""
+        """The configured sources concatenated in deterministic order (one ``\\n`` between files). For a
+        single file this is byte-identical to the file's text. Feeds the IDF corpus + the flood-budget size.
+        External copies (``extra``) are not part of it: they are evidence, not the corpus."""
+        return "\n".join(self._texts[name] for name in self._primary)
+
+    @property
+    def full_concat(self) -> str:
+        """Every file of the set concatenated, external copies after the configured sources (0.21.0): the
+        payload of the source digests (``projector._source_hash``, ``KGEngine._source_signature``), which
+        must move when a source is registered. Equal to ``concat`` when there is no external copy."""
         return "\n".join(self._texts.values())
 
     @property
     def normalized(self) -> str:
         """The whitespace/case-normalized concat (whole-corpus form)."""
         return normalize_text(self.concat)
+
+    @property
+    def extra_names(self) -> list[str]:
+        """The basenames of the external copies in this set, in order (0.21.0)."""
+        return [name for name in self._texts if name in self._extra]
+
+    def is_extra(self, name: str) -> bool:
+        """True iff ``name`` is an external copy of this set rather than a configured source."""
+        return bool(name) and self._key(name) in self._extra
 
     @staticmethod
     def _key(name: str) -> str:

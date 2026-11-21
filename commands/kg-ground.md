@@ -72,6 +72,9 @@ Find what is actually pending before spending any subagent budget.
      hubs it names are offered even if attacked before: that is how a user asks for a second attack. A hub
      still needs 3 or more live claims, focus or not.
    - `source`: the configured source files, for the adversarial grounder.
+   - `evidence` (0.21.0): the usable registered external sources (`/burgess:kg-sources`), `files` with their
+     levels in `path`, which the adversarial grounder may also search. A source registered since the last pass
+     brings back the pins that were waiting for new sources.
 3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
    its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
    honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to
@@ -226,6 +229,8 @@ Task(
   prompt: """
     Hub candidates: <the last probe's hubs[] ids, plus the advisory nodes>.
     Source files to search for counter-spans: <the plan's source.files>, in <source.path>.
+    Registered external sources, also searchable: <the plan's evidence.files with their levels>, in
+    <evidence.path> (write "none" when the list is empty).
     For each hub, inspect its incident edges (get_neighbors, then kg_ground_item for one edge's span and
     excerpt) and generate the strongest falsifying counter-edges:
       1. Write counter-edges via the extraction/kg_write path, each typed by the weapon its span states
@@ -233,16 +238,19 @@ Task(
          VERBATIM span from those source files (§1.5 — no span => REJECTED), with its file's basename as
          source_file, and notes opening with `counter-edge (adversarial pass, hub <hub-id>)`.
       2. For any existing edge your counter genuinely refutes, call
-         kg_ground(target_id=<edge_id>, verdict="failed", note=<what refuted it>) on THAT edge, never on
-         your own counter-edge, which stays unverified for the next pass's grounders.
+         kg_ground(target_id=<edge_id>, verdict="failed", refuted_by=<your counter-edge's id>,
+         note=<what refuted it>) on THAT edge, never on your own counter-edge, which stays unverified for
+         the next pass's grounders. The engine may refuse the failed by the level rules
+         (failed-across-own-and-external, failed-by-lower-level, failed-by-unusable-source): then the
+         counter-edge stands as a recorded dispute. Do not retry; report it.
       3. For each hub where kg_write accepted no counter-edge, record the attack with
          kg_record_attack(hub_id=<hub-id>, question=<your falsifying question>, reason=<no-span|vague>).
     Write a counter-edge only when its span, in its own context, sets itself against the claim it attacks.
     A contradiction that no single span states goes in your report, not into an edge.
     Respect the per-run attack cap. A `failed` edge is negative information (§1.7): never pruned,
-    surfaced later as a falsification counter. Report: counter-edges written, edges failed, each hub you
-    attacked without a counter-edge and whether you recorded it, and the contradictions no single span
-    states.
+    surfaced later as a falsification counter. Report: counter-edges written, edges failed, the failed
+    verdicts the engine refused (the disputes), each hub you attacked without a counter-edge and whether
+    you recorded it, and the contradictions no single span states.
   """
 )
 ```

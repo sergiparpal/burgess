@@ -23,10 +23,11 @@ the twenty-two core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (th
 `[diverge]` pin it found no support for), `kg_write`, `kg_ground`, `kg_rename`, `kg_merge` (deliberate node-merge with edge dedup), `kg_metrics`, `kg_status`,
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
-`kg_export` (read-only human-facing render) (plus the five generative-layer tools `kg_propose` (§5a),
+`kg_export` (read-only human-facing render), `kg_source_add` / `kg_source_list` / `kg_source_set` (external
+sources with an epistemic level, 0.21.0) (plus the five generative-layer tools `kg_propose` (§5a),
 `kg_generate`, `kg_operate`, `kg_absorption`, and `kg_record_generation`, the record a /burgess:kg-generate run
-leaves in the absorption ledger — see the generative-layer references) — twenty-eight in all.
-The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-six; they
+leaves in the absorption ledger — see the generative-layer references) — thirty-one in all.
+The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-nine; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---
@@ -181,14 +182,24 @@ A `kg_write` payload may **not** assert `grounded`/`rejected`/`failed` (in `epis
 verdict is wasted, not honored.
 
 Verdicts come **only** from
-`mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, support_span, support_note)`
+`mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, support_span, support_note, lead, refuted_by)`
 with `verdict ∈ {grounded, rejected, failed, obsolete}`, which stamps `verdict_by`/`verdict_at` and appends an
 audit record. A re-verdict that keeps the edge's state leaves the two fields as they are (0.10.2), so they
 record who put the edge in its state and when. The reconciler re-quarantines any verdict that appears in canon without a matching audit
 record. **Extractors emit `unverified` only.** Promoting a **hypothesized** edge to `grounded` *requires*
 support, which upgrades its provenance: `support_span` (a verbatim source substring → `span-present`) or
-`support_note` (an external citation → `inferred`); without either the promotion is refused with
-`hypothesis-needs-support` (§5a).
+`support_note` (an external citation → `inferred`, recorded as `citation (unchecked): …` since 0.21.0);
+without either the promotion is refused with `hypothesis-needs-support` (§5a).
+
+**External sources (0.21.0).** A span verifies against the configured sources and the registered external
+copies in `<project>/evidence/` (`kg_source_add`), each with an epistemic level: 1 reviewed, 2 institutional,
+3 editorial, 4 author or community, 5 unfiltered. The level measures the filter a text passed, never the truth
+of a claim, so it only bounds what may be used. Support must lie in a configured source or a usable copy
+(level 1–4, not retracted nor superseded), else `support-not-usable`. A `failed` names in `refuted_by` the
+counter-edge whose span refutes the claim (required once any source is registered), and the level vetoes it,
+never decides it: an unusable source refutes nothing, the configured sources and an external copy never fail
+each other, and a lower level never fails a higher one. A vetoed refutation leaves the counter-edge standing
+as a visible dispute. A registered copy is never extracted into the graph.
 
 ---
 

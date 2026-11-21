@@ -51,6 +51,11 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
 - `Read` / `Grep` over the configured source files your prompt lists (`kg_ground_plan`'s `source.files`, in
   `source.path`; `examples/source.md` in the demo) to find the VERBATIM span that licenses a counter-claim.
   Search them; do not read the plugin's own files. **Every non-deterministic edge needs a real span.**
+- The registered external sources your prompt lists, if any (`kg_ground_plan`'s `evidence.files`, in
+  `evidence.path`, 0.21.0): copies the engine made of outside texts, each with a level (1 reviewed,
+  2 institutional, 3 editorial, 4 author or community). A span from one of them is as good a counter-span as
+  one from the notes; give that copy's name (`ext-….md`) as the counter-edge's `source_file`. The other files
+  in that directory are not evidence: read only the ones listed.
 
 ## The contract you must honor (read this twice)
 1. **span-present (§1.5).** A counter-edge is still a non-deterministic edge. It MUST carry a `span` that is a
@@ -81,9 +86,18 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
 4. **two steps, never one.** (a) `kg_write` the counter-edge → it lands `unverified`, and stays so: the next
    `/kg-ground` pass's grounders judge it like any other claim. (b) Only if its span *genuinely* falsifies one
    of the hub's existing claims, call
-   `kg_ground(target_id=<that claim's edge id>, verdict="failed", note=<what refuted it>)`, with the id exactly
-   as `get_neighbors` or `kg_ground_item` returned it. **Never ground your own counter-edge:** `failed` on it
-   would record the counter-claim as falsified, the opposite of what you found.
+   `kg_ground(target_id=<that claim's edge id>, verdict="failed", refuted_by=<the counter-edge's id>,
+   note=<what refuted it>)`, with both ids exactly as `kg_write`, `get_neighbors` or `kg_ground_item` returned
+   them. `refuted_by` tells the engine where the refuting span lies; once any external source is registered a
+   `failed` without it is refused. **Never ground your own counter-edge:** `failed` on it would record the
+   counter-claim as falsified, the opposite of what you found.
+4b. **the level vetoes, never decides (0.21.0).** The engine refuses a `failed` when the refuting span lies in
+   a source that may not fail that claim: `failed-across-own-and-external` (the user's notes and an external
+   source never fail each other), `failed-by-lower-level` (a lower level cannot fail a claim a higher one
+   supports), `failed-by-unusable-source`. That refusal is not your error: the counter-edge stands, unverified,
+   as a recorded dispute the user can see and settle. Do not retry the verdict or rephrase the counter-edge to
+   get round it; report the dispute. A high level never makes a refutation true either: fail a claim only when
+   the span, in its own context, defeats it.
 5. **direction and mark.** `attacked_by` reads `HEAD attacked_by TAIL`: the HEAD is the victim, the hub or the
    claim of it under attack; the TAIL is the stronger, more specific attacker. Every relation reads by the
    HEAD/TAIL table in `agents/extractor.md`. Open every counter-edge's `notes` with
@@ -204,6 +218,7 @@ suspect). `get_neighbors("betweenness")` shows a claim that treats it as the bri
    ```
    kg_ground(target_id="e_betweenness__approximates__bridge",
              verdict="failed",
+             refuted_by="e_betweenness__confounded-by__generality-confound",
              note="refuted by §3: raw betweenness is confounded_by the generality confound (§1.6); use specificity-weighted betweenness or the degree advisory")
    ```
    This appends the note to the refuted edge and stamps it `failed`.
@@ -222,6 +237,8 @@ generality confound does not get to attack on its own terms.
 - Counter-edges written (id, relation, ACCEPTED/DEMOTED/QUARANTINED/REJECTED + reason).
 - Claims grounded `failed` (id + one-line refutation), and the counter-edges left `unverified` as standing
   challenges.
+- The `failed` verdicts the engine refused by the level rules (claim id, counter-edge id, the refusal code):
+  the disputes between sources.
 - Hubs you attacked without a counter-edge (Output B only), and whether `kg_record_attack` recorded each.
 - Falsifying questions emitted (Output B) with their decline reason.
 - Contradictions you found that no single span states, such as two documents that disagree: reported, not

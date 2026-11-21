@@ -85,7 +85,7 @@ def _engine_strings(path: Path):
 
 
 def test_the_current_docs_and_the_plugin_texts_name_every_command_in_full():
-    assert len(COMMANDS) == 9
+    assert len(COMMANDS) == 10   # 0.21.0 added /burgess:kg-sources
     assert _short_in_texts() == []
 
 

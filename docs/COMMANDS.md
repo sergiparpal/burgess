@@ -1,6 +1,6 @@
 # Burgess — Command Manual
 
-The complete reference for Burgess's nine slash commands: what each one does, every argument it
+The complete reference for Burgess's ten slash commands: what each one does, every argument it
 accepts, what each argument option means, and a worked example per case.
 
 This is the *user-facing* manual. For the machinery underneath it — the canon/derived split, the
@@ -16,6 +16,7 @@ For a narrative first session in plain language, read [`../TUTORIAL.md`](../TUTO
 | [`/burgess:kg-diverge`](#burgesskg-diverge) | Diverge from a creative brief into a non-cliché idea slate | No — stands alone |
 | [`/burgess:kg-build`](#burgesskg-build) | Extract a span-anchored graph from your source document(s) | No — it creates one |
 | [`/burgess:kg-ground`](#burgesskg-ground) | Verdict the graph against the source — the **only** verdict path | Yes |
+| [`/burgess:kg-sources`](#burgesskg-sources) | Register outside texts as evidence, each with an epistemic level | No — but it serves grounding |
 | [`/burgess:kg-generate`](#burgesskg-generate) | Propose new hypotheses from the graph's own structure | Yes |
 | [`/burgess:kg-perturb`](#burgesskg-perturb) | Build a second construction and cross-generate against it | Yes |
 | [`/burgess:kg-query`](#burgesskg-query) | Answer a question with provenance and falsification attached | Yes |
@@ -23,8 +24,9 @@ For a narrative first session in plain language, read [`../TUTORIAL.md`](../TUTO
 | [`/burgess:kg-eval`](#burgesskg-eval) | Measure extractor precision and grounding reliability | Yes |
 | [`/burgess:kg-experiment`](#burgesskg-experiment) | Blind multi-arm test of whether the graph helps ideation | Yes |
 
-The everyday flow is **diverge → build → ground → generate → query → view**. `/burgess:kg-perturb`,
-`/burgess:kg-eval` and `/burgess:kg-experiment` are the optional "going further" commands.
+The everyday flow is **diverge → build → ground → generate → query → view**. `/burgess:kg-sources` (outside
+evidence for grounding), `/burgess:kg-perturb`, `/burgess:kg-eval` and `/burgess:kg-experiment` are the optional
+"going further" commands.
 
 ---
 
@@ -526,6 +528,94 @@ question (`Merge A and B? [y/N]`). The default is **N** — the pass proceeds wi
 ---
 
 <a id="kg-generate"></a>
+## `/burgess:kg-sources`
+
+```
+/burgess:kg-sources [add <url-or-path> | list | set <name> key=value ...]
+```
+
+**What it does.** Brings **outside evidence** into grounding (0.21.0). Every verdict is otherwise judged against
+your configured sources, your own notes, so `grounded` means "my notes say it". `add` registers a web page or a
+local file as an external source: the engine copies it into the project's `evidence/` folder with an
+**epistemic level** you confirm. From then on a grounder can support an unverified item, and the adversarial
+grounder can refute a claim, with a verbatim passage from that copy. The ideas that were waiting for new sources
+come back to the next `/burgess:kg-ground` on their own.
+
+**The level measures the filter a text passed before it was published, never whether a claim is true.** The
+grounder still judges only whether a passage says what a claim says; the level only bounds what may be used.
+
+| Level | Filter | Examples |
+| --- | --- | --- |
+| 1 reviewed | peer review | systematic reviews and meta-analyses, journal or conference papers with review |
+| 2 institutional | a body answers for it, with a published method | official statistics, reports of public bodies, standards (RFC, ISO, W3C), official documentation, university textbooks |
+| 3 editorial | an editor checks and corrects | press with corrections, news agencies, edited popular science, fact-checkers, technical books |
+| 4 author or community | the author's reputation, or moderation after publication | preprints, code, changelogs, postmortems, specialist and engineering blogs, talks, Wikipedia, forums |
+| 5 unfiltered | none, or made to sell, persuade or rank | social posts without sources, promotional content, SEO or generated-text farms, texts with no author or date |
+
+Each source also has a **role** (`primary`: the origin of the fact; `secondary`: analyses and cites primaries;
+`tertiary`: summarizes without the origin) and optional **marks** (`interest`, `corrected`, `retracted`,
+`superseded`). The rules:
+
+- A source accredits what it was in a position to know. Level 5 is an object of study only: it supports and
+  refutes nothing. A retracted or superseded source supports and refutes nothing either.
+- Your notes and an external source never fail each other. If a paper contradicts a claim your notes make, the
+  counter-claim stays beside it as a visible dispute; correcting the note is your call.
+- Between external sources, a lower level cannot fail a claim a higher one supports. The level vetoes; it never
+  decides.
+- A registered source is **never extracted** into the graph. It is evidence, not content.
+
+### Arguments
+
+| Argument | Required | Accepted values | Default |
+| --- | --- | --- | --- |
+| action | No | `add` · `list` · `set` | `list` |
+| `add` target | With `add` | one `http(s)://` URL, or one path to a `.md`, `.txt` or `.html` file | — |
+| `set` fields | With `set` | the source's name, then `level=`, `role=`, `marks=`, `published=`, `derives_from=`, `title=`, `note=` | — |
+
+### Examples
+
+Register a paper's page. Claude shows a preview, proposes a level and a role with a reason, and waits for you
+to confirm before anything is written:
+
+```text
+/burgess:kg-sources add https://example.org/papers/agent-scaffolding
+```
+
+Register a PDF you converted to Markdown (PDF itself is refused, because a lossy transcript would make a
+"verbatim" passage a guess):
+
+```text
+/burgess:kg-sources add C:/Users/me/Downloads/survey.md
+```
+
+See every source, and what your grounded claims rest on (your notes, external sources by level, or citations
+the engine cannot check):
+
+```text
+/burgess:kg-sources list
+```
+
+A source turned out to be retracted:
+
+```text
+/burgess:kg-sources set ext-agent-scaffolding-1a2b3c4d.md marks=retracted
+```
+
+### Notes and honest limits
+
+- **The engine makes the copy.** It fetches the page itself, with a generic User-Agent that says nothing about
+  you. Claude never copies a page through WebFetch, which returns a model's answer about the page rather than
+  the page. Some sites refuse automated requests, and some pages need JavaScript: save the page's text as a
+  `.md` file and add that file.
+- **The copy is checked.** Each copy's record keeps its sha256. A copy you edit by hand is left out and
+  reported by `list`: register the source again instead.
+- **This version does not search.** You name the sources. A search for sources that could support or refute
+  your unverified items is planned next.
+- **Verdicts already given keep their state** when you change a source's record; `list` names the claims now
+  resting on a source marked unusable, so you can have them judged again.
+
+---
+
 ## `/burgess:kg-generate`
 
 ```
@@ -1137,7 +1227,7 @@ measured on two field runs. That cost is why the judge is opt-in.
 
 ## Behind the commands
 
-The nine slash commands are a thin language layer over **36 MCP tools** exposed by the `burgess`
+The ten slash commands are a thin language layer over **39 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 
