@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.20.0 — 2026-11-21
+
+`/burgess:kg-diverge` keeps its map of clichés. A session opens with the clichés it is avoiding, ends by
+checking the ideas against the ones it set aside, and can carry the clichés into the graph.
+
+### Added
+
+- **The engine keeps the cliché map.**
+  - Before generating, the agent maps the obvious answers to the brief: some it generates away from, and
+    the rest it sets aside to check the ideas against. Until now the map lived only in the conversation, so
+    a compaction lost it and no export held it.
+  - The first `kg_diverge_ingest` now takes it as `cliches`. The engine numbers the clichés `o1`, `o2`, …,
+    keeps them for the session, and `kg_diverge_recall` returns them.
+  - Nothing in the geometry reads them: the slate, the parents and the monitor are the same with or without
+    the map.
+- **Round 1 opens with the clichés being avoided.**
+  - In the three test sessions of 2026-11-21, two agents listed what they avoided and one named a single
+    cliché in passing.
+  - The set-aside clichés stay hidden until the session ends, so your choices cannot steer the ideas away
+    from them before the check.
+- **The end of the session checks the ideas against the set-aside clichés.**
+  - `kg_diverge_export` lists the map in a new Clichés section. For each set-aside cliché it names the
+    three ideas closest to it by cosine similarity in the session's embedding space.
+  - That reading is advisory and ranks nothing. The command shows it when the session ends.
+- **Clichés can go into the graph, when you ask.**
+  - `kg_diverge_materialize(project, cliche_ids=[…])` writes each one as a `cliche-<brief>-<id>` node in the
+    hypothesized lane. A cliché needs no pin, and a call with `cliche_ids` alone carries no pins.
+  - `/burgess:kg-ground` judges a cliché like any proposal: grounded when a source supports it, rejected when
+    none does. An obvious answer claims what is usual, so a source that does not say it is worth knowing.
+  - A cliché in the graph never joins the brief's discards.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv is
+  not rebuilt.
+- A session begun on 0.19.8 has no stored map: its export has no Clichés section, and there is nothing to
+  carry. A new session stores one from its first ingest.
+- The views carry the 0.19.8 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.19.8 — 2026-11-21
 
 A follow-up from two `/burgess:kg-diverge` test sessions on 0.19.7 (Windows, 2026-11-21, 60 ideas each),

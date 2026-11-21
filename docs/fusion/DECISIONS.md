@@ -2194,3 +2194,58 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Against 0.19.7, 4 of the 6 fail: the round notice, the pin bullet, the materialize note and the user
     docs. The 2 that pass pin the engine path the text now promises. An idea the user names is refused
     until pinned and accepted after. Pinning a discarded idea lifts the discard and makes it a parent.
+
+## kg-diverge keeps its cliché map, opens with the avoided clichés, and can carry the map into the graph (2026-11-21)
+
+- **Decision:**
+  - The first `kg_diverge_ingest` takes the agent's cliché map as `cliches`, `{"avoided": [...],
+    "held_out": [...]}`: the O_train and O_test of step 3. The engine numbers it `o1, o2, …` (avoided first),
+    keeps it in `session/cliches.json`, and returns it from `kg_diverge_recall`. A new session id wipes it
+    with the archive (I10).
+  - Nothing in the geometry reads the map. The slate, the ask pairs, the monitor and the parents come out the
+    same with or without it (tested).
+  - Round 1 opens with the avoided clichés, by id. The held-out ones stay unshown until the session ends.
+  - `kg_diverge_export` adds a `## Clichés` section. For each held-out cliché, the result's `cliches` carries
+    `closest`: the three ideas nearest to it by cosine in the session's embedding space, from
+    `originality.nearest_ideas`, which is measurement only. The command shows them at the end.
+  - `kg_diverge_materialize(project, cliche_ids=[...])` carries clichés through the same door, on the user's
+    word, as `cliche-<brief>-<id>` nodes whose body ends with a `[cliche]` line. A call with `cliche_ids` and
+    no `candidate_ids` carries no pins. The ledger keeps clichés under `_cliches`, which the fate sync and the
+    re-examinable advisory skip.
+  - The grounder contract names the `[cliche]` node an ordinary hypothesis: grounded with support, `rejected`
+    without.
+- **Sessions it answers** (three test sessions, Windows, 2026-11-21, on 0.19.7 and 0.19.8; the developer's
+  WSL session answered every round at the user's request):
+  - Step 3 already made the agent map about six clichés, but nothing made it show them. Two sessions listed
+    the three they avoided in round 1. The third named one cliché in passing, at the end of round 1.
+  - The map lived only in the conversation, so none of the four exported idea files held it.
+  - The user asked for the avoided clichés to open every session, and for the clichés to be able to go into
+    the graph at the end.
+- **Why the held-out clichés wait for the end** (the user's choice): they are the check. Once the user has
+  seen them, the pins and comparisons can steer the ideas away from them, and the distance at the end would
+  then measure that steering rather than the generation.
+- **Why only the held-out ones get a distance:** the avoided ones steered the generation, so a distance to
+  them would only grade the steering. Step 3 already says never to validate against O_train.
+- **Why an unsupported cliché is rejected** (the user's choice): a pin is a new idea, so having no span is
+  what makes it new, and the grounder leaves it unverified. A cliché claims what is usual. If the sources do
+  not say it, that is information, and rejecting it also takes it out of every later grounding pass.
+- **Why a parameter of the same door, not a new tool:** `kg_diverge_materialize` is documented as the only
+  door from divergence into the graph. A second tool would be a second door, and the tool count would change
+  everywhere it is stated.
+- **Rejected alternatives:**
+  - (a) *Show all six clichés in round 1.* The user chose to keep the held-out ones for the end (above).
+  - (b) *Leave an unsupported cliché unverified, like a pin.* The user chose rejection (above).
+  - (c) *Ingest the clichés as candidates.* They would enter the archive, the novelty scores and the slate,
+    the very geometry the map exists to stay away from.
+  - (d) *Store the map in the brief's durable memory.* Each session maps its own clichés, and the export and
+    the materialization happen in the session that made them.
+- **Accepted trade-offs:**
+  - `closest` uses the session's own embedder, so it measures how near the texts lie in that space, not
+    whether an idea is the cliché. An embedder that differs from the session's, or fails to load, gives
+    `closest: []` and never fails the export.
+  - The map dies with the session, like the ideas (I10).
+  - Nothing forces the agent to send the map: the command tells it to, and a session without one simply has
+    no Clichés section.
+- **Pinned in:** `tests/test_fix_diverge_cliches.py` (26 tests).
+  - Against 0.19.8, 23 fail. The 3 that pass pin what must not change: no `cliches` key without a map, a new
+    session starts without one, and `kg_diverge_materialize` with no `cliche_ids` still carries every pin.

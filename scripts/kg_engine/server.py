@@ -78,6 +78,10 @@ PERSISTED_DISPOSITIONS = (Disposition.ACCEPTED.value, Disposition.DEMOTED.value)
 # is untouched here. Verdict neutrality is likewise untouched — the verdict a pin receives is unchanged and
 # identical to a non-pin's; only THIS diverge-brief-local, state-keyed discard CONSEQUENCE is narrowed.
 MATERIALIZED_DISCARD_STATES = {EpistemicState.FAILED}
+# Ledger keys of materialized.json that are not candidate ids, so the fate sync and the re-examinable
+# advisory skip them: unowned edges, the source signature, and (0.20.0) the materialized clichés, which
+# are not ideas of the brief and never join its discards.
+_LEDGER_RESERVED = ("_edges", "_source_sig", "_cliches")
 # The "not found" read shape, defined once for the engine's degraded-miss and the MCP wrapper's
 # plain-miss (review-r5: the literal lived in two places). Callers copy before mutating.
 _NOT_FOUND = {"error": "not found"}
@@ -3392,7 +3396,7 @@ class KGEngine:
         newly_discarded: list = []
         changed = False
         for cid, entry in ledger.items():
-            if cid in ("_edges", "_source_sig") or not isinstance(entry, dict):
+            if cid in _LEDGER_RESERVED or not isinstance(entry, dict):
                 continue  # reserved ledger keys, OR a non-dict value from a corrupt/older ledger — skip
                           # it rather than AttributeError on entry.get() and fail the whole call (the
                           # read-only siblings _reexaminable_discards/_unseal_discards already guard this).
@@ -3473,7 +3477,7 @@ class KGEngine:
             return []  # no source configured → nothing to re-examine (mirror the graph advisory)
         out: list = []
         for cid, entry in ledger.items():
-            if cid in ("_edges", "_source_sig") or not isinstance(entry, dict):
+            if cid in _LEDGER_RESERVED or not isinstance(entry, dict):
                 continue
             if (entry.get("fate") == EpistemicState.FAILED.value
                     and "fate_source_sig" in entry
@@ -3530,14 +3534,21 @@ class KGEngine:
         return unsealed
 
     def kg_diverge_materialize(self, project: str, candidate_ids=None,
-                               node_type: str = "claim", edges=None) -> dict:
+                               node_type: str = "claim", edges=None, cliche_ids=None) -> dict:
         """Materialize PINNED ideas into the graph — the EXPLICIT action (nothing enters the
         graph implicitly; kickoff Q5). Each pinned candidate becomes a node in the hypothesized
         lane via the propose door (kg_propose -> kg_write -> boundary): it lands
         `provenance=hypothesized, epistemic_state=unverified`, carrying its full lineage in the
         node body. `candidate_ids` defaults to every pin with a live session record; a pin from
         an ENDED session has no record left (I10) and is reported as skipped. Optional `edges`
-        transit the SAME boundary (claimed verdicts stripped, text-claim provenance refused)."""
+        transit the SAME boundary (claimed verdicts stripped, text-claim provenance refused).
+
+        `cliche_ids` (0.20.0) carries clichés of the session's map through the same door, each as a
+        `cliche-<brief>-<id>` node whose body ends with a `[cliche] …` line instead of the pin's
+        `[diverge] pinned …` one. The grounder treats it as an ordinary hypothesis: grounded with
+        support, rejected without. With `cliche_ids` and no `candidate_ids`, no pin goes in. A cliché
+        materialization is kept apart in the ledger (`_cliches`), so a failed cliché never joins the
+        brief's discards."""
         from kg_engine.divergence.session import Session as _DSession
 
         sess = _DSession(project, home=self._diverge_home())
@@ -3549,10 +3560,32 @@ class KGEngine:
         pins = state.read_pins(domain)
         cand_store = state.read_candidates()
 
-        wanted = [str(c) for c in candidate_ids] if candidate_ids is not None else list(pins)
+        if candidate_ids is not None:
+            wanted = [str(c) for c in candidate_ids]
+        else:
+            wanted = list(pins) if cliche_ids is None else []
         results: list[dict] = []
         nodes_payload: list[dict] = []
         node_for_cid: dict[str, str] = {}
+        node_for_cliche: dict[str, str] = {}
+        if cliche_ids is not None:
+            if isinstance(cliche_ids, str):
+                cliche_ids = [cliche_ids]
+            mapped = {str(c.get("id")): c for c in state.read_cliches()}
+            for oid in [str(c) for c in cliche_ids]:
+                c = mapped.get(oid)
+                if not c or not str(c.get("text") or "").strip():
+                    results.append({"cliche": oid, "status": "refused",
+                                    "reason": "unknown-cliche: not in this session's cliché map"})
+                    continue
+                text = str(c["text"]).strip()
+                node_id = f"cliche-{slug(project)}-{slug(oid)}"
+                label = text if len(text) <= 80 else text[:77] + "..."
+                lineage = (f"[cliche] id={oid} role={c.get('role', '')} brief={project} "
+                           f"session={session_id}")
+                nodes_payload.append({"id": node_id, "label": label, "node_type": node_type,
+                                      "body": f"{text}\n\n{lineage}\n"})
+                node_for_cliche[oid] = node_id
         for cid in wanted:
             if cid not in pins:
                 results.append({"candidate": cid, "status": "refused",
@@ -3606,6 +3639,19 @@ class KGEngine:
                 if node_id not in entry["nodes"]:
                     entry["nodes"].append(node_id)
                 entry["session"] = session_id
+        for oid, node_id in node_for_cliche.items():
+            detail = by_id.get(node_id, {})
+            status = detail.get("disposition", "UNKNOWN")
+            results.append({"cliche": oid, "status": status, "node": node_id,
+                            "reason": detail.get("reason", "")})
+            if status in PERSISTED_DISPOSITIONS:
+                bucket = ledger.get("_cliches")
+                if not isinstance(bucket, dict):
+                    bucket = ledger["_cliches"] = {}
+                entry = bucket.setdefault(oid, {"nodes": []})
+                if node_id not in entry["nodes"]:
+                    entry["nodes"].append(node_id)
+                entry["session"] = session_id
         for e, raw in zip(edges_payload, edges or []):
             eid = edge_id(e.get("source", ""), e.get("relation", ""), e.get("target", ""))
             detail = by_id.get(eid, {})
@@ -3627,12 +3673,19 @@ class KGEngine:
         # will (correctly) leave a genuinely novel idea `unverified` — a novel idea has no in-source span by
         # construction — until supporting sources are gathered. The intended path is to add sources for the
         # pins worth promoting, not to read the leftover `unverified` state as a failure. (Part C.)
-        if self.source_path is not None and materialized_count:
+        pins_in = sum(1 for r in results if "candidate" in r and r.get("status") in PERSISTED_DISPOSITIONS)
+        cliches_in = materialized_count - pins_in
+        if self.source_path is not None and pins_in:
             result["advisory"] = (
                 "A source is already configured. Grounding these pins against it will correctly leave a "
                 "genuinely novel idea `unverified` (novelty has no in-source span yet) — it is NOT falsified "
                 "and stays recoverable in the lane. To promote a pin, gather supporting sources for it, then "
                 "ground; only an actively-falsified pin folds back into this brief's discards.")
+        if cliches_in:
+            result["cliche_advisory"] = (
+                "A cliché is an ordinary hypothesis: /burgess:kg-ground grounds it when a source supports it "
+                "and rejects it when none does, into the failure memory like any proposal. It never joins "
+                "this brief's discards.")
         return result
 
 
@@ -4116,7 +4169,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_diverge_ingest(project: str, candidates: list, axes: dict | str | None = None,
-                          seed: int = 0) -> dict:
+                          seed: int = 0, cliches: dict | None = None) -> dict:
         """One divergence cycle: embed the generated candidates, near-dup dedup, place into the
         MAP-Elites archive, score geometric + mechanism novelty, and select a DPP-diverse slate.
         Each candidate: {"id", "text", "descriptor" {axis: value, ...}, optional "fitness" (the
@@ -4130,12 +4183,18 @@ def _register(mcp, engine: KGEngine) -> None:
         slate, except that one of them names an idea of this round whenever the round placed one
         and has an unanswered pair for it, even an idea the slate left out: ask it by its id, as
         you explained it with the rest of the round. Discarded ids are never
-        re-slated. Purely advisory: nothing here can create graph state or verdicts."""
+        re-slated. Purely advisory: nothing here can create graph state or verdicts.
+        With the first ingest pass `cliches` = {"avoided": [...], "held_out": [...]}, the obvious
+        answers you mapped before generating: the ones you generate away from, and the ones you set
+        aside to check the ideas against at the end. The engine numbers them o1, o2, … (avoided
+        first), keeps them for this session, returns them in kg_diverge_recall, prints them in
+        kg_diverge_export with the ideas closest to each held-out one, and never lets them touch the
+        geometry. The result then carries `cliches_stored`."""
         from kg_engine.divergence import config as dconfig
         from kg_engine.divergence import pipeline as dpipe
         return dpipe.ingest(project, candidates,
                             dconfig.resolve_axes_source(axes, pack_path=engine.pack_path),
-                            seed=seed, home=engine._diverge_home())
+                            seed=seed, home=engine._diverge_home(), cliches=cliches)
 
     @mcp.tool()
     @_tool_result
@@ -4187,8 +4246,10 @@ def _register(mcp, engine: KGEngine) -> None:
 
         It also returns the session context: `session_id` (the session the archive belongs to —
         the one kg_diverge_init last began or resumed), `seed`, and the resolved `axes`,
-        `unit_of_generation` and `candidates_per_generation`. After a compaction in the same chat,
-        this one call restores what the next round needs; never read `.kg/diverge/` files for it.
+        `unit_of_generation` and `candidates_per_generation`, and the session's `cliches` when the
+        first ingest stored them (each {id, text, role}; show a held_out one only when the session
+        ends). After a compaction in the same chat, this one call restores what the next round
+        needs; never read `.kg/diverge/` files for it.
 
         On a source change it surfaces `failed`-fated discards under `reexaminable_discards` (a re-look
         candidate list — the divergence mirror of the graph R3-mirror; SURFACE-ONLY, never auto-un-sealed).
@@ -4213,7 +4274,8 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def kg_diverge_materialize(project: str, candidate_ids: list | None = None,
                                node_type: str = "claim",
-                               edges: list | None = None) -> dict:
+                               edges: list | None = None,
+                               cliche_ids: list | None = None) -> dict:
         """Materialize PINNED ideas into the graph — the EXPLICIT action (nothing enters the
         graph implicitly; kickoff Q5). Each pinned candidate becomes a node in the
         hypothesized lane via the propose door (kg_propose -> kg_write -> boundary): it lands
@@ -4230,9 +4292,15 @@ def _register(mcp, engine: KGEngine) -> None:
         a grounding VERDICT (verdict neutrality, I5). When a source is already configured and at
         least one pin materialized, the result carries an advisory-only `advisory` string noting
         that grounding these pins against the existing source will correctly leave a novel idea
-        `unverified` until supporting sources are added (Part C — never a disposition or verdict)."""
+        `unverified` until supporting sources are added (Part C — never a disposition or verdict).
+        `cliche_ids` (e.g. ["o1", "o4"]) carries clichés of this session's map (kg_diverge_ingest's
+        `cliches`) as `cliche-<brief>-<id>` nodes in the same lane, only when the user asks. They
+        need no pin, and with `cliche_ids` alone no pin goes in. /burgess:kg-ground judges a cliché
+        like any proposal: grounded with support, rejected without; it never joins the brief's
+        discards."""
         return engine.kg_diverge_materialize(project, candidate_ids=candidate_ids,
-                                             node_type=node_type, edges=edges)
+                                             node_type=node_type, edges=edges,
+                                             cliche_ids=cliche_ids)
 
     @mcp.tool()
     @_tool_result
@@ -4247,7 +4315,10 @@ def _register(mcp, engine: KGEngine) -> None:
         /burgess:kg-build reads. Nothing reads it back. Never assemble the file yourself, with Bash, a
         script, or by reading `.kg/diverge/` or the conversation transcript. `unexplained` lists ideas
         ingested without an `explanation`. Near-duplicates the ingest set aside were never kept, so
-        they are not in it. Purely a record: it changes no state."""
+        they are not in it. When the session stored a cliché map, the file lists it and the result's
+        `cliches` gives each one with its role; a held_out one carries `closest`, the ideas nearest
+        to it by cosine similarity in this session's embedding space (advisory, it ranks nothing).
+        Purely a record: it changes no state."""
         from kg_engine.divergence import export_ideas as dexport
         return dexport.export_ideas(project, brief=brief, home=engine._diverge_home())
 

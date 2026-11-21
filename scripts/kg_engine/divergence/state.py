@@ -275,6 +275,21 @@ class State:
         return self.session_dir / "open_nicher.json"
 
     @property
+    def cliches_path(self) -> Path:
+        """The session's cliché map (0.20.0): the obvious answers the agent mapped before generating,
+        each ``{"id": "o1", "text": ..., "role": "avoided"|"held_out"}``. Inside the ephemeral zone, so
+        a new session id wipes it with the archive (I10). Nothing in the geometry reads it: it is shown
+        to the user, exported, and carried into the graph only on request."""
+        return self.session_dir / "cliches.json"
+
+    def read_cliches(self) -> list[dict[str, Any]]:
+        data = self.read_json(self.cliches_path, [])
+        return [c for c in data if isinstance(c, dict)] if isinstance(data, list) else []
+
+    def write_cliches(self, cliches: list[dict[str, Any]]) -> None:
+        self.write_json(self.cliches_path, cliches)
+
+    @property
     def tmp_dir(self) -> Path:
         """Per-project scratch dir for the skill's hand-off files (axes.json,
         candidates.json, event.json). Inside the state home so they never clutter

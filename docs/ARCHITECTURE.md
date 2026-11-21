@@ -450,7 +450,8 @@ anti-collapse monitor reading every round.
 - **State** (`state.py`): project-local under `.kg/diverge/<brief-slug>/`. `meta.json`,
   `axes.json`, `session.json`, `materialized.json` and `memory/` are durable; the `session/` dir
   (MAP-Elites archive, candidate records, `embeddings.npz`/`mech_embeddings.npz` vector stores,
-  the Voronoi partition) is **session-ephemeral**: a new session id wipes it. The knowledge graph,
+  the Voronoi partition, and since 0.20.0 the cliché map `cliches.json`) is **session-ephemeral**: a
+  new session id wipes it. The knowledge graph,
   not the archive, is the durable store. An export, `ideas-<brief-slug>-<session>.md`, sits beside the
   durable files; nothing in the engine reads it.
 
@@ -491,8 +492,19 @@ come back through `/burgess:kg-build` as a source document. The engine never wri
 names, because an MCP tool's write passes no permission check. Copying the file elsewhere is a single
 command that asks. Near-duplicates the ingest set aside were never recorded, so they are not in it.
 
+**Cliché map** (0.20.0). Before generating, the agent maps the obvious answers to the brief: those it
+generates away from (`avoided`, its O_train) and those it sets aside to check the ideas against at the
+end (`held_out`, its O_test). It sends the map with the first ingest; the engine numbers it `o1, o2, …`
+and keeps it in `session/cliches.json`. Nothing in the geometry reads it: the slate, the parents and the
+monitor come out the same with or without it (tested). `recall` returns it, and the export lists it with,
+for each held-out cliché, the three ideas nearest to it by cosine in the session's embedding space
+(`originality.nearest_ideas`, measurement only — I5). The avoided ones get no distance, since they
+steered the generation. Round 1 shows the avoided ones; the held-out ones stay unshown until the end, so
+the user's choices cannot steer the ideas away from them.
+
 **Cycle response** (`kg_diverge_ingest`): `slate`, `slate_ids`, `ask_pairs`, `ask_policy`, `monitor`,
-`slate_mechanism_novelty`, `open_axis` (+ `surface_mechanism_gap` when the probe is on). `slate_ids`
+`slate_mechanism_novelty`, `open_axis` (+ `surface_mechanism_gap` when the probe is on, + `cliches_stored`
+when the call sent a cliché map). `slate_ids`
 is the id list of the slate items and honours neither pins nor discards — **not** breeding parents;
 it was named `parents` before 0.4.0, which invited exactly that misread. The empty-generation
 response carries every key with neutral values, `monitor.variety_erosion` included. A slate item
@@ -515,7 +527,11 @@ one negative memory, and neither generation path re-proposes from it. The fold k
 deliberately narrower `server.MATERIALIZED_DISCARD_STATES` = {`failed`} — distinct from the global
 `FAILURE_STATES` = {`rejected`, `failed`} (which still governs projector no-prune and the
 write-boundary durability quarantine that backs `/burgess:kg-generate` negative memory). The sync only
-reads verdicts; issuing them stays `kg_ground`'s monopoly.
+reads verdicts; issuing them stays `kg_ground`'s monopoly. Since 0.20.0 the same door carries mapped
+clichés, on request (`cliche_ids`), as `cliche-<brief>-<id>` nodes with a `[cliche]` line in the body
+instead of the `[diverge] pinned` one. The grounder treats them as ordinary hypotheses: grounded with
+support, `rejected` without. The ledger keeps them under `_cliches`, which the fate sync skips, so a
+cliché never joins the brief's discards.
 
 **Advisory DPP over `/burgess:kg-generate`** (`advisory_geometry.py`, behind `divergence.dpp`, default
 off): the same candidate set is reordered by a hybrid-descriptor DPP — one semantic axis (batch

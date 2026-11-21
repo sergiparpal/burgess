@@ -32,9 +32,13 @@ from pathlib import Path
 from typing import Any
 
 from ..atomicio import atomic_write_text
+from . import originality
 from .config import ConfigError
 from .session import Session
 from .state import State, _path_slug
+
+# How many ideas the export names as closest to each held-out cliché (0.20.0).
+CLOSEST_PER_CLICHE = 3
 
 
 def export_path(state: State, session_id: str) -> Path:
@@ -123,10 +127,64 @@ def _status_line(rec: dict[str, Any], pinned: bool, discarded: bool, beat: list[
     return ("- " + " · ".join(parts)) if parts else None
 
 
+def _cliche_lines(cliches: list[dict[str, Any]]) -> list[str]:
+    """The ``## Clichés`` section (0.20.0): every mapped cliché with its role, the ideas closest to
+    each held-out one, and the graph node a materialized one became. Empty when none was mapped."""
+    if not cliches:
+        return []
+    out = ["## Clichés", "",
+           "The obvious answers mapped before generating. The ideas were generated away from the "
+           "avoided ones. The set-aside ones were kept out of view, to check the ideas against at the "
+           "end: for each, the closest ideas and their cosine similarity in this session's embedding "
+           "space, an advisory reading that ranks nothing.", ""]
+    for c in cliches:
+        role = "avoided" if c.get("role") == "avoided" else "set aside"
+        line = f"- **{c.get('id', '?')}** ({role}): {str(c.get('text', '')).strip()}"
+        closest = c.get("closest")
+        if c.get("role") == "held_out" and closest:
+            line += " · closest ideas: " + ", ".join(
+                f"{x['id']} ({_fmt_value(x['similarity'])})" for x in closest)
+        elif c.get("role") == "held_out" and closest is not None:
+            line += " · closest ideas: not measured (no comparable embeddings)"
+        if c.get("node"):
+            line += f" · in the graph as `{c['node']}`"
+        out.append(line)
+    out.append("")
+    return out
+
+
+def _held_out_closest(sess: Session, meta: dict[str, Any], cliches: list[dict[str, Any]],
+                      embeddings: dict[str, list[float]], ids: list[str]) -> dict[str, list]:
+    """The ideas closest to each held-out cliché, ``{cliché id: [{"id", "similarity"}, ...]}``.
+
+    Only the held-out clichés are measured: the avoided ones steered the generation, so a distance
+    to them would only grade the steering (never validate against O_train). The ideas are this
+    session's stored embeddings; the clichés are embedded with the same embedder. An embedder the
+    session did not use, or one that fails to load, gives ``[]``: the reading is advisory, and the
+    export never fails for it."""
+    held = [c for c in cliches if c.get("role") == "held_out"]
+    if not held:
+        return {}
+    empty = {c["id"]: [] for c in held}
+    try:
+        if meta.get("embedder") and meta["embedder"] != sess.embedder.name:
+            return empty
+        have = [i for i in ids if i in embeddings]
+        if not have:
+            return empty
+        vecs = sess.embedder.embed([c["text"] for c in held])
+        near = originality.nearest_ideas(vecs, [embeddings[i] for i in have], have,
+                                         k=CLOSEST_PER_CLICHE)
+    except Exception:  # noqa: BLE001 — advisory reading; a missing model never fails the export
+        return empty
+    return {c["id"]: n for c, n in zip(held, near)}
+
+
 def render(*, project: str, brief: str, records: list[dict[str, Any]],
            axes: list[dict[str, Any]], session_id: str, seed: Any, pins: list[str],
            discards: list[str], comparisons: list[dict[str, Any]],
-           materialized: dict[str, Any], exported_at: str) -> str:
+           materialized: dict[str, Any], exported_at: str,
+           cliches: list[dict[str, Any]] | None = None) -> str:
     """The Markdown text of an export. Pure: the caller reads the state and writes the file."""
     ids = [r["id"] for r in records]
     here = set(ids)
@@ -173,6 +231,7 @@ def render(*, project: str, brief: str, records: list[dict[str, Any]],
     out += ["", "Each idea: its text as the engine kept it, the explanation it was presented with, "
                 "its descriptor, how it was made, and what was done with it. A batch is one ingest; "
                 "a round that was regenerated is two batches.", ""]
+    out += _cliche_lines(cliches or [])
 
     groups: list[tuple[str, list[dict[str, Any]]]] = []
     undated = [r for r in records if "batch" not in r]
@@ -235,16 +294,32 @@ def export_ideas(project: str, brief: str = "", home: Path | None = None,
         meta = state.read_meta()
         session_id = str(state.read_session().get("session_id") or "")
         axes_doc = state.read_axes() or {}
+        cliches = state.read_cliches()
+        embeddings = state.read_embeddings() if cliches else {}
     records = [dict(rec, id=str(rec.get("id") or cid)) for cid, rec in store.items()
                if isinstance(rec, dict)]
     if not records:
         raise ConfigError(f"project {project!r} has no ideas in its current session to export"
                           + (f" (session {session_id!r})" if session_id else ""))
     axes = [a for a in (axes_doc.get("axes") or []) if isinstance(a, dict)]
+    closest = _held_out_closest(sess, meta, cliches, embeddings, [r["id"] for r in records])
+    in_graph = materialized.get("_cliches") if isinstance(materialized, dict) else None
+    in_graph = in_graph if isinstance(in_graph, dict) else {}
+    cliche_view: list[dict[str, Any]] = []
+    for c in cliches:
+        item = {"id": c.get("id"), "text": c.get("text"), "role": c.get("role")}
+        if c.get("role") == "held_out":
+            item["closest"] = closest.get(c.get("id"), [])
+        entry = in_graph.get(c.get("id"))
+        nodes = list(entry.get("nodes") or []) if isinstance(entry, dict) else []
+        if nodes:
+            item["node"] = nodes[0]
+        cliche_view.append(item)
     stamp = (now or datetime.now().astimezone()).isoformat(timespec="minutes")
     text = render(project=project, brief=brief or "", records=records, axes=axes,
                   session_id=session_id, seed=meta.get("seed"), pins=pins, discards=discards,
-                  comparisons=comparisons, materialized=materialized, exported_at=stamp)
+                  comparisons=comparisons, materialized=materialized, exported_at=stamp,
+                  cliches=cliche_view)
     path = export_path(state, session_id)
     atomic_write_text(path, text)
     here = {r["id"] for r in records}
@@ -258,6 +333,7 @@ def export_ideas(project: str, brief: str = "", home: Path | None = None,
         "comparisons": sum(1 for c in comparisons
                            if c.get("winner") in here or c.get("loser") in here),
         "unexplained": [r["id"] for r in records if not str(r.get("explanation") or "").strip()],
+        "cliches": cliche_view,
         "session_id": session_id,
         "bytes": len(text.encode("utf-8")),
     }

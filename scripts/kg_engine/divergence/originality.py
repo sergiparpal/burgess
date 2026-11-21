@@ -56,3 +56,28 @@ def originality_scores(idea_vecs, obvious_vecs) -> dict[str, Any]:
         "per_idea": [round(float(x), 4) for x in per_idea],
         "slate_mean": round(float(per_idea.mean()), 4),
     }
+
+
+def nearest_ideas(obvious_vecs, idea_vecs, idea_ids, k: int = 3) -> list[list[dict[str, Any]]]:
+    """For each obvious vector, the ``k`` ideas closest to it: ``[{"id", "similarity"}, ...]``, most
+    similar first, ties broken by id. Measurement only, like :func:`originality_scores`: the session's
+    end reports it for the clichés it held out (0.20.0), and nothing selects or ranks with it.
+
+    Both inputs are assumed L2-normalized. Degenerate inputs give empty lists, never an exception."""
+    obvious = np.asarray(obvious_vecs, dtype=np.float32)
+    ideas = np.asarray(idea_vecs, dtype=np.float32)
+    if obvious.ndim == 1 and obvious.size:
+        obvious = obvious.reshape(1, -1)
+    if ideas.ndim == 1 and ideas.size:
+        ideas = ideas.reshape(1, -1)
+    m = obvious.shape[0] if obvious.ndim == 2 else 0
+    ids = [str(i) for i in idea_ids]
+    if (m == 0 or ideas.ndim != 2 or ideas.shape[0] == 0 or ideas.shape[0] != len(ids)
+            or ideas.shape[1] != obvious.shape[1] or k <= 0):
+        return [[] for _ in range(m)]
+    sims = obvious @ ideas.T  # (m, n)
+    out: list[list[dict[str, Any]]] = []
+    for row in sims:
+        order = sorted(range(len(ids)), key=lambda j: (-float(row[j]), ids[j]))[:k]
+        out.append([{"id": ids[j], "similarity": round(float(row[j]), 2)} for j in order])
+    return out

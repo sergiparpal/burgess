@@ -148,6 +148,9 @@ non-failure reason.
 - **Items WITHOUT the marker are unchanged.** Ordinary `/kg-generate` proposals have no `[diverge]` lineage;
   for them, no support still means **`rejected` → failure memory** (§1.7), exactly as above — they *are*
   structural proposals meant to be checked now, and a false structural bridge should be remembered as a failure.
+- **A `[cliche] …` node is one of these ordinary items.** It is an obvious answer that a `/kg-diverge`
+  session mapped before generating, carried into the graph when the user asked. It claims what is usual, not
+  what is new, so it is checked now: `grounded` with support, `rejected` without, like any proposal.
 
 ## The edge.id format (target_id)
 
