@@ -439,7 +439,14 @@ anti-collapse monitor reading every round.
 - **Memory** (`memory.py`): durable pins/discards/comparisons per brief; informative A-vs-B pair
   selection; diverse-parent selection (pins always in, discards never). Comparisons feed only the
   pair selection (a decided pair is not asked again) and `recall`'s tallies; neither the slate nor
-  the parents read them.
+  the parents read them. The pairs come from the slate, but when no chosen pair names an idea of the
+  current round, the last one gives way to the most informative undecided pair that does (0.19.7):
+  the slate is archive-wide, and in the 2026-11-20 field session it stayed the same for three rounds
+  whose questions never reached a new idea. The parents are every pin plus at least
+  `MIN_DIVERSE_PARENTS` = 2 elites whatever `k` says, drawn by D² sampling (`diversity.d2_sampling`,
+  the k-means++ seeding rule) from a generator keyed by seed and `meta.cycles`, so the same call
+  within a round returns the same parents and the next round draws again. The max-min walk it
+  replaced is fixed for fixed pins: it bred from the same two outliers round after round.
 - **State** (`state.py`): project-local under `.kg/diverge/<brief-slug>/`. `meta.json`,
   `axes.json`, `session.json`, `materialized.json` and `memory/` are durable; the `session/` dir
   (MAP-Elites archive, candidate records, `embeddings.npz`/`mech_embeddings.npz` vector stores,

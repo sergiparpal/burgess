@@ -339,6 +339,28 @@ def _mark_batch(cand_store: dict[str, Any], new_ids: list[str], slate_ids: list[
                 shown.append(batch)
 
 
+def _fresh_items(cyc: "_Cycle", survivors: list[Candidate],
+                 discarded: set[str]) -> list[dict[str, Any]]:
+    """This round's ideas as ask-pair items (``id``, ``fitness``, ``novelty``), for
+    ``memory.select_ask_pairs(fresh=...)`` (0.19.7).
+
+    Only survivors that hold a niche after placement and any freeze re-key, and that the user has
+    not discarded: elites are what a state prune always keeps (``_compute_keep_ids``), so a
+    question never names an idea the store may drop before the user answers it."""
+    elites = set(cyc.arc.elite_ids())
+    items = []
+    for cand in survivors:
+        if cand.id in discarded or cand.id not in elites or cand.id not in cyc.stored_emb:
+            continue
+        rec = cyc.cand_store.get(cand.id)
+        if rec is None:
+            continue
+        # Rounded like ``_slate_item``, so a fresh pair and a slate pair are scored on equal terms.
+        items.append({"id": cand.id, "fitness": round(float(rec.get("fitness", 1.0)), 4),
+                      "novelty": round(float(rec.get("novelty", 0.0)), 4)})
+    return items
+
+
 def _open_axis_texts(
     open_axis: Any, descriptors: list[dict[str, Any]], texts: list[str]
 ) -> list[str]:
@@ -1101,7 +1123,8 @@ def _ingest_locked(
 
     # User vetoes (discards) are namespaced by the session domain, like pins. Drop
     # them from the presented slate so a discarded idea stops re-appearing.
-    slate, slate_ids = _select_slate(cyc, discards=set(state.read_discards(sess.domain)))
+    discarded = set(state.read_discards(sess.domain))
+    slate, slate_ids = _select_slate(cyc, discards=discarded)
 
     # Read meta once: nothing rewrites it until _persist_cycle at the end, so the
     # rolling baseline and the per-generation target both come from one snapshot.
@@ -1134,6 +1157,7 @@ def _ingest_locked(
             econfig.ask_uncertainty_weight,
             econfig.ask_novelty_weight,
         ),
+        fresh=_fresh_items(cyc, survivors, discarded),
     )
     ask_policy = _ask_policy(econfig, gen_index)
     # Batch numbers for the export: this ingest is batch gen_index + 1 (meta["cycles"] after it).
@@ -1269,6 +1293,14 @@ def parents(project: str, k: int = 4, seed: int = 0,
 
     Each parent's ``novelty`` is the same variety proxy as on the slate (mean k-NN
     distance to this session's own elites + batch), NOT originality vs. prior art.
+
+    ``k`` is the total, pins included, but the diverse part never drops below
+    ``memory.MIN_DIVERSE_PARENTS`` while the archive has that many elites to offer: when
+    ``k`` leaves less room, the set grows instead (0.19.7). The
+    diverse elites are drawn by ``diversity.d2_sampling`` from a generator keyed by
+    ``seed`` and the generation (``meta.cycles``): calling again in the same round
+    returns the same parents, and the next round draws again. The max-min walk this
+    replaced returned the same outliers every round for a given set of pins.
     """
     sess = Session(project, home=home, seed=seed)
     # Snapshot every file this reads under the project lock: the archive names elites
@@ -1282,10 +1314,14 @@ def parents(project: str, k: int = 4, seed: int = 0,
         # from the namespace recall/ingest/remember wrote them to.
         pins = sess.state.read_pins(sess.domain)
         discards = sess.state.read_discards(sess.domain)
+        generation = int(sess.state.read_meta().get("cycles", 0) or 0)
     elite_ids = [
         i for i in arc.elite_ids() if i in stored_emb and i not in set(discards)
     ]
-    chosen = memory.select_parents(elite_ids, stored_emb, pins, k, discards=discards)
+    total = max(int(k), len(pins) + memory.MIN_DIVERSE_PARENTS)
+    rng = np.random.default_rng([abs(int(seed)), max(generation, 0)])
+    chosen = memory.select_parents(elite_ids, stored_emb, pins, total, discards=discards,
+                                   rng=rng)
     records = []
     stale: list[str] = []
     for cid in chosen:

@@ -1183,7 +1183,9 @@ generation (`g2-c3`) rather than restarting a counter each round.
 Field honesty: `slate_ids` is the id list of the slate items, NOT breeding parents — it honors neither
 pins nor discards, so never breed from it; use `kg_diverge_parents` for that. `novelty` is mean k-NN
 cosine distance (k=5) to THIS SESSION's own ideas — a variety proxy,
-never originality against the world; `mechanism_novelty` is the same for the open-axis value. `monitor`
+never originality against the world; `mechanism_novelty` is the same for the open-axis value. `ask_pairs`
+come from the slate, except that when no slate pair names an idea of this round, the last pair gives way
+to one that does — possibly an idea the slate left out (0.19.7). `monitor`
 flags are advisory notices (react per `/burgess:kg-diverge` step 9). When the axes set `engine: {gap_probe: true}`
 the result also carries a `surface_mechanism_gap` block (measurement only).
 
@@ -1198,8 +1200,12 @@ asking a pair already answered and tallies the answers in `kg_diverge_recall` (`
 
 ### 1B.4 `kg_diverge_parents(project, k=4, seed=0)`
 
-Diverse stepping stones for the next generation, DPP-selected from the archive — pins ALWAYS included,
-discards NEVER. Returns `{"parents": [{id, text, coords, niche_id, novelty, pinned}]}`. This `parents` is
+Stepping stones for the next generation — pins ALWAYS included, discards NEVER, and at least two diverse
+archive elites however many pins there are, fewer only when the archive has fewer (0.19.7). `k` is the
+total, and the set grows past it when needed to hold every pin and two diverse elites, so leave it alone.
+The diverse elites are drawn far from the pins and from each other, keyed by `seed`
+and the generation: within a round the same call returns the same parents, and the next round draws
+again. Returns `{"parents": [{id, text, coords, niche_id, novelty, pinned}]}`. This `parents` is
 the real one (the ingest response's `slate_ids` is not). An optional `stale_pins` + `stale_pins_note` pair
 appears when a pinned id has no candidate record — an axes change resets the geometry but keeps preference
 memory, so the pin survives its idea. Drop those ids; there is nothing to breed from. The keys are absent
@@ -1654,7 +1660,7 @@ errors}`.
 | start/resume a divergence session for a brief | `kg_diverge_init(project, axes=?, session=?)` |
 | run one divergence cycle (embed → slate → monitor) | `kg_diverge_ingest(project, candidates, …)` |
 | record a pin / discard / A-vs-B answer | `kg_diverge_remember(project, event)` |
-| diverse stepping stones (pins in, discards out) | `kg_diverge_parents(project, k=?)` |
+| diverse stepping stones (pins in, discards out) | `kg_diverge_parents(project)` |
 | archive health / gap log | `kg_diverge_metrics(project)` |
 | recall a brief's pins/discards/comparisons | `kg_diverge_recall(project)` |
 | carry pinned ideas into the hypothesized lane | `kg_diverge_materialize(project, …)` |

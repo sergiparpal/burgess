@@ -142,6 +142,64 @@ def farthest_point_sampling(
     return selected
 
 
+def d2_sampling(
+    vecs: np.ndarray,
+    k: int,
+    rng: np.random.Generator,
+    seeds: Sequence[int] | None = None,
+) -> list[int]:
+    """Randomized max-min selection: k-means++ seeding, or D² sampling (Arthur & Vassilvitskii 2007).
+
+    Same contract as :func:`farthest_point_sampling`: the result begins with ``seeds`` (always kept,
+    order preserved) and grows to ``k`` total, or to ``len(seeds)`` if that is more. The difference is
+    in each pick. The walk does not always take the single farthest row; it DRAWS the next row with
+    probability proportional to its squared cosine distance to the nearest row chosen so far. Far rows
+    stay the likely picks, and an exact duplicate of a chosen row weighs nothing while anything else
+    is left. With no seeds the first pick is uniform.
+
+    Why it exists (0.19.7): the parents of a /burgess:kg-diverge round are the pins plus diverse
+    elites, and the max-min walk from a fixed set of pins returns the same outliers every round. In
+    the 2026-11-20 field session it bred from c2g and c2k in round 3 and again in round 4. ``rng`` is
+    the only source of variation, so the same generator state gives the same picks; the caller keys it
+    by session seed and generation.
+    """
+    vecs = np.asarray(vecs, dtype=np.float64)
+    n = vecs.shape[0]
+    selected = [int(s) for s in (seeds or [])]
+    target = min(max(int(k), len(selected)), n)
+    if target <= len(selected):
+        return selected
+
+    def row(j: int) -> np.ndarray:
+        return 1.0 - vecs @ vecs[j]
+
+    if selected:
+        min_d = row(selected[0])
+        for s in selected[1:]:
+            np.minimum(min_d, row(s), out=min_d)
+    else:
+        first = int(rng.integers(n))
+        selected = [first]
+        min_d = row(first)
+    taken = np.zeros(n, dtype=bool)
+    taken[selected] = True
+    while len(selected) < target:
+        weights = np.square(np.clip(min_d, 0.0, None))
+        weights[taken] = 0.0
+        total = float(weights.sum())
+        if total > 0.0 and np.isfinite(total):
+            j = int(rng.choice(n, p=weights / total))
+        else:
+            # Every row left duplicates a chosen one: no row is farther than another, so draw
+            # uniformly among them rather than stop short of the target.
+            free = np.flatnonzero(~taken)
+            j = int(free[int(rng.integers(free.size))])
+        selected.append(j)
+        taken[j] = True
+        np.minimum(min_d, row(j), out=min_d)
+    return selected
+
+
 def bounded_quality(
     quality: np.ndarray,
     weight: float,

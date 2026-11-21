@@ -102,6 +102,12 @@ the knowledge graph unless you explicitly ask to materialize your pins.
 session-ephemeral (a new session id wipes it); **pins, discards and comparisons persist across
 sessions** — they are the durable signal.
 
+**Each round.** Claude shows the engine's slate, its most dispersed ideas, then explains every other
+idea of the round, and asks two A-vs-B questions. The slate is picked from all of the session's ideas,
+so it can stay the same for several rounds; when it holds none of this round's ideas, one question
+still brings one in. The next round breeds from your pins plus at least two ideas the engine picks for
+diversity, drawn again each round, so pinning many ideas never crowds the exploration out.
+
 **Saving the ideas.** Say you are done, or ask to save the ideas. The engine writes every idea of the
 session to `.kg/diverge/<project>/ideas-<project>-<session>.md`: its text, the explanation you were
 shown, its descriptor, and what you did with it (on which slates it appeared, pinned, discarded,

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.19.7 — 2026-11-21
+
+Three follow-ups from the first field `/burgess:kg-diverge` session on 0.19.6 (Windows, 2026-11-20/21, five
+rounds, 60 ideas). The session itself went cleanly: every idea carried its explanation, and the export plus
+one copy took 54 seconds.
+
+### Fixed
+
+- **The parents keep two diverse ideas beside any number of pins.**
+  - `kg_diverge_parents` counted the pins toward its default `k=4`, so three pins left one diverse parent and
+    four left none. In the field session the agent raised `k` by hand: to 5 in round 3 on its own, then to
+    the pins plus two at the user's request.
+  - The parents are now every pin plus at least two diverse elites, whatever `k` says. With up to two pins
+    nothing changes, and an explicit larger `k` is still honoured.
+- **The diverse parents are drawn again each round.**
+  - The max-min walk away from the pins is fixed for a fixed set of pins. In the field session it bred from
+    c2g and c2k in round 3 and again in round 4, and only a new pin changed one of them in round 5. The tool
+    description said the parents were "DPP-sampled"; they never were.
+  - The diverse elites are now drawn by D² sampling, the k-means++ seeding rule: each pick is drawn with
+    probability proportional to its squared distance from the nearest idea already chosen. The draw is keyed
+    by the seed and the generation, so the same call within a round returns the same parents and the next
+    round draws again.
+- **One question reaches this round's ideas even when the slate does not change.**
+  - The slate is picked from every idea of the session, and in the field session it was the same in rounds
+    2, 3 and 4. The A-vs-B questions came only from the slate, so rounds 3 and 4 asked only about ideas of
+    rounds 1 and 2, and none of the 24 ideas of those two rounds was ever compared.
+  - When no question the slate yields names an idea of this round, the second one now gives way to the
+    most informative unanswered pair that does, even with an idea the slate left out. When a slate question
+    already names one, the questions are unchanged.
+  - The command asks such a question by the idea's id, as it explained the idea in the rest of the round,
+    and tells the agent to leave `k` alone.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv is
+  not rebuilt.
+- A session begun on 0.19.6 can go on: its next `kg_diverge_parents` call follows the new rule, and its next
+  ingest the new questions.
+- The views carry the 0.19.6 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.19.6 — 2026-11-20
 
 One more follow-up from the second field `/burgess:kg-diverge` session (Windows, 2026-11-19), reviewed after

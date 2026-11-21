@@ -4126,7 +4126,10 @@ def _register(mcp, engine: KGEngine) -> None:
         kg_diverge_export, and never embeds it: the geometry reads "text" only)}.
         Returns the slate (with niche coords, novelty, why-picked signals), ask_pairs for A-vs-B,
         and the anti-collapse monitor verdict — `mon.collapsing: true` means REGENERATE with more
-        diversity pressure (advisory notice to the user, no question). Discarded ids are never
+        diversity pressure (advisory notice to the user, no question). The ask_pairs come from the
+        slate, except that one of them names an idea of this round whenever the round placed one
+        and has an unanswered pair for it, even an idea the slate left out: ask it by its id, as
+        you explained it with the rest of the round. Discarded ids are never
         re-slated. Purely advisory: nothing here can create graph state or verdicts."""
         from kg_engine.divergence import config as dconfig
         from kg_engine.divergence import pipeline as dpipe
@@ -4153,9 +4156,14 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_diverge_parents(project: str, k: int = 4, seed: int = 0) -> dict:
-        """Diverse parent set for the NEXT generation: DPP-sampled archive elites honoring
-        preference memory — pins always included, discards never (I8). Use these as the
-        stepping stones the next round of variation operators mutates/combines."""
+        """Parent set for the NEXT generation, honoring preference memory: every pin, never a
+        discard (I8), and at least two diverse archive elites however many pins there are (fewer
+        only when the archive has fewer). k is the total, and the set grows past it when needed to
+        hold every pin and two diverse elites, so there is no need to raise k yourself.
+        The diverse elites are drawn far from the pins and from each other, with a draw keyed by
+        seed and the round: the same call in one round returns the same parents, and the next
+        round draws again. Use these as the stepping stones the next round of variation
+        operators mutates/combines."""
         from kg_engine.divergence import pipeline as dpipe
         return dpipe.parents(project, k=k, seed=seed, home=engine._diverge_home())
 
