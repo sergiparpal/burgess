@@ -128,6 +128,10 @@ HUB_ATTACKS = ".kg-hub-attacks.jsonl"
 # `kg_record_edgeless_section` and read by `kg_build_plan` (`buildplan.edgeless_records`). Engine state, not
 # canon, like the attack ledger above.
 EDGELESS_SECTIONS = ".kg-edgeless-sections.jsonl"
+# The [diverge] pins a grounder judged and left `unverified` for want of support (0.20.1), one JSON line each,
+# appended by `kg_record_unsupported` and read by `kg_ground_plan` (`groundplan.unsupported_records`), which
+# leaves such a pin out until the sources or the pin change. Engine state, not canon, like the two above.
+UNSUPPORTED_PINS = ".kg-unsupported-pins.jsonl"
 
 
 # --------------------------------------------------------------------------- git helpers
@@ -744,9 +748,10 @@ class Canon:
         # a DIRECTORY, so it needs its own trailing-slash pattern (LOCK_NAME matches the lock file only).
         # The attack ledger (0.10.0) is per-machine engine state like the reconcile cache: a clone without
         # it only offers its hubs to one more attack. The edgeless-section ledger (0.14.0) likewise: a clone
-        # without it only offers those sections to one more extraction.
+        # without it only offers those sections to one more extraction. The unsupported-pin ledger (0.20.1)
+        # likewise: a clone without it only offers those pins to one more grounder.
         patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
-                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS]
+                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS, UNSUPPORTED_PINS]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""

@@ -1,7 +1,7 @@
 ---
 name: kg-grounder
 description: Use to verify the queue of unverified edges against the real source — re-read each cited span, reject vague/unfalsifiable relations (the generality confound §1.6), and stamp grounded/rejected verdicts via kg_ground.
-tools: Read, Grep, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_write
+tools: Read, Grep, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_record_unsupported, mcp__plugin_burgess_burgess__kg_write
 omitClaudeMd: true
 model: opus
 ---
@@ -141,6 +141,10 @@ non-failure reason.
   it waits in the lane until the user adds sources for the pins worth promoting. (A `rejected` here would also
   read semantically as *failed grounding* and, downstream, feed the brief's negative memory — burying the very
   novelty the user pinned.)
+  **Then record it** with `kg_record_unsupported(target_id=<id>, kind=<node|edge>, note=<what you looked for
+  and did not find>)`. The plan then leaves the pin out until the sources or the pin change, so the next pass
+  does not judge it again for the same answer. Through 0.20.0 nothing recorded it, and one field pass judged
+  120 pins again and left all 120 unverified.
 - **`[diverge]`-marked item, WITH positive support → `grounded`.** If you *do* find a verbatim `support_span`
   (or an external `support_note`), promote it exactly like any hypothesis — earning grounding is always allowed.
 - **Active falsification is not yours.** If a `[diverge]` idea is genuinely *refuted* (not merely unsupported),
@@ -304,7 +308,8 @@ concept as another node, `get_node` the id you suspect.
    its own even with no incident edge. If the source verbatim-supports the idea, promote it with
    `kg_ground(target_id=<node.id>, kind="node", verdict="grounded", support_span="<verbatim run>")` (or
    `support_note="<external citation>"` if the support is off-source); if it is a `[diverge]`-lineage pin with no
-   support yet, **leave it `unverified`** (triage — a novel idea has no in-source span by construction); only a
+   support yet, **leave it `unverified`** (triage — a novel idea has no in-source span by construction) and
+   record that with `kg_record_unsupported` (see the triage above); only a
    non-`[diverge]` node with no support is `rejected`. "No edge → can't be grounded" is false — ground the node.
    Your batch also holds the queued edges that touch the node, such as a compression's star, so judge the node
    first. A proposal into a node that is rejected, failed or obsolete is not promoted: `kg_ground` refuses it

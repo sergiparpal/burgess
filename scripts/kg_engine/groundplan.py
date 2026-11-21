@@ -24,6 +24,7 @@ Pure stdlib + `model`/`buildplan`; no I/O. `KGEngine.kg_ground_plan` / `kg_groun
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -161,6 +162,60 @@ def attack_records(lines) -> "dict[str, list[str]]":
         if isinstance(hub, str) and hub and isinstance(at, str) and at:
             out.setdefault(hub, []).append(at)
     return out
+
+
+# A [diverge] pin a grounder left `unverified` for want of support (0.20.1). The grounder records it with
+# `kg_record_unsupported`, one line in the ledger beside the canon (`canon.UNSUPPORTED_PINS`), and the plan
+# leaves the pin out while the sources and the pin are the ones it was judged against. Through 0.20.0 nothing
+# recorded such a judgment, so every pass judged every pin again: the field pass of 2026-11-21 re-judged 120
+# pins in ten batches and left all 120 unverified, at about $2.50, though nothing had changed.
+MAX_UNSUPPORTED_NOTE_CHARS = 2000
+
+
+def item_signature(kind: str, item) -> str:
+    """sha256 of what a grounder judged in a pin: a node's label and body, or an edge's ends, relation, span
+    and notes. A change to any of them is a new pin to judge."""
+    if kind == "node":
+        payload = f"{item.label or ''}\n{item.body or ''}"
+    else:
+        payload = json.dumps([item.source, item.relation, item.target, item.span or "", item.notes or ""],
+                             ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def unsupported_record(kind: str, item_id: str, at: str, source_sig: str, item_sig: str, note: str) -> str:
+    """One ledger line (0.20.1): the pin, when it was judged, the signatures of the sources and of the pin it
+    was judged against, and the grounder's note on what it looked for and did not find."""
+    return json.dumps({"kind": kind, "item": item_id, "at": at, "source_sig": source_sig,
+                       "item_sig": item_sig, "note": note}, ensure_ascii=False)
+
+
+def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
+    """(kind, item id) -> its latest record's `{"at", "source_sig", "item_sig"}`, from the ledger's lines. A
+    line that is not such a record (a torn last line, a hand edit, another shape) is skipped, never an
+    error."""
+    out: "dict[tuple[str, str], dict[str, str]]" = {}
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        kind, item, at = rec.get("kind"), rec.get("item"), rec.get("at")
+        if kind not in ("node", "edge") or not isinstance(item, str) or not item or not isinstance(at, str):
+            continue
+        prev = out.get((kind, item))
+        if prev is None or at >= prev["at"]:
+            out[(kind, item)] = {"at": at, "source_sig": str(rec.get("source_sig") or ""),
+                                 "item_sig": str(rec.get("item_sig") or "")}
+    return out
+
+
+def waits_for_sources(record: "dict[str, str] | None", source_sig: str, item_sig: str) -> bool:
+    """True when a pin was judged unsupported against these very sources and this very pin, so judging it
+    again would only repeat the verdict-less outcome."""
+    return bool(record) and record["source_sig"] == source_sig and record["item_sig"] == item_sig
 
 
 def parse_lead(text: "str | None", edge_types) -> "tuple[tuple[str, str, str] | None, str]":

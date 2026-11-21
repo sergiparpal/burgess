@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the twenty-seven graph tools (§1), then the eight divergence-surface
+Load on demand. The MCP **tool surface** — the twenty-eight graph tools (§1), then the eight divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,16 +17,17 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-seven** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **twenty-eight** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
 the `/burgess:kg-build` pair `kg_build_plan` (§1.19) and `kg_section` (§1.20), the `/burgess:kg-ground` pair
 `kg_ground_plan` (§1.21) and `kg_ground_item` (§1.22), `kg_record_attack` (§1.23), the mark an
 adversarial attack leaves when it writes no counter-edge, `kg_record_edgeless_section` (§1.24), the mark an
-extraction leaves on a section it wrote no edge from, and `kg_record_generation` (§1.25), the record a
-`/burgess:kg-generate` run leaves in the absorption ledger.
-The eight **divergence-surface** tools (§1B) complete the server's **thirty-five**.
+extraction leaves on a section it wrote no edge from, `kg_record_generation` (§1.25), the record a
+`/burgess:kg-generate` run leaves in the absorption ledger, and `kg_record_unsupported(target_id, kind="node", note)`
+(§1.26), the mark a grounder leaves on a `[diverge]` pin it judged and found no support for.
+The eight **divergence-surface** tools (§1B) complete the server's **thirty-six**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
@@ -893,6 +894,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 - **The queue:** every `unverified` edge (any lane) and every `unverified` HYPOTHESIZED node (a `/burgess:kg-diverge`
   pin or a generated proposal). The extractor's own unverified nodes are not queued: each names a concept the
   text uses, and the claims about it are its edges. They are counted in `queue.extractor_nodes_not_queued`.
+- **`queue.unsupported_waiting` (0.20.1):** the `[diverge]` pins a grounder judged unsupported against the
+  current sources and recorded with `kg_record_unsupported` (§1.26). They stay out of the batches until the
+  sources or the pin change; a `focus` offers them again, and the count is then 0.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
   for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
@@ -918,7 +922,7 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 ```json
 {"ok": true, "focus": null,
  "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "extractor_nodes_not_queued": 399,
-           "leads_pending": 0},
+           "unsupported_waiting": 0, "leads_pending": 0},
  "batch_size": 12, "wave_size": 6, "wave_size_from": "default",
  "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
  "waves": 3,
@@ -1100,6 +1104,35 @@ tracked node's window is read against.
   field run's write waited nine hours for the approval.
 
 ---
+
+### 1.26 `mcp__plugin_burgess_burgess__kg_record_unsupported(target_id, kind="node", note)`
+
+The mark a grounder leaves on a `[diverge]` pin it judged and left `unverified` for want of support (0.20.1).
+The grounder calls it once per such pin, with a note on what it looked for and did not find. `kg_ground_plan`
+(§1.21) then leaves the pin out of its batches, counted in `queue.unsupported_waiting`, while the sources and
+the pin are the ones it was judged against. A change to the sources (the signature of their contents) or to
+the pin (its label and body, or an edge's ends, relation, span and notes) offers it again. So does a `focus`,
+as for an attacked hub. Through 0.20.0 nothing recorded the judgment, so every pass judged every pin again:
+the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, and left all 120 unverified.
+
+- `target_id` — the pin's node id (slugged) or edge id, exactly as the batch listed it.
+- `kind` — `node` (the default; a materialized pin is a node) or `edge`.
+- `note` — what was looked for and not found, up to 2000 characters, whitespace collapsed.
+
+```json
+{"ok": true, "item": "idea-cold-brew-launch-c3", "kind": "node", "at": "2026-11-21T16:30:00+00:00"}
+```
+
+- Only an `unverified`, hypothesized item whose body (a node) or notes (an edge) carry the `[diverge] pinned`
+  marker can be recorded. Anything else, an ordinary proposal included, gets its verdict from `kg_ground`, so
+  the record can never hide an item from the queue that a verdict should settle.
+- It appends one fsync'd JSON line, `{kind, item, at, source_sig, item_sig, note}`, to
+  `<project>/.kg-unsupported-pins.jsonl`, under the writer lease. It sets no state: no node, edge or verdict
+  changes.
+- The ledger is engine state, not canon, git-excluded like the attack ledger and read fail-open: a lost or
+  unreadable ledger only offers those pins to one more grounder.
+- `ok: false` for an unknown item or kind, an empty or overlong note, or an item that is not an unverified
+  `[diverge]` pin; nothing is written then.
 
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 

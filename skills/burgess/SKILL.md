@@ -103,19 +103,20 @@ The twenty-two read/write/ground tools (`kg_ping`, `kg_scrub`, `kg_build_plan` �
 `kg_section` — one section, cut and egress-scrubbed for an extractor, `kg_record_edgeless_section` — the mark
 an extraction leaves when it writes no edge from its section, `kg_ground_plan` — the /burgess:kg-ground
 queue in batches, `kg_ground_item` — one queued item's evidence for a grounder, `kg_record_attack` — the mark an
-adversarial attack leaves when it writes no counter-edge, `kg_write`, `kg_ground`, `kg_rename`,
+adversarial attack leaves when it writes no counter-edge, `kg_record_unsupported` — the mark a grounder leaves
+on a `[diverge]` pin it judged and found no support for, `kg_write`, `kg_ground`, `kg_rename`,
 `kg_merge`, `kg_metrics`, `kg_status`, `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` — the
 read-only grounded-only associative chain, `kg_context`, `kg_agenda` — the read-only structural agenda,
 `kg_export` — the read-only human-facing render) plus the five **generative-layer** tools (`kg_propose` — the
 hypothesized write lane; `kg_generate` — the discovery mechanisms; `kg_operate` — the §8 endo operations;
 `kg_absorption` — the §14 absorption window; `kg_record_generation` — the record a /burgess:kg-generate run
-leaves in that window's ledger) make **twenty-seven** graph tools, and the eight
+leaves in that window's ledger) make **twenty-eight** graph tools, and the eight
 **divergence-surface** tools (`kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
 `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
 `kg_diverge_export` — the /burgess:kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse
 monitor over project-local, session-ephemeral state under `.kg/diverge/`, plus the EXPLICIT
 pin-materialization door into the hypothesized lane and the end-of-session file of every idea; advisory
-ordering only, below the grounding boundary, never a verdict path) make **thirty-five** tools in total.
+ordering only, below the grounding boundary, never a verdict path) make **thirty-six** tools in total.
 These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`, etc. are slash commands.
 
 ## Core invariants — non-negotiable, enforced by the boundary

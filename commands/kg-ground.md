@@ -52,7 +52,10 @@ Find what is actually pending before spending any subagent budget.
    - `queue`: the counts, including `weak_edges` and `extractor_nodes_not_queued`. The extractor's own nodes
      are not queued: each names a concept the text uses, and the claims about it are its edges, which are
      queued. `leads_pending` (0.9.0) counts the leads rejected claims carry that no edge has taken yet: they
-     are not this command's work, but `/burgess:kg-build --leads`'s.
+     are not this command's work, but `/burgess:kg-build --leads`'s. `unsupported_waiting` (0.20.1) counts
+     the `[diverge]` pins a grounder already judged unsupported against the current sources. They stay out of
+     the batches until the sources or the pin change, or until a focus names them; in the field, 120 such
+     pins were re-judged on every pass until 0.20.1.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
    - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
@@ -69,8 +72,9 @@ Find what is actually pending before spending any subagent budget.
 Stop and report "queue empty — nothing to ground" **only if** the plan has **no** `batches` **and** there are
 no hub candidates; when `attacked_hubs` is not empty, add that every hub has been attacked and none has gained
 a grounded claim since, and when `queue.leads_pending` is not 0, that that many leads wait for
-`/burgess:kg-build --leads`. Otherwise tell the user in a line what this pass covers: items, batches, waves and
-hubs.
+`/burgess:kg-build --leads`. When `queue.unsupported_waiting` is not 0, say in either case that that many pinned
+ideas wait for sources that support them, and that naming one as the focus asks for a fresh look. Otherwise
+tell the user in a line what this pass covers: items, batches, waves and hubs.
 
 > **Alternative prioritization (optional).** `mcp__plugin_burgess_burgess__kg_agenda()`'s
 > `blocked_on_grounding[]` lane is a read-only structural shortlist of what grounding would unblock. You may
@@ -168,7 +172,9 @@ mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), pe
     `lead`: "<head-id> <relation> <tail-id>".
   - a hypothesized item is grounded only with support (a support_span copied from the context, from
     shared_context's excerpts or from its passage, placeholders included, or a support_note); a
-    [diverge]-pinned item without support stays unverified. A proposal takes no lead: when a passage states
+    [diverge]-pinned item without support stays unverified, and you record it with
+    mcp__plugin_burgess_burgess__kg_record_unsupported(target_id, kind, note), the note saying what you
+    looked for and did not find. A proposal takes no lead: when a passage states
     another relation between its ends, reject it no-support and name that edge in the note.
 Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
 only verdict channel. Report a per-item table: id, kind, verdict, reason.
@@ -181,8 +187,9 @@ full reproject because the reconciler re-attaches them (§1.8).
 
 **Progress probe.** Between waves, or after a hiccup, call `kg_ground_plan` again with the same two arguments:
 an item drops out of it once it has a verdict, so its `batches` are exactly the work left. Re-launch only
-those. An item a grounder deliberately left `unverified` (a `[diverge]` pin with no support) stays in the plan:
-do not re-launch it, report it.
+those. A `[diverge]` pin a grounder left `unverified` for want of support drops out of the plan once the
+grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`. One it did not
+record stays in the plan: do not re-launch it, report it.
 
 ## Stage 2 — Attack the hubs (kg-adversarial-grounder)
 
@@ -309,7 +316,8 @@ still requires support (span or citation, restated into the node body) like any 
 Because a materialized pin is a *novel* idea, grounding it against the current source will
 usually find no in-source span — that is the expected outcome, **not** a failure. So the
 grounder **leaves an unsupported `[diverge]`-lineage node (or edge) `unverified`** (triage: don't
-spend a rejection on an item that by construction has no span yet) rather than rejecting it. Only a pin
+spend a rejection on an item that by construction has no span yet) rather than rejecting it, and records it
+with `kg_record_unsupported`, so later passes leave it out until the sources or the pin change. Only a pin
 that is actively **FALSIFIED** (`failed`, the adversarial grounder's verdict) folds back into its
 /burgess:kg-diverge brief's **permanent** discards; a merely-unsupported (`rejected`) pin stays recoverable
 in the lane until sources are added. Ordinary `/burgess:kg-generate` proposals (no `[diverge]` marker) are

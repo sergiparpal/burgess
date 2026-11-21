@@ -2249,3 +2249,47 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_fix_diverge_cliches.py` (26 tests).
   - Against 0.19.8, 23 fail. The 3 that pass pin what must not change: no `cliches` key without a map, a new
     session starts without one, and `kg_diverge_materialize` with no `cliche_ids` still carries every pin.
+
+## An unsupported pin waits for the sources to change instead of being judged on every pass (2026-11-21)
+
+- **Decision:**
+  - New tool `kg_record_unsupported(target_id, kind, note)`, 36 in all. A grounder calls it for each
+    `[diverge]` pin it leaves `unverified` for want of support. It appends `{kind, item, at, source_sig,
+    item_sig, note}` to `.kg-unsupported-pins.jsonl` beside the canon, under the writer lease, and sets no
+    state.
+  - The record is refused for anything but an unverified hypothesized item with the `[diverge] pinned` marker.
+  - `kg_ground_plan` leaves a pin out while its latest record's source signature (`_source_signature`, the
+    sha256 of the sources' contents) and item signature (`groundplan.item_signature`: a node's label and body,
+    or an edge's ends, relation, span and notes) match the current ones. Each such pin is counted in
+    `queue.unsupported_waiting`.
+  - A `focus` skips the ledger, as it skips the attack memory for hubs. The ledger reads fail-open, so a lost
+    one only offers the pins again.
+  - The grounder contract and `/burgess:kg-ground`'s Stage 1 template say to record. The command reports the
+    waiting pins, and says that a focus asks for a fresh look.
+- **Field graph it answers** (Windows, 2026-11-21, on 0.20.0):
+  - The user carried all 120 ideas of two test sessions into the graph. The contract leaves an unsupported
+    pin unverified instead of rejecting it, which is right for a new idea, but nothing recorded that judgment.
+  - The pass over the 120 ran ten grounders, cost $2.55, and left all 120 unverified. The ten judged in an
+    earlier pass were judged again for the same answer. Every later pass, for any other reason, would have
+    paid that again.
+- **Why the source signature, not a time or a pass count:** an unsupported pin can only change answer when
+  the evidence changes, which means the sources or the pin itself. Waiting a fixed number of passes would
+  still repeat a judgment that nothing could have changed.
+- **Why a record tool, not `kg_ground(verdict="unverified")`:** `kg_ground` is the verdict monopoly, and
+  "unverified" is the absence of a verdict. A `kg_record_*` tool that writes only a ledger is the pattern of
+  `kg_record_attack` (0.10.0), `kg_record_edgeless_section` (0.14.0) and `kg_record_generation` (0.17.0), and it
+  leaves the verdict paths and their audit untouched.
+- **Rejected alternatives:**
+  - (a) *Re-queue only the pins whose terms the changed text shares* (the 0.14.4 rule for span-less
+    rejected items). It is sharper, but it would need the changed text at plan time, and one more judgment
+    per pin per source change is affordable.
+  - (b) *Let the orchestrator record the pins its grounders left unverified.* The judgment is the
+    grounder's, and the orchestrator only has the grounder's report of it.
+  - (c) *Reject unsupported pins after N passes.* That puts a new idea into the failure memory only for being
+    new, which the triage rule exists to prevent.
+- **Accepted trade-offs:**
+  - Any change to any source, even an unrelated one, offers every recorded pin again, once.
+  - A pin judged before 0.20.1 has no record, so the first pass after the update judges it once more.
+- **Pinned in:** `tests/test_fix_ground_unsupported_pins.py` (17 tests). Against 0.20.0 the file does not
+  even import, since the helpers and the tool are new. `tests/fusion/test_diverge_surface.py` now counts 36
+  tools, and `tests/test_kg_ground_plan.py`'s queue shape gains `unsupported_waiting`.

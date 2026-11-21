@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.20.1 — 2026-11-21
+
+A follow-up from the field graph of 2026-11-21, which holds 120 pinned ideas that no source supports yet.
+
+### Fixed
+
+- **A pinned idea that no source supports is judged once per change, not on every pass.**
+  - `/burgess:kg-ground` leaves an unsupported `[diverge]` pin `unverified` instead of rejecting it. Nothing
+    recorded that judgment, so the plan queued every such pin again on every pass. The pass over the 120 ran
+    ten grounders, cost about $2.50, and left all 120 unverified; every later pass would have done the same.
+  - New tool `kg_record_unsupported(target_id, kind, note)`, 36 in all. The grounder calls it for each pin it
+    leaves unverified, saying what it looked for and did not find. It writes one line, with the signatures of
+    the current sources and of the pin, to `.kg-unsupported-pins.jsonl` beside the canon, and sets no state.
+  - `kg_ground_plan` leaves a recorded pin out while the sources and the pin are unchanged, and counts it in
+    `queue.unsupported_waiting`. A change to either offers it again, and so does a focus that names it.
+  - The record is refused for anything but an unverified `[diverge]` pin, so it cannot hide an ordinary
+    proposal from the queue.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv is
+  not rebuilt.
+- The first `/burgess:kg-ground` after the update judges each unverified pin once more and records it. Later
+  passes leave those pins out until you add or edit a source.
+- The views carry the 0.20.0 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.20.0 — 2026-11-21
 
 `/burgess:kg-diverge` keeps its map of clichés. A session opens with the clichés it is avoiding, ends by
