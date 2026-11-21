@@ -394,7 +394,7 @@ retryable; `truncated-payload` or `schema-invalid` is a *transport* error and is
 ## `/burgess:kg-ground`
 
 ```
-/burgess:kg-ground [query-or-node-filter]
+/burgess:kg-ground [--reexamine] [query-or-node-filter]
 ```
 
 **What it does.** Drains the grounding queue — and this is the **only command in Burgess that can
@@ -411,9 +411,20 @@ proposals, the claims the extractor marked weak go first, so a pass you stop ear
 fetches the evidence for its items itself (`kg_ground_item`): the claim, whether its quoted text is
 still in your source, and the paragraph around it. A proposal has no quoted text, so its grounder gets the
 passages where both of its ends are discussed instead, and, when no section discusses the two together,
-that fact itself. Through 0.6.1 the orchestrator pulled the whole
+that fact itself. A proposed or pinned node has no quoted text either, so since 0.20.2 its grounder gets the
+sections of your sources that share the most of its words, rare words counting more. Before that it got no
+source text at all, and could only search the passages other claims already cited. Through 0.6.1 the orchestrator pulled the whole
 queue at once, and on a large graph read it back with scripts, which in auto mode stopped on
 permission prompts.
+
+**A pinned idea that no source supports waits.** The grounder leaves it unverified rather than rejecting it,
+and records that, so later passes leave it out until you add or edit a source (0.20.1). Naming it as the focus
+asks for a fresh look.
+
+**`--reexamine` judges rejected proposed nodes again.** With `--reexamine`, the pass also queues the
+rejected proposed nodes the focus names, all of them with no focus, and judges them against the sections of
+your sources (0.20.2). A node rejected before 0.20.2 was judged without them. For example,
+`/burgess:kg-ground --reexamine cliche` judges the rejected clichés again.
 
 A proposed node comes in one batch with the proposals that touch it, such as a compression with its star,
 so one grounder judges them together. Once a proposed node is rejected, no proposal into it is grounded.

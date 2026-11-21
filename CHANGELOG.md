@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.20.2 — 2026-11-21
+
+A follow-up from the first grounding pass on 0.20.1, whose own report said its grounders had searched only
+the passages the graph already cited.
+
+### Fixed
+
+- **A node's grounder now reads your sources.**
+  - Until now, `kg_ground_item` gave a node only itself and its edges. A pinned idea or a cliché has no edge,
+    so its grounder got no source text and could only search the passages other claims already cited.
+  - On 2026-11-21 that is how 120 pinned ideas were left unverified and 5 clichés were rejected. The one cliché
+    that grounded did so only because an edge happened to cite its passage.
+  - A node now also gets `source_context`: up to 3 sections of your sources that share the most of its words,
+    rare words weighing more, each with the words it shares and an excerpt. The grounder copies its support
+    from one of those excerpts.
+- **The pinned ideas recorded in 0.20.1 are judged once more.** A record made before this release does not
+  keep its idea waiting, because its grounder saw no source text. A new record carries an evidence version.
+
+### Added
+
+- **`/burgess:kg-ground --reexamine [focus]` judges rejected proposed nodes again.**
+  - It also queues the rejected hypothesized nodes the focus names, all of them with no focus. Each one is
+    judged against its source sections, and the new verdict replaces the old one.
+  - This is how you re-judge a node rejected before 0.20.2, such as the five clichés:
+    `/burgess:kg-ground --reexamine cliche`.
+  - A refuted (`failed`) node is not offered, because a counter-passage refuted it.
+  - `kg_ground_plan` takes it as `reexamine` and counts the nodes in `queue.reexamine`.
+
+### Upgrading
+
+- Nothing to do. The canon is unchanged, and `pyproject.toml` changes only its version line, so the venv is
+  not rebuilt.
+- The next `/burgess:kg-ground` judges the unverified pins once more, this time against your sources, and
+  records them again. To re-judge the clichés rejected on 2026-11-21, run `/burgess:kg-ground --reexamine cliche`.
+- The views carry the 0.20.1 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.20.1 — 2026-11-21
 
 A follow-up from the field graph of 2026-11-21, which holds 120 pinned ideas that no source supports yet.

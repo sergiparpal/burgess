@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 
 from .buildplan import _forms, _words
@@ -170,6 +171,103 @@ def attack_records(lines) -> "dict[str, list[str]]":
 # recorded such a judgment, so every pass judged every pin again: the field pass of 2026-11-21 re-judged 120
 # pins in ten batches and left all 120 unverified, at about $2.50, though nothing had changed.
 MAX_UNSUPPORTED_NOTE_CHARS = 2000
+# What a record's judgment saw (0.20.2). Version 2 is a node grounder that read the source sections sharing
+# the node's words (`node_source_sections`). The 0.20.1 records carry no version and count as 1: their
+# grounders saw only the node and the spans the graph had already extracted, so the plan offers those pins
+# again, once.
+UNSUPPORTED_EVIDENCE = 2
+
+# The source sections a node's grounder reads (0.20.2). Through 0.20.1 `kg_ground_item` gave a node only itself
+# and its incident edges. A pin or a cliché has no edge, so its grounder had no source text at all: it could
+# only search the spans other edges already cited (with `kg_context`), and the field pass of 2026-11-21 said
+# so in its report. The sections are found by the node's own words, rare words weighing more, since a node
+# has no span to locate them by (the 0.18.0 `shared_context` locates an edge's ends by their edges' spans).
+NODE_SECTIONS = 3
+NODE_TERMS_MAX = 24
+
+
+def node_terms(label: "str | None", body: "str | None") -> "list[str]":
+    """The content words of a node's label and body, first occurrence order, at most `NODE_TERMS_MAX`.
+    Lineage and marker lines (`[diverge] pinned …`, `[cliche] …`) and verdict paragraphs (`verdict (…): …`)
+    are left out: they say where the node came from or what was said of it, not what it claims."""
+    keep = [line for line in f"{label or ''}\n{body or ''}".splitlines()
+            if not line.strip().startswith(("[", "verdict ("))]
+    seen: "set[str]" = set()
+    out: "list[str]" = []
+    for w in _words("\n".join(keep)):
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out[:NODE_TERMS_MAX]
+
+
+def text_forms(text: str) -> "set[str]":
+    """Every form (`buildplan._forms`: the word and the singulars it may be the plural of) of the content
+    words of `text`: what a node term is matched against."""
+    out: "set[str]" = set()
+    for w in _words(text or ""):
+        out |= _forms(w)
+    return out
+
+
+def text_units(text: str, max_chars: int = EXCERPT_CHARS) -> "list[tuple[int, int]]":
+    """`(start, end)` offsets of the units of `text` a node's words are matched in: its paragraphs (blank-line
+    separated), and the lines of a paragraph longer than `max_chars`, such as a table. Offsets, not copies, so
+    an excerpt is cut from the source text itself and a span copied from it verifies."""
+    units: "list[tuple[int, int]]" = []
+    pos = 0
+    bounds = [(m.start(), m.end()) for m in _PARAGRAPH_BREAK.finditer(text or "")] + [(len(text or ""), len(text or ""))]
+    for b_start, b_end in bounds:
+        s, e = pos, b_start
+        pos = b_end
+        chunk = (text or "")[s:e]
+        if not chunk.strip():
+            continue
+        if e - s <= max_chars:
+            lead = len(chunk) - len(chunk.lstrip())
+            units.append((s + lead, e))
+            continue
+        for m in re.finditer(r"[^\n]+", chunk):
+            if m.group().strip():
+                units.append((s + m.start(), s + m.end()))
+    return units
+
+
+def rank_units(unit_forms: "list[set[str]]", terms: "list[str]") -> "list[tuple[float, int, list[str]]]":
+    """`(score, index, matched terms)` for each unit that shares at least two of `terms` (one when the node has a
+    single term), best first, ties in source order. A term weighs log(units / units that use it), so a word that
+    nearly every paragraph uses weighs almost nothing and the words that name the node's mechanism decide."""
+    n = len(unit_forms)
+    if not n or not terms:
+        return []
+    tforms = {t: _forms(t) for t in terms}
+    df = {t: sum(1 for fs in unit_forms if tforms[t] & fs) for t in terms}
+    idf = {t: (math.log(n / df[t]) if df[t] else 0.0) for t in terms}
+    need = min(2, len(terms))
+    ranked = []
+    for i, fs in enumerate(unit_forms):
+        matched = [t for t in terms if tforms[t] & fs]
+        if len(matched) >= need:
+            ranked.append((round(sum(idf[t] for t in matched), 6), i, matched))
+    ranked.sort(key=lambda row: (-row[0], row[1]))
+    return ranked
+
+
+def unit_excerpt(text: str, units: "list[tuple[int, int]]", best: int, max_chars: int = EXCERPT_CHARS) -> str:
+    """The unit `best` of `text` with its neighbouring units on both sides while the run stays within
+    `max_chars`, cut from `text` itself, so its sentences are the source's own."""
+    if not units:
+        return ""
+    lo = hi = best
+    while True:
+        grew = False
+        for nlo, nhi in ((lo - 1, hi), (lo, hi + 1)):
+            if 0 <= nlo and nhi < len(units) and units[nhi][1] - units[nlo][0] <= max_chars:
+                lo, hi, grew = nlo, nhi, True
+        if not grew:
+            break
+    s, e = units[lo][0], units[hi][1]
+    return text[s:e] if e - s <= max_chars else text[s:s + max_chars]
 
 
 def item_signature(kind: str, item) -> str:
@@ -187,7 +285,8 @@ def unsupported_record(kind: str, item_id: str, at: str, source_sig: str, item_s
     """One ledger line (0.20.1): the pin, when it was judged, the signatures of the sources and of the pin it
     was judged against, and the grounder's note on what it looked for and did not find."""
     return json.dumps({"kind": kind, "item": item_id, "at": at, "source_sig": source_sig,
-                       "item_sig": item_sig, "note": note}, ensure_ascii=False)
+                       "item_sig": item_sig, "evidence": UNSUPPORTED_EVIDENCE, "note": note},
+                      ensure_ascii=False)
 
 
 def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
@@ -207,15 +306,19 @@ def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
             continue
         prev = out.get((kind, item))
         if prev is None or at >= prev["at"]:
+            evidence = rec.get("evidence")
             out[(kind, item)] = {"at": at, "source_sig": str(rec.get("source_sig") or ""),
-                                 "item_sig": str(rec.get("item_sig") or "")}
+                                 "item_sig": str(rec.get("item_sig") or ""),
+                                 "evidence": evidence if isinstance(evidence, int) else 1}
     return out
 
 
-def waits_for_sources(record: "dict[str, str] | None", source_sig: str, item_sig: str) -> bool:
-    """True when a pin was judged unsupported against these very sources and this very pin, so judging it
-    again would only repeat the verdict-less outcome."""
-    return bool(record) and record["source_sig"] == source_sig and record["item_sig"] == item_sig
+def waits_for_sources(record: "dict | None", source_sig: str, item_sig: str) -> bool:
+    """True when a pin was judged unsupported against these very sources and this very pin, with the evidence
+    a grounder gets now (`UNSUPPORTED_EVIDENCE`), so judging it again would only repeat the verdict-less
+    outcome."""
+    return (bool(record) and record.get("evidence", 1) >= UNSUPPORTED_EVIDENCE
+            and record["source_sig"] == source_sig and record["item_sig"] == item_sig)
 
 
 def parse_lead(text: "str | None", edge_types) -> "tuple[tuple[str, str, str] | None, str]":
