@@ -16,7 +16,7 @@ For a narrative first session in plain language, read [`../TUTORIAL.md`](../TUTO
 | [`/burgess:kg-diverge`](#burgesskg-diverge) | Diverge from a creative brief into a non-cliché idea slate | No — stands alone |
 | [`/burgess:kg-build`](#burgesskg-build) | Extract a span-anchored graph from your source document(s) | No — it creates one |
 | [`/burgess:kg-ground`](#burgesskg-ground) | Verdict the graph against the source — the **only** verdict path | Yes |
-| [`/burgess:kg-sources`](#burgesskg-sources) | Register outside texts as evidence, each with an epistemic level | No — but it serves grounding |
+| [`/burgess:kg-sources`](#burgesskg-sources) | Give every source an epistemic level, register outside texts, set the level a project requires | No — but it serves grounding |
 | [`/burgess:kg-generate`](#burgesskg-generate) | Propose new hypotheses from the graph's own structure | Yes |
 | [`/burgess:kg-perturb`](#burgesskg-perturb) | Build a second construction and cross-generate against it | Yes |
 | [`/burgess:kg-query`](#burgesskg-query) | Answer a question with provenance and falsification attached | Yes |
@@ -531,7 +531,7 @@ question (`Merge A and B? [y/N]`). The default is **N** — the pass proceeds wi
 ## `/burgess:kg-sources`
 
 ```
-/burgess:kg-sources [add <url-or-path> | list | set <name> key=value ...]
+/burgess:kg-sources [add <url-or-path> | list | set <name> key=value ... | policy [key=value ...]]
 ```
 
 **What it does.** Brings **outside evidence** into grounding (0.21.0). Every verdict is otherwise judged against
@@ -558,11 +558,16 @@ Each source also has a **role** (`primary`: the origin of the fact; `secondary`:
 
 - A source accredits what it was in a position to know. Level 5 is an object of study only: it supports and
   refutes nothing. A retracted or superseded source supports and refutes nothing either.
-- Your notes and an external source never fail each other. If a paper contradicts a claim your notes make, the
-  counter-claim stays beside it as a visible dispute; correcting the note is your call.
-- Between external sources, a lower level cannot fail a claim a higher one supports. The level vetoes; it never
-  decides.
-- A registered source is **never extracted** into the graph. It is evidence, not content.
+- **Your notes have a level too** (0.22.0): 4 by default, a text by an author nobody reviewed, unless you set
+  another per file. The same rules hold for every source: a lower level cannot fail a claim a higher one
+  supports, so a reviewed paper can fail a claim only your notes make, and a clash the level does not settle
+  stays a visible dispute. The level vetoes; it never decides.
+- **The project decides the level it requires** (`policy`): the worst level that may still support or refute. 4,
+  the default, accepts everything but unfiltered sources. 1 accepts only peer-reviewed ones: your notes then
+  propose claims, and each claim is verified only on a passage from a level-1 source, or waits for one. A claim
+  is never rejected because its only support is below the required level.
+- A registered source is **evidence, not content**: it is not extracted into the graph unless you add it with
+  `build`. With `build_from_notes=no`, the graph is built from such sources alone.
 
 ### Arguments
 
@@ -570,7 +575,8 @@ Each source also has a **role** (`primary`: the origin of the fact; `secondary`:
 | --- | --- | --- | --- |
 | action | No | `add` · `list` · `set` | `list` |
 | `add` target | With `add` | one `http(s)://` URL, or one path to a `.md`, `.txt` or `.html` file | — |
-| `set` fields | With `set` | the source's name, then `level=`, `role=`, `marks=`, `published=`, `derives_from=`, `title=`, `note=` | — |
+| `set` fields | With `set` | a source's name (`ext-….md`) or one of your notes' file names, then `level=`, `role=`, `marks=`, `note=`, and for a registered source `published=`, `derives_from=`, `title=`, `build=` | — |
+| `policy` fields | No | `required=` (1–4), `notes=` (1–5), `build_from_notes=` (yes/no); nothing shows the policy | — |
 
 ### Examples
 
@@ -601,6 +607,28 @@ A source turned out to be retracted:
 /burgess:kg-sources set ext-agent-scaffolding-1a2b3c4d.md marks=retracted
 ```
 
+Your synthesis cites reviewed papers, but nobody reviewed the synthesis itself. Keep it at level 4, or say what
+it is:
+
+```text
+/burgess:kg-sources set "Síntesis - Fábricas de software.md" level=4 note="my synthesis of the papers"
+```
+
+Rely only on peer-reviewed sources in this project. Your notes keep proposing claims; `/burgess:kg-ground` then
+verifies each one on a level-1 passage, or leaves it waiting for one:
+
+```text
+/burgess:kg-sources policy required=1
+```
+
+Build a graph from level-1 sources alone: switch the notes off, add each paper with `build`, then build:
+
+```text
+/burgess:kg-sources policy required=1 build_from_notes=no
+/burgess:kg-sources add https://example.org/papers/agent-scaffolding
+/burgess:kg-build
+```
+
 ### Notes and honest limits
 
 - **The engine makes the copy.** It fetches the page itself, with a generic User-Agent that says nothing about
@@ -611,8 +639,8 @@ A source turned out to be retracted:
   reported by `list`: register the source again instead.
 - **This version does not search.** You name the sources. A search for sources that could support or refute
   your unverified items is planned next.
-- **Verdicts already given keep their state** when you change a source's record; `list` names the claims now
-  resting on a source marked unusable, so you can have them judged again.
+- **Verdicts already given keep their state** when you change a source's record or the policy; `list` names the
+  claims whose support is no longer usable, so you can have them judged again.
 
 ---
 
@@ -1227,7 +1255,7 @@ measured on two field runs. That cost is why the judge is opt-in.
 
 ## Behind the commands
 
-The ten slash commands are a thin language layer over **39 MCP tools** exposed by the `burgess`
+The ten slash commands are a thin language layer over **40 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 

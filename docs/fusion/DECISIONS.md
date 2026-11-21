@@ -2442,3 +2442,62 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Open:** the search for sources (`find`), and the clash classification with `obsolete` and the dispute view.
 - **Pinned in:** `tests/test_fix_external_sources.py` (42 tests). `tests/fusion/test_diverge_surface.py` counts
   39 tools; `tests/test_fix_command_names_and_judge_cost.py` counts 10 commands.
+
+## Every source has a level, the notes included, and the project sets the level it requires (2026-11-21)
+
+- **Decision:**
+  - `evidence.Policy`, kept as `<project>/evidence/policy.json` and set with `kg_source_policy`: `required_level`
+    (1–4, default 4), the worst level that may still support or refute; `notes_level` (1–5, default 4), the level
+    of a configured file with no record of its own; per-file records `{level, role, marks, note}` set with
+    `kg_source_set(<note basename>)`; `build_from_notes` (default true). A malformed file is reported and the
+    defaults apply.
+  - `evidence.level_unusable` adds `below-required-level`; `note_label` labels a configured file (class `own`)
+    like a registered copy; `failed_veto` is one rule for every source (unusable refutes nothing, a lower level
+    never fails a higher one). `failed-across-own-and-external` is removed.
+  - `EvidenceRecord.build`: a registered copy extracted like a note. `SourceSet(content=…, path_is_content=…)`
+    separates content (`concat`) from evidence-only files; `_SourceResolver.resolve()` is the content set
+    (the notes if `build_from_notes`, then the copies with `build`), and `verify()` the content followed by the
+    evidence-only files. `kg_build_plan` lists the content set's files.
+  - `kg_ground(grounded, support_span=…)` on a span-present edge records `support: {"span", "source_file"}` in its
+    notes; `_edge_support` is the usable file of the highest level among its span's and those passages'.
+    Grounding refuses `support-not-usable` with `source_level` and `required_level`.
+  - `kg_ground_item` labels every passage with `source`, adds `support_source`, and `support_context` (usable
+    sections ranked by the claim's words) when the claim's support is not usable or a proposal has no usable
+    shared section. The section index holds usable files only.
+  - `kg_record_unsupported` also accepts an unverified edge whose span lies only in unusable sources, and a
+    hypothesis while the notes' default level is below the required one; the plan leaves out any recorded item
+    whose record still matches. A non-default policy's fingerprint joins `_source_signature`.
+  - `kg_source_list` adds `notes`, `policy`, `support.own` by level, and `on_unusable` for claims whose best
+    support is no longer usable. The grounder gets step 1e (support elsewhere, or unverified and recorded, never
+    rejected for its level); the adversarial grounder, `/burgess:kg-ground` and `/burgess:kg-sources` (a `policy`
+    action, note levels, `build`) carry the model.
+- **Origin:** after 0.21.0 the user asked what sense it made that notes of unknown level verify an idea like a
+  source, and whether a graph could be built from level-1 sources alone with `/burgess:kg-sources`. Both pointed at
+  a flaw: `grounded` still meant fidelity to the notes, the notes ranked above every source and were shielded
+  from them, and registered sources were never extracted. I proposed this model and doing it before the search;
+  the user approved («Sí, el modelo primero»).
+- **Why the notes stand at 4:** a personal synthesis is a text by an author nobody reviewed, which is level 4's
+  definition, even when it cites reviewed papers; those papers can be registered themselves.
+- **Why the uniform veto reverses the 2026-11-21 side-chat decision:** that decision kept the notes out of reach
+  because the notes had no level. Once they have one, a special rule for them is the inconsistency the user
+  objected to. The answer «Sí, el modelo primero» approved the model as proposed, with this change flagged.
+- **Why corroboration is a notes segment, not a second span field:** an edge's id is its triple, so a second
+  edge cannot carry the support; a new canon field would touch the model, the merge driver and the reconciler.
+  The JSON segment survives ` | ` inside a span, as the 0.19.0 passage does, and canon keeps a verdict edge's notes.
+- **Why "unverified and recorded" instead of `rejected`:** a rejection is permanent negative memory meaning no
+  source states the claim. Under a strict policy the notes do state it, below the level, so rejecting would
+  record a falsehood and spend a verdict the next registered paper could not reopen.
+- **Rejected alternatives:**
+  - (a) *Notes that propose but never verify, always.* It discards the notes' value in every project that does
+    not want a strict level; the policy makes it a choice.
+  - (b) *Keep the notes out of reach and only report the level.* That is 0.21.0's inconsistency.
+  - (c) *A second span field on edges for corroboration.* See above.
+- **Accepted trade-offs:**
+  - Verdicts given under a looser policy keep their state; `on_unusable` names them, and re-judging them is the
+    user's call.
+  - `support_context` adds up to three usable sections to items whose own support is not usable, so a strict
+    pass reads more text per item.
+  - An extracted node has no span of its own: for the veto it stands at the notes' default level.
+- **Open:** the search for sources (`find`), and the clash classification with `obsolete`.
+- **Pinned in:** `tests/test_fix_source_policy.py` (18 tests); `tests/test_fix_external_sources.py` updated to the
+  uniform veto and the labels; `tests/fusion/test_diverge_surface.py` counts 40 tools.

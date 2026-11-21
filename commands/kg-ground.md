@@ -73,8 +73,9 @@ Find what is actually pending before spending any subagent budget.
      still needs 3 or more live claims, focus or not.
    - `source`: the configured source files, for the adversarial grounder.
    - `evidence` (0.21.0): the usable registered external sources (`/burgess:kg-sources`), `files` with their
-     levels in `path`, which the adversarial grounder may also search. A source registered since the last pass
-     brings back the pins that were waiting for new sources.
+     levels in `path`, which the adversarial grounder may also search, the notes with their levels (`notes`,
+     0.22.0) and the project's `required_level`. A source registered since the last pass, or a change of the
+     policy, brings back the items that were waiting for new sources.
 3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
    its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
    honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to
@@ -191,6 +192,10 @@ mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), pe
     mcp__plugin_burgess_burgess__kg_record_unsupported(target_id, kind, note), the note saying what you
     looked for and did not find. A proposal takes no lead: when a passage states
     another relation between its ends, reject it no-support and name that edge in the note.
+  - every excerpt carries `source` with its level and `usable` under the project's policy. A passage from
+    a source with usable: false supports nothing. An edge whose span asserts the claim but lies only in
+    such a source is grounded on a usable passage from support_context (as support_span), or left
+    unverified and recorded with kg_record_unsupported: never rejected for its level.
 Do NOT write verdicts into any kg_write payload (§1.4: forged verdicts are stripped/DEMOTED); kg_ground is the
 only verdict channel. Report a per-item table: id, kind, verdict, reason.
 """
@@ -203,8 +208,9 @@ full reproject because the reconciler re-attaches them (§1.8).
 **Progress probe.** Between waves, or after a hiccup, call `kg_ground_plan` again with the same two arguments:
 an item drops out of it once it has a verdict, so its `batches` are exactly the work left. Re-launch only
 those. A `[diverge]` pin a grounder left `unverified` for want of support drops out of the plan once the
-grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`. One it did not
-record stays in the plan: do not re-launch it, report it.
+grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`; since 0.22.0
+so does a claim whose only support lies below the project's required level. One it did not record stays in the
+plan: do not re-launch it, report it.
 
 ## Stage 2 — Attack the hubs (kg-adversarial-grounder)
 
@@ -230,7 +236,8 @@ Task(
     Hub candidates: <the last probe's hubs[] ids, plus the advisory nodes>.
     Source files to search for counter-spans: <the plan's source.files>, in <source.path>.
     Registered external sources, also searchable: <the plan's evidence.files with their levels>, in
-    <evidence.path> (write "none" when the list is empty).
+    <evidence.path> (write "none" when the list is empty). The notes' levels and whether each may refute:
+    <the plan's evidence.notes>; required level <evidence.required_level>.
     For each hub, inspect its incident edges (get_neighbors, then kg_ground_item for one edge's span and
     excerpt) and generate the strongest falsifying counter-edges:
       1. Write counter-edges via the extraction/kg_write path, each typed by the weapon its span states
@@ -241,7 +248,7 @@ Task(
          kg_ground(target_id=<edge_id>, verdict="failed", refuted_by=<your counter-edge's id>,
          note=<what refuted it>) on THAT edge, never on your own counter-edge, which stays unverified for
          the next pass's grounders. The engine may refuse the failed by the level rules
-         (failed-across-own-and-external, failed-by-lower-level, failed-by-unusable-source): then the
+         (failed-by-lower-level, failed-by-unusable-source): then the
          counter-edge stands as a recorded dispute. Do not retry; report it.
       3. For each hub where kg_write accepted no counter-edge, record the attack with
          kg_record_attack(hub_id=<hub-id>, question=<your falsifying question>, reason=<no-span|vague>).

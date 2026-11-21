@@ -24,10 +24,11 @@ the twenty-two core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (th
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
 `kg_export` (read-only human-facing render), `kg_source_add` / `kg_source_list` / `kg_source_set` (external
-sources with an epistemic level, 0.21.0) (plus the five generative-layer tools `kg_propose` (§5a),
+sources with an epistemic level, 0.21.0), `kg_source_policy` (the project's evidence policy, 0.22.0) (plus the
+five generative-layer tools `kg_propose` (§5a),
 `kg_generate`, `kg_operate`, `kg_absorption`, and `kg_record_generation`, the record a /burgess:kg-generate run
-leaves in the absorption ledger — see the generative-layer references) — thirty-one in all.
-The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to thirty-nine; they
+leaves in the absorption ledger — see the generative-layer references) — thirty-two in all.
+The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to forty; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---
@@ -193,13 +194,16 @@ without either the promotion is refused with `hypothesis-needs-support` (§5a).
 
 **External sources (0.21.0).** A span verifies against the configured sources and the registered external
 copies in `<project>/evidence/` (`kg_source_add`), each with an epistemic level: 1 reviewed, 2 institutional,
-3 editorial, 4 author or community, 5 unfiltered. The level measures the filter a text passed, never the truth
-of a claim, so it only bounds what may be used. Support must lie in a configured source or a usable copy
-(level 1–4, not retracted nor superseded), else `support-not-usable`. A `failed` names in `refuted_by` the
-counter-edge whose span refutes the claim (required once any source is registered), and the level vetoes it,
-never decides it: an unusable source refutes nothing, the configured sources and an external copy never fail
-each other, and a lower level never fails a higher one. A vetoed refutation leaves the counter-edge standing
-as a visible dispute. A registered copy is never extracted into the graph.
+3 editorial, 4 author or community, 5 unfiltered. Since 0.22.0 the configured sources have a level too (the
+policy's `notes_level`, 4 unless set per file), and the project's `required_level` (4 by default; 1 = only
+peer-reviewed) is the worst level that may still support or refute. The level measures the filter a text passed,
+never the truth of a claim, so it only bounds what may be used. Support must lie in a usable source, else
+`support-not-usable`; an edge that carries its span may be grounded on another source's passage
+(`support_span`, recorded as a `support:` segment). A `failed` names in `refuted_by` the counter-edge whose span
+refutes the claim (required once any source is registered), and the level vetoes it, never decides it, the same
+for every source: an unusable source refutes nothing, and a lower level never fails a higher one. A vetoed
+refutation leaves the counter-edge standing as a visible dispute. A registered copy is not extracted into the
+graph unless it is registered with `build`.
 
 ---
 

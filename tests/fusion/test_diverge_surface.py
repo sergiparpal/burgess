@@ -115,7 +115,7 @@ def test_graphless_scripted_session_end_to_end(tmp_path, monkeypatch):
     assert not (derived / "index.sqlite").exists() and not (derived / "graph.json").exists()
 
 
-def test_mcp_surface_is_thirty_nine_tools(engine):
+def test_mcp_surface_is_forty_tools(engine):
     # 27 through 0.4.6; 0.5.0 added kg_build_plan and kg_section, which take /kg-build's planning and
     # section cutting out of Bash, 0.7.0 kg_ground_plan and kg_ground_item, which do the same for
     # /kg-ground's queue and evidence, 0.10.0 kg_record_attack, the mark an attack with no
@@ -125,15 +125,17 @@ def test_mcp_surface_is_thirty_nine_tools(engine):
     # takes /kg-diverge's end-of-session file of ideas out of Bash, and 0.20.1 kg_record_unsupported, the
     # mark a grounder leaves on a [diverge] pin it found no support for, so the plan stops re-queueing it,
     # and 0.21.0 kg_source_add, kg_source_list and kg_source_set, which register external sources with an
-    # epistemic level so grounders can cite verbatim spans from them.
+    # epistemic level so grounders can cite verbatim spans from them, and 0.22.0 kg_source_policy, the project's
+    # evidence policy (the worst level that may still support, the notes' level, whether the notes are built).
     mcp = FakeMCP()
     _register(mcp, engine)
     assert DIVERGE_TOOLS <= set(mcp.tools), sorted(mcp.tools)
     assert {"kg_build_plan", "kg_section", "kg_ground_plan", "kg_ground_item",
             "kg_record_attack", "kg_record_edgeless_section", "kg_record_generation",
-            "kg_record_unsupported", "kg_source_add", "kg_source_list", "kg_source_set"} <= set(mcp.tools), \
+            "kg_record_unsupported", "kg_source_add", "kg_source_list", "kg_source_set",
+            "kg_source_policy"} <= set(mcp.tools), \
         sorted(mcp.tools)
-    assert len(mcp.tools) == 39, sorted(mcp.tools)
+    assert len(mcp.tools) == 40, sorted(mcp.tools)
 
 
 def test_resolve_axes_source_paths(tmp_path, monkeypatch):

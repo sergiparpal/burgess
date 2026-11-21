@@ -179,18 +179,23 @@ def _dedupe_stable(cands: list[Path]) -> list[Path]:
 class SourceSet:
     """An ordered, deterministic ``{basename → raw_text}`` view over the configured source(s).
 
-    ``extra`` (0.21.0) appends the text files of registered external sources (``evidence.py``) AFTER the
-    configured ones, for verification only: every per-file view (``texts``, ``verifies``,
-    ``files_containing``, ``has_file``) sees them, while ``concat`` and ``normalized``, which feed the
-    specificity corpus, the flood budget and the egress scrub of the configured source, stay the configured
-    corpus alone. ``full_concat`` covers both, for the digests that must move when evidence is added.
-    ``exclude`` keeps a directory's files out of the configured set (the evidence directory, for a glob
-    source that would otherwise reach into it). With neither, the set is byte-identical to 0.20.2."""
+    Every file of the set is either **content** (in ``concat``: what extraction plans, coverage counts and
+    the specificity corpus reads) or **evidence only** (verified against, never extracted). The configured
+    sources (``path``) are content unless ``path_is_content`` is false (0.22.0: a project that builds only
+    from registered sources). ``content`` (0.22.0) appends registered external copies marked to be built
+    into the graph, as content; ``extra`` (0.21.0) appends the other registered copies, evidence only. Every
+    per-file view (``texts``, ``verifies``, ``files_containing``, ``has_file``) sees all of them, in that order;
+    ``concat`` and ``normalized`` hold the content alone, and ``full_concat`` every file, for the digests that
+    must move when evidence is added. ``exclude`` keeps a directory's files out of the configured set (the
+    evidence directory, for a glob source that would otherwise reach into it). With none of these, the set
+    is byte-identical to 0.20.2."""
 
-    def __init__(self, path: "str | Path | None" = None, *, extra=None, exclude: "str | Path | None" = None):
+    def __init__(self, path: "str | Path | None" = None, *, extra=None, content=None,
+                 exclude: "str | Path | None" = None, path_is_content: bool = True):
         self.path = Path(path) if path is not None else None
         self._exclude = Path(exclude) if exclude is not None else None
         self._texts: dict[str, str] = {}
+        self._content: set[str] = set()
         for p in self.resolve(self.path, exclude=self._exclude):
             try:
                 self._texts[p.name] = p.read_text(encoding="utf-8")
@@ -200,10 +205,12 @@ class SourceSet:
                 # of propagating out of the constructor and disabling the whole tool surface (review-H3).
                 # Skip — never decode with errors='replace', which could forge phantom span matches.
                 continue  # mirrors canon.all_nodes()'s "one bad file must not crash every read" tolerance
-        self._primary: list[str] = list(self._texts)
+            if path_is_content:
+                self._content.add(p.name)
+        self._content_paths: list[Path] = [Path(p) for p in (content or [])]
         self._extra_paths: list[Path] = [Path(p) for p in (extra or [])]
-        self._extra: set[str] = set()
-        for p in self._extra_paths:
+        self._extra: set[str] = set()   # the registered external copies, built or not
+        for p, is_content in [(q, True) for q in self._content_paths] + [(q, False) for q in self._extra_paths]:
             if p.name in self._texts:
                 continue  # a configured source keeps its basename (an external copy's name is ext-prefixed)
             try:
@@ -211,6 +218,8 @@ class SourceSet:
             except (OSError, ValueError):
                 continue
             self._extra.add(p.name)
+            if is_content:
+                self._content.add(p.name)
         # normalized form per file, computed once for source-aware verification (off the hot path)
         self._norm: dict[str, str] = {name: normalize_text(t) for name, t in self._texts.items()}
 
@@ -281,7 +290,7 @@ class SourceSet:
     def stat_signature(self) -> tuple:
         """``signature`` over this set's own files, external copies included (what the projector's
         source-only staleness gate compares)."""
-        return self.signature(self.path, self._extra_paths, self._exclude)
+        return self.signature(self.path, self._content_paths + self._extra_paths, self._exclude)
 
     # ---- views
     @property
@@ -295,10 +304,10 @@ class SourceSet:
 
     @property
     def concat(self) -> str:
-        """The configured sources concatenated in deterministic order (one ``\\n`` between files). For a
-        single file this is byte-identical to the file's text. Feeds the IDF corpus + the flood-budget size.
-        External copies (``extra``) are not part of it: they are evidence, not the corpus."""
-        return "\n".join(self._texts[name] for name in self._primary)
+        """The content files concatenated in deterministic order (one ``\\n`` between files): the configured
+        sources, then the registered copies built into the graph. For a single file this is byte-identical to
+        the file's text. Feeds the IDF corpus + the flood-budget size. Evidence-only files are not part of it."""
+        return "\n".join(text for name, text in self._texts.items() if name in self._content)
 
     @property
     def full_concat(self) -> str:
@@ -316,6 +325,11 @@ class SourceSet:
     def extra_names(self) -> list[str]:
         """The basenames of the external copies in this set, in order (0.21.0)."""
         return [name for name in self._texts if name in self._extra]
+
+    @property
+    def content_names(self) -> list[str]:
+        """The basenames of the content files, in order: what extraction reads (0.22.0)."""
+        return [name for name in self._texts if name in self._content]
 
     def is_extra(self, name: str) -> bool:
         """True iff ``name`` is an external copy of this set rather than a configured source."""

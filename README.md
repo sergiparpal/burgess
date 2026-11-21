@@ -93,7 +93,7 @@ This workflow does not consume the configured source, but the current plugin ins
 
 ## Other advanced workflows
 
-- `/burgess:kg-sources add <url or path>` registers an outside text as evidence: the engine copies it into `evidence/` and records a level you confirm (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a role and marks. Grounders can then support your unverified items, or the adversarial grounder refute claims, with verbatim spans from it; ideas waiting for new sources come back to the next `/burgess:kg-ground`. The level measures the filter the text passed, never the truth of a claim: level 5, retracted and superseded sources support and refute nothing, and your notes and an external source never fail each other, so such a clash stays a visible dispute. A registered source is never extracted into the graph.
+- `/burgess:kg-sources add <url or path>` registers an outside text as evidence: the engine copies it into `evidence/` and records a level you confirm (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a role and marks. Grounders can then support your unverified items, or the adversarial grounder refute claims, with verbatim spans from it; ideas waiting for new sources come back to the next `/burgess:kg-ground`. The level measures the filter the text passed, never the truth of a claim: level 5, retracted and superseded sources support and refute nothing, and a lower level never fails a higher one, so such a clash stays a visible dispute. Your notes have a level too (4 unless you set another), and `/burgess:kg-sources policy required=1` makes a project verify only on peer-reviewed passages: your notes then propose claims and reviewed sources verify them. A registered source is evidence, not content, unless you add it with `build`; with `policy build_from_notes=no` a graph is built from such sources alone.
 - `/burgess:kg-perturb` builds or loads a second construction and cross-generates against it: the edges a second reading wrote that your graph lacks, each with the passage it was read from. Only a passage in your own sources can ground one.
 - `/burgess:kg-eval` measures extraction precision and grounding reliability.
 - `/burgess:kg-experiment` runs the built-in multi-arm ideation comparison.
@@ -223,7 +223,7 @@ The full [command manual](docs/COMMANDS.md) documents every argument and worked 
 | `/burgess:kg-view [html\|report\|all]` | Render the offline `graph.html` + `GRAPH_REPORT.md`, which then stay current; read-only — it never changes the graph | *Optional:* which artifact to render (defaults to both) |
 | `/burgess:kg-generate [mechanism-set] [k]` | Propose unverified candidates from graph structure | *Optional:* `default`, `all`, or one of seven mechanisms; number of candidates |
 | `/burgess:kg-diverge <brief> [domain-template] [reach]` | Explore a brief as a varied idea slate; optionally materialize selected pins as hypotheses | **Required:** your brief. *Optional:* domain axes and `conservative\|balanced\|wild` reach |
-| `/burgess:kg-sources [add <url-or-path> \| list \| set <name> key=value …]` | Register an outside text as an external source with an epistemic level (1 reviewed … 5 unfiltered), so grounders can support or refute your graph's items with verbatim spans from it; list sources and what your grounded claims rest on | *Optional:* the action; `add` takes one URL or path, which the engine copies itself |
+| `/burgess:kg-sources [add <url-or-path> \| list \| set <name> key=value … \| policy …]` | Register an outside text as a source with an epistemic level (1 reviewed … 5 unfiltered), so grounders can support or refute your graph's items with verbatim spans from it; give your notes a level; set the level a project requires to verify, or build a graph from registered sources alone; list what your grounded claims rest on | *Optional:* the action; `add` takes one URL or path, which the engine copies itself |
 | `/burgess:kg-perturb [second_source_or_graph_json]` | Build or load a second construction and cross-generate against it; only passages in your own sources can ground what it proposes | *Optional:* a second text source or pre-built `graph.json`; omission degrades to regrouping the current graph |
 | `/burgess:kg-eval [graph.json]` | Measure extractor precision (Stage 4) and grounding reliability (Stage 7) | *Optional:* which `graph.json` to grade (defaults to the current derived graph) |
 | `/burgess:kg-experiment [--judge] [prompts_path]` | Blind multi-arm ideation experiment (control / graph / graph+generate / graph+generate+dpp / rag); `--judge` adds blind judges, about 0.8 million tokens for 12 prompts | *Optional:* a file of test prompts (defaults to prompts drafted from your graph; the built-in set is for the demo corpus only) |
@@ -239,7 +239,7 @@ Remember: the status check (`kg_ping`) and the other behind-the-scenes MCP tools
 5. **Session-ephemeral archives** — MAP-Elites archives never persist across sessions; only pins, discards, comparisons and session metadata do (project-local, git-friendly, under `.kg/diverge/`). The knowledge graph is the durable archive.
 6. **Unified negative memory** — human discards and grounding failures live in one semantic store; neither generation path ever re-proposes from it.
 
-The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 39 tools) is the trust boundary; seven subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator, judge) do the language work; the engine stays deterministic.
+The knowledge-graph spine: canon = one human-editable Markdown file per node (git-mergeable, semantic merge driver); derived = regenerable NetworkX/SQLite projections; MCP server (`burgess`, 40 tools) is the trust boundary; seven subagents (extractor, grounder, adversarial-grounder, generator, annotator, evaluator, judge) do the language work; the engine stays deterministic.
 
 Those six are the load-bearing ones; the suite enforces eleven (`I1`–`I11`). The full, self-contained architecture reference — module map, data model, write-boundary contract, tool surface, divergence internals and constants, runtime and environment, and the invariants in full — is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -256,7 +256,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **2432 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **2451 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:
