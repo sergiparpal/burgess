@@ -991,6 +991,12 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   required_level}`: the usable registered external sources (§1.27), which the adversarial grounder may search
   too, and the notes with their level and whether they may refute (0.22.0). An unusable source refutes nothing
   and is not listed in `files`.
+- `blocked` (0.22.1) — `null`, or, when no source at all is usable under the project's policy,
+  `{reason: "no-usable-source", items, hubs, required_level, hint}`: the hypotheses (pins, proposals, re-examined
+  nodes) left out of the batches, since no source can ground them and none may be rejected for its level, and
+  the hubs left out, since an attack could fail nothing. The batches keep the extracted claims, whose spans can
+  still be rejected for what they say; the queue counts count what is queued. On 2026-11-22 a policy requiring
+  level 1 over level-4 notes and a level-4 preprint would otherwise have sent 119 pins to 10 grounders.
 - An item leaves the plan once it carries a verdict, so calling it again between waves is the progress probe.
 
 ### 1.22 `mcp__plugin_burgess_burgess__kg_ground_item(target_id, kind="edge")`
@@ -1210,6 +1216,11 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   a grounder leaves `unverified` rather than rejects: an edge whose span lies only in sources the project does
   not accept, and a hypothesis while the notes, at their default level, are below the required level. The plan
   leaves out any item whose latest record still matches, pin or not.
+- Since 0.22.1 a record also keeps `usable`, the sha256 of each file usable when it was made, and an item waits
+  while every file usable now was usable then (`groundplan.waits_for_sources`). So a new or edited usable file,
+  or a looser policy, offers it again, while registering a source the policy does not accept, removing one, or
+  a stricter policy does not. A record made before 0.22.1 has no list: when its `source_sig` is the signature of
+  the configured sources as they are now, it stands for them; otherwise the signatures must match, as before.
 
 ---
 
@@ -1223,7 +1234,9 @@ measures the filter the text passed before it was published, never whether a cla
 - Exactly one of `url` (http/https) or `path` (a local file, relative to the project). The engine fetches the
   bytes itself, with a generic User-Agent that says nothing about the user, and extracts the text by a fixed
   rule (stdlib `html.parser`: headings become `##`/`###` lines, list items `- ` lines, table rows `a | b`
-  lines; scripts, styles, navigation, footers and forms are dropped). **Never register WebFetch output**: it is
+  lines; scripts, styles, navigation, footers and forms are dropped; since 0.22.1, `html-text/2`, also a formula's
+  MathML annotations and invisible operators, so `15×` is copied once rather than as `15×\times`). A copy keeps the
+  rule it was made with in its record's `extractor`. **Never register WebFetch output**: it is
   a small model's answer about the page, not the page. A local `.md`/`.markdown`/`.txt` is copied verbatim;
   `.html`/`.htm` is extracted by the same rule. PDF is refused (`pdf-not-supported`): convert it to Markdown
   and register that file.
@@ -1283,7 +1296,8 @@ The registered external sources and what the grounded claims rest on (0.21.0). R
   `chars`; `by_level` and `usable` count them.
 - `notes[]` (0.22.0) — each configured file's `name`, label (`level`, `level_name`, `role`, `marks`, `usable`),
   `recorded` (whether the user set its level), `chars` and `built`; `policy` — `{required_level, notes_level,
-  build_from_notes}` (§1.30).
+  build_from_notes}` (§1.30); `usable_sources` (0.22.1) — how many files may support or refute, with a
+  `warning` when none may.
 - `problems[]` — records left out, with `problem`: `text-edited` (the copy no longer matches its sha256, so the
   engine no longer vouches for it: register the source again instead of editing the copy), `text-missing`,
   `name-mismatch`, `sidecar-malformed`, `sidecar-unreadable`, or a field's parse error. `unregistered[]` — text
@@ -1342,6 +1356,9 @@ level-1 sources.
 - A change bears on verdicts from now on: verdicts already given keep their state, and `on_unusable_total` counts
   the grounded claims that no longer rest on a usable source (`kg_source_list` names them). It offers again every
   item waiting for sources. With the defaults the source signature is 0.21.0's.
+- `usable_sources` (0.22.1) — how many files may support or refute under the policy; when none may, `warning`
+  says so and that `/burgess:kg-ground` leaves the items that need support out (§1.21's `blocked`) until a source
+  at the required level is registered or the level is lowered.
 - A malformed `policy.json` is reported in `problems` and the defaults apply. Refusals: `bad-required-level`,
   `bad-level`, `bad-build-from-notes`.
 

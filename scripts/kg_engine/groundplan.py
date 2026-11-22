@@ -281,12 +281,17 @@ def item_signature(kind: str, item) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def unsupported_record(kind: str, item_id: str, at: str, source_sig: str, item_sig: str, note: str) -> str:
+def unsupported_record(kind: str, item_id: str, at: str, source_sig: str, item_sig: str, note: str,
+                       usable: "list[str] | None" = None) -> str:
     """One ledger line (0.20.1): the pin, when it was judged, the signatures of the sources and of the pin it
-    was judged against, and the grounder's note on what it looked for and did not find."""
-    return json.dumps({"kind": kind, "item": item_id, "at": at, "source_sig": source_sig,
-                       "item_sig": item_sig, "evidence": UNSUPPORTED_EVIDENCE, "note": note},
-                      ensure_ascii=False)
+    was judged against, and the grounder's note on what it looked for and did not find. `usable` (0.22.1) is
+    the sha256 of each file that could support anything when it was judged, so a later source the policy does
+    not accept, or a stricter policy, does not offer the item again (`waits_for_sources`)."""
+    rec = {"kind": kind, "item": item_id, "at": at, "source_sig": source_sig,
+           "item_sig": item_sig, "evidence": UNSUPPORTED_EVIDENCE, "note": note}
+    if usable is not None:
+        rec["usable"] = sorted(set(usable))
+    return json.dumps(rec, ensure_ascii=False)
 
 
 def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
@@ -307,18 +312,42 @@ def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
         prev = out.get((kind, item))
         if prev is None or at >= prev["at"]:
             evidence = rec.get("evidence")
-            out[(kind, item)] = {"at": at, "source_sig": str(rec.get("source_sig") or ""),
-                                 "item_sig": str(rec.get("item_sig") or ""),
-                                 "evidence": evidence if isinstance(evidence, int) else 1}
+            entry = {"at": at, "source_sig": str(rec.get("source_sig") or ""),
+                     "item_sig": str(rec.get("item_sig") or ""),
+                     "evidence": evidence if isinstance(evidence, int) else 1}
+            usable = rec.get("usable")
+            if isinstance(usable, list) and all(isinstance(h, str) for h in usable):
+                entry["usable"] = list(usable)
+            out[(kind, item)] = entry
     return out
 
 
-def waits_for_sources(record: "dict | None", source_sig: str, item_sig: str) -> bool:
-    """True when a pin was judged unsupported against these very sources and this very pin, with the evidence
-    a grounder gets now (`UNSUPPORTED_EVIDENCE`), so judging it again would only repeat the verdict-less
-    outcome."""
-    return (bool(record) and record.get("evidence", 1) >= UNSUPPORTED_EVIDENCE
-            and record["source_sig"] == source_sig and record["item_sig"] == item_sig)
+def waits_for_sources(record: "dict | None", source_sig: str, item_sig: str, *,
+                      usable: "list[str] | None" = None, configured_sig: "str | None" = None,
+                      configured: "list[str] | None" = None) -> bool:
+    """True when an item was judged unsupported against this very item, with the evidence a grounder gets now
+    (`UNSUPPORTED_EVIDENCE`), and no usable source has appeared since, so judging it again would only repeat
+    the verdict-less outcome.
+
+    Since 0.22.1 "no usable source has appeared" is a set test when the caller passes `usable`, the sha256 of
+    each file the policy accepts now: the item waits while every one of them was already usable when it was
+    judged. So registering a source the policy does not accept, removing a source, or a stricter policy does
+    not offer it again, while a new or edited usable file, or a looser policy, does. Through 0.22.0 any change
+    to any file or to the policy woke it: on 2026-11-22 a level-4 preprint registered under a policy requiring
+    level 1 woke 119 pins that nothing could ground.
+
+    A record made before 0.22.1 carries no `usable` list. When its `source_sig` is the signature of the
+    configured sources as they are now (`configured_sig`), it was judged against exactly these notes, all usable
+    under the default policy of the time, so `configured` (their hashes) stands for its list. Otherwise the
+    signatures must match, as through 0.22.0."""
+    if not record or record.get("evidence", 1) < UNSUPPORTED_EVIDENCE or record["item_sig"] != item_sig:
+        return False
+    recorded = record.get("usable")
+    if recorded is None and configured_sig and record["source_sig"] == configured_sig:
+        recorded = configured
+    if recorded is not None and usable is not None:
+        return set(usable) <= set(recorded)
+    return record["source_sig"] == source_sig
 
 
 def parse_lead(text: "str | None", edge_types) -> "tuple[tuple[str, str, str] | None, str]":

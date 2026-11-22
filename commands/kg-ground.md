@@ -74,8 +74,13 @@ Find what is actually pending before spending any subagent budget.
    - `source`: the configured source files, for the adversarial grounder.
    - `evidence` (0.21.0): the usable registered external sources (`/burgess:kg-sources`), `files` with their
      levels in `path`, which the adversarial grounder may also search, the notes with their levels (`notes`,
-     0.22.0) and the project's `required_level`. A source registered since the last pass, or a change of the
-     policy, brings back the items that were waiting for new sources.
+     0.22.0) and the project's `required_level`. A source the policy accepts, registered or edited since the
+     last pass, or a looser policy, brings back the items that were waiting for new sources; a source it does
+     not accept, or a stricter policy, does not (0.22.1).
+   - `blocked` (0.22.1): set when no source is usable under the project's policy. Its `items` (the
+     hypotheses: no source can ground them, and none may be rejected for its level) and `hubs` (an attack could
+     fail nothing) are left out of the batches, which then hold only extracted claims, still worth judging for
+     what their spans say. Tell the user, with its `hint`, and launch no grounder for what it left out.
 3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
    its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
    honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to

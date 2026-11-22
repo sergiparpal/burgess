@@ -2679,10 +2679,13 @@ class KGEngine:
         # A focus skips that memory, as it does for an attacked hub: naming a pin asks for a fresh look.
         unsupported = {} if focus else self._unsupported_pins()
         current_sig = self._source_signature() if unsupported else ""
+        state = self._usable_state() if unsupported else {}
         unsupported_waiting = 0
 
         def waits(kind: str, item) -> bool:
-            return waits_for_sources(unsupported.get((kind, item.id)), current_sig, item_signature(kind, item))
+            return waits_for_sources(unsupported.get((kind, item.id)), current_sig, item_signature(kind, item),
+                                     usable=state.get("usable"), configured_sig=state.get("configured_sig"),
+                                     configured=state.get("configured"))
 
         for n in nodes:
             for e in n.edges:
@@ -2733,6 +2736,18 @@ class KGEngine:
                 continue
             items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
         items.sort(key=lambda row: row[0])
+        # No source usable at all under the policy (0.22.1): a hypothesis can be neither grounded nor rejected for
+        # its level, so judging it would only repeat the verdict-less outcome, and an attack could fail nothing.
+        # Both are left out and counted in `blocked`. An extracted claim stays queued: its span can still be
+        # rejected for what it says. On 2026-11-22 a policy requiring level 1, with only level-4 notes and a
+        # level-4 preprint, would have sent 119 pins to 10 grounders for nothing.
+        pol = self.evidence_policy()
+        nothing_usable = not self._usable_files()
+        blocked_items = 0
+        if nothing_usable:
+            kept = [row for row in items if row[2] == "edge" and row[0][1] == 1]
+            blocked_items = len(items) - len(kept)
+            items = kept
         # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
         # grounder judges a generated compression and its star together, instead of parallel grounders
         # rejecting the node while grounding an edge into it.
@@ -2749,6 +2764,15 @@ class KGEngine:
                                     if already_attacked(attacks.get(nid, []), newest_claim.get(nid))}
         hubs = [{"id": nid, "label": by_id[nid].label if nid in by_id else nid, "degree": d}
                 for nid, d in eligible if nid not in done][:5]
+        blocked = None
+        if nothing_usable and (blocked_items or hubs):
+            blocked = {"reason": "no-usable-source", "items": blocked_items, "hubs": len(hubs),
+                       "required_level": pol.required_level,
+                       "hint": f"no source is usable under this project's policy (it requires level "
+                               f"{pol.required_level} or better): register one with /burgess:kg-sources add, or "
+                               f"lower the required level with /burgess:kg-sources policy"}
+            hubs = []
+        reexamined = sum(1 for _, _, k in items if k == "node:reexamine")
         return self._scrub_egress({
             "ok": True, "focus": focus or None,
             "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
@@ -2768,7 +2792,27 @@ class KGEngine:
             # the configured files, for the adversarial grounder that searches them for counter-spans
             "source": self._source_info(),
             # the usable registered external sources (0.21.0), which it may search too
-            "evidence": self._evidence_info()})
+            "evidence": self._evidence_info(),
+            # what no usable source could settle (0.22.1): left out of the batches and the hubs, or None
+            "blocked": blocked})
+
+    def _usable_files(self, vs: "SourceSet | None" = None) -> "list[str]":
+        """The files that may support or refute anything under the project's policy, in the set's order."""
+        vs = vs if vs is not None else self.verify_set()
+        return [n for n in vs.basenames if self._usable_file(n, vs)]
+
+    def _usable_state(self, vs: "SourceSet | None" = None) -> dict:
+        """What the unsupported-item ledger compares (0.22.1): `usable`, the sha256 of each usable file;
+        `configured`, the sha256 of each configured file; `configured_sig`, the 0.20.x source signature of the
+        configured files as they are now, so a record made before 0.22.1 can be read against them."""
+        vs = vs if vs is not None else self.verify_set()
+        texts = vs.texts
+        digest = lambda s: hashlib.sha256(s.encode()).hexdigest()  # noqa: E731
+        configured = [n for n in texts if not vs.is_extra(n)]
+        joined = "\n".join(texts[n] for n in configured)
+        return {"usable": [digest(texts[n]) for n in self._usable_files(vs)],
+                "configured": [digest(texts[n]) for n in configured],
+                "configured_sig": digest(joined) if joined else ""}
 
     def _evidence_info(self) -> dict:
         """`{path, files, notes, required_level}` for the adversarial grounder (0.21.0): `files` are the usable
@@ -2900,7 +2944,7 @@ class KGEngine:
             at = utcnow()
             path = self.canon.root / UNSUPPORTED_PINS
             line = unsupported_record(kind, item_id, at, self._source_signature(),
-                                      item_signature(kind, item), note)
+                                      item_signature(kind, item), note, usable=self._usable_state()["usable"])
             try:
                 with open(path, "a", encoding="utf-8") as f:
                     f.write(line + "\n")
@@ -3205,11 +3249,25 @@ class KGEngine:
             except OSError as e:
                 return {"ok": False, "error": self._scrub_error(f"write failed: {e}")}
         report = self._support_report()
-        return {"ok": True, "changed": changed,
-                "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
-                           "build_from_notes": pol.build_from_notes},
-                "notes": self._notes_listing(), "on_unusable_total": report["on_unusable_total"],
-                "problems": list(self._sources._evidence()[3])}
+        out = {"ok": True, "changed": changed,
+               "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
+                          "build_from_notes": pol.build_from_notes},
+               "notes": self._notes_listing(), "on_unusable_total": report["on_unusable_total"],
+               "problems": list(self._sources._evidence()[3])}
+        return {**out, **self._usable_summary(pol)}
+
+    def _usable_summary(self, pol: "Policy | None" = None) -> dict:
+        """`usable_sources`, how many files may support or refute under the policy, and, when none may, a
+        `warning` saying what that means and how to change it (0.22.1)."""
+        pol = pol if pol is not None else self.evidence_policy()
+        n = len(self._usable_files())
+        out = {"usable_sources": n}
+        if n == 0:
+            out["warning"] = (f"no source is usable under this policy (it requires level {pol.required_level} or "
+                              "better): nothing can be grounded or refuted until a source at that level is "
+                              "registered or the required level is lowered, and /burgess:kg-ground leaves the "
+                              "items that need support out of its queue until then")
+        return out
 
     def _notes_listing(self) -> "list[dict]":
         """The configured files, each with its label under the policy, whether the user set its level, its
@@ -3249,7 +3307,8 @@ class KGEngine:
                 "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
                            "build_from_notes": pol.build_from_notes},
                 "problems": list(reg.problems) + list(self._sources._evidence()[3]),
-                "unregistered": list(reg.unregistered), "support": self._support_report()}
+                "unregistered": list(reg.unregistered), "support": self._support_report(),
+                **self._usable_summary(pol)}
 
     def _support_report(self) -> dict:
         """`kg_source_list`'s `support`: where each grounded claim's best support lies, and whether it is usable

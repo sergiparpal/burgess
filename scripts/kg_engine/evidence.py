@@ -119,7 +119,10 @@ FETCH_TIMEOUT = 20.0
 # Generic on purpose: the request goes to a third party and must carry nothing about the user or the project.
 USER_AGENT = "Mozilla/5.0 (compatible; evidence-copy/1.0)"
 _ACCEPT = "text/html,application/xhtml+xml,text/plain;q=0.9,text/markdown;q=0.9,*/*;q=0.1"
-HTML_EXTRACTOR = "html-text/1"
+# The fixed HTML rule's version, recorded with each copy. 2 (0.22.1) drops MathML annotations and invisible
+# math operators: version 1 copied the LaTeX source beside each rendered formula (`15×\times`, field arXiv copy
+# of 2026-11-22). A copy keeps the version it was made with: its hash is its record's.
+HTML_EXTRACTOR = "html-text/2"
 VERBATIM = "verbatim"
 PREVIEW_CHARS = 1500
 _DATE_RE = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$")
@@ -647,9 +650,14 @@ def sniff_charset(data: bytes) -> str:
     return m.group(1).decode("ascii", "ignore") if m else ""
 
 
-# The tags whose content is never text of the page.
+# The tags whose content is never text of the page. `annotation` / `annotation-xml` (0.22.1) hold a formula's
+# source (LaTeX, content MathML) beside its rendering: copying both doubled every formula.
 _SKIP = frozenset({"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",
-                   "nav", "footer", "form", "button", "select", "head"})
+                   "nav", "footer", "form", "button", "select", "head", "annotation", "annotation-xml"})
+# Invisible math operators (function application, invisible times, separator, plus): rendering hints with no
+# text, dropped everywhere; a zero-width space is dropped inside a formula only (0.22.1).
+_MATH_INVISIBLE = {0x2061: None, 0x2062: None, 0x2063: None, 0x2064: None}
+_IN_MATH_INVISIBLE = {**_MATH_INVISIBLE, 0x200B: None}
 _VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
                    "source", "track", "wbr"})
 _BLOCKS = frozenset({"p", "div", "section", "article", "main", "header", "aside", "blockquote", "pre", "ul",
@@ -684,6 +692,7 @@ class _Extractor(HTMLParser):
         self.in_title = False
         self.title: "list[str]" = []
         self.meta: "dict[str, str]" = {}
+        self.math = 0
 
     def _flush(self, paragraph: bool = True) -> None:
         text = "".join(self.parts)
@@ -708,6 +717,8 @@ class _Extractor(HTMLParser):
             # HTML lets a page omit </head>: the body starts the page's text whatever was left open before it.
             self.skip = 0
             return
+        if tag == "math":
+            self.math += 1
         if tag in _SKIP:
             if tag not in _VOID:
                 self.skip += 1
@@ -738,6 +749,8 @@ class _Extractor(HTMLParser):
         if tag == "title":
             self.in_title = False
             return
+        if tag == "math" and self.math:
+            self.math -= 1
         if tag in _SKIP:
             if self.skip and tag not in _VOID:
                 self.skip -= 1
@@ -757,7 +770,7 @@ class _Extractor(HTMLParser):
             return
         if self.skip:
             return
-        self.parts.append(data)
+        self.parts.append(data.translate(_IN_MATH_INVISIBLE if self.math else _MATH_INVISIBLE))
 
 
 def html_text(markup: str) -> "tuple[str, str, dict]":
