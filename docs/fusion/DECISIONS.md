@@ -2538,3 +2538,30 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Accepted trade-offs:** subscripts and superscripts still flatten in plain text (`R^t=Et(Pt,Bt)`). A copy made
   on 0.22.0 keeps its doubled formulas until it is registered again.
 - **Pinned in:** `tests/test_fix_no_usable_source.py` (13 tests).
+
+## While no source is usable, the plan says so and the re-examination list is held back (2026-11-22)
+
+- **Decision:**
+  - `kg_ground_plan` sets `blocked` whenever no file is usable under the policy, with `items` and `hubs` possibly
+    0, instead of only when it left something out.
+  - The facade's `kg_context` (`_hold_reexamination`) empties `advisory.reexaminable_verdicts` while no file is
+    usable and adds `advisory.reexaminable_held: {total, reason: "no-usable-source", required_level, hint}`. The
+    projector's stored flags are untouched, so they return as soon as a file counts again.
+  - `/burgess:kg-ground` Stage 0c reports a held list and re-checks none of it.
+- **Field pass it answers** (Windows, 2026-11-22, session f79656a4, on 0.22.1). The project required level 1 and
+  every source was level 4. The plan queued nothing, kept the 119 pins waiting, and the command launched no
+  grounder. The user approved these fixes («Sí, prepárala»). Two gaps:
+  - the plan read `blocked: null` although the command text says it is set whenever no source is usable;
+  - `kg_context` listed 113 rejected items flagged when a preprint was registered under level 4. The agent
+    rightly re-checked none of them, but they would have shown on every pass.
+- **Why hold at read time instead of dropping the flags:** the flags were right when raised, since the preprint
+  was usable then, and they are what makes the 113 items come back when the user lowers the level. The
+  projector raises and keeps them without knowing the policy; the facade, which knows it, decides whether they
+  can matter now.
+- **Rejected alternatives:**
+  - (a) *Raise re-examination flags only from usable changed text.* It would also stop flagging when a source
+    is registered under a strict policy that is later loosened, since the text is then no longer "changed".
+  - (b) *Drop the flags when the policy tightens.* The same loss on loosening.
+- **Accepted trade-off:** while some source is usable, a flag raised by a source the policy now rejects still
+  shows. That is the residual of not tracking which file raised each flag.
+- **Pinned in:** `tests/test_fix_held_reexamination.py` (4 tests).

@@ -493,6 +493,11 @@ the true total across both.
   (`spec_betweenness` when the gate is ON, else `structural_bridge`), a `note`, and up to 10 `nodes` carrying
   **both** `betweenness` and the confound-corrected `spec_betweenness` so a reader sees the correction. Until
   the harness turns the gate on (`gate_on:1`), the trusted ranking stays the structural-bridge/degree advisory.
+- `advisory.reexaminable_verdicts` / `_total` — the failed/rejected items judged against a source set that has
+  since changed (R3-mirror). Since 0.22.2, while no source is usable under the project's policy (§1.30) the list
+  is held back: it comes back empty, and `advisory.reexaminable_held` — `{total, reason: "no-usable-source",
+  required_level, hint}` — says how many items it holds and why. No source could change one of those verdicts.
+  The flags stay stored, so they return as soon as a source counts again.
 
 ---
 
@@ -991,8 +996,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   required_level}`: the usable registered external sources (§1.27), which the adversarial grounder may search
   too, and the notes with their level and whether they may refute (0.22.0). An unusable source refutes nothing
   and is not listed in `files`.
-- `blocked` (0.22.1) — `null`, or, when no source at all is usable under the project's policy,
-  `{reason: "no-usable-source", items, hubs, required_level, hint}`: the hypotheses (pins, proposals, re-examined
+- `blocked` (0.22.1) — `null`, or, whenever no source at all is usable under the project's policy (since 0.22.2
+  even when nothing was left out, every such item being already waiting), `{reason: "no-usable-source", items,
+  hubs, required_level, hint}`: the hypotheses (pins, proposals, re-examined
   nodes) left out of the batches, since no source can ground them and none may be rejected for its level, and
   the hubs left out, since an attack could fail nothing. The batches keep the extracted claims, whose spans can
   still be rejected for what they say; the queue counts count what is queued. On 2026-11-22 a policy requiring
