@@ -16,7 +16,9 @@ a forked copy of the rule.
 """
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from pathlib import Path
 
 # The default engine data dirname under the project root — also encoded (as a documented mirror of
@@ -27,6 +29,8 @@ DATA_DIRNAME = ".kg-data"
 # projector) shares them with the projector/server/lightrag consumers (review-r5).
 DERIVED_DIRNAME = "derived"
 INDEX_DB_NAME = "index.sqlite"
+# Where each project's own data lives inside the plugin's shared data dir (0.23.0): `<root>/projects/<key>/`.
+PROJECTS_DIRNAME = "projects"
 
 
 def clean(value: "str | None") -> str:
@@ -88,6 +92,33 @@ def resolve_data_dir(project: "str | Path", *, plugin_data_fallback: bool = Fals
     if not data and plugin_data_fallback:
         data = clean_env("CLAUDE_PLUGIN_DATA")
     return Path(data) if data else Path(project) / DATA_DIRNAME
+
+
+def project_key(project: "str | Path") -> str:
+    """A stable folder name for one project inside the plugin's shared data dir (0.23.0): its folder's name,
+    folded to lower-case ``[a-z0-9-]`` and cut to 40 characters, then 12 hex digits of the sha256 of its
+    absolute, case-normalized path. The server and the PreToolUse hook get the same project dir from Claude
+    Code (``CLAUDE_PROJECT_DIR``) and fold it the same way, so they meet on one folder."""
+    norm = os.path.normcase(os.path.abspath(str(project)))
+    digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:12]
+    name = re.sub(r"[^a-z0-9]+", "-", Path(norm).name.lower()).strip("-")[:40] or "project"
+    return f"{name}-{digest}"
+
+
+def resolve_project_data_dir(project: "str | Path", *, plugin_data_fallback: bool = False) -> Path:
+    """The data dir of ONE project's derived layer (0.23.0): ``<root>/projects/<project_key>`` when the root is
+    the plugin's shared data dir (``KG_DATA``, or ``CLAUDE_PLUGIN_DATA`` for the hook, as in
+    ``resolve_data_dir``), else ``<project>/.kg-data``, which is the project's own already. Claude Code keys
+    ``CLAUDE_PLUGIN_DATA`` by plugin, not by project: through 0.22.4 every project shared one derived layer, so
+    opening another project rebuilt the index, one project's graph view replaced the other's, and the
+    /burgess:kg-generate ledger kept one project's generations whichever project ran next. The server log
+    stays at the root (``resolve_data_dir``), where the launcher writes it too."""
+    data = clean_env("KG_DATA")
+    if not data and plugin_data_fallback:
+        data = clean_env("CLAUDE_PLUGIN_DATA")
+    if not data:
+        return Path(project) / DATA_DIRNAME
+    return Path(data) / PROJECTS_DIRNAME / project_key(project)
 
 
 def resolve_source(project: "str | Path", *, explicit: "str | None" = None) -> "str | None":

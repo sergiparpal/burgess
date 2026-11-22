@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.23.0 — 2026-11-22
+
+Each project now has its own notes and its own engine data. You asked why `source_path` is global when each
+project may follow its own policy: Claude Code keeps a plugin's options per user and ignores a project's
+settings for them, so the plugin's `source_path` is one value for every project. The policy already lived in
+each project; now the notes and the derived data do too.
+
+### Added
+
+- **A project can name its own notes:** `/burgess:kg-sources policy notes_path=<a folder, file or glob inside the
+  project>`. `notes_path=none` gives it no notes, as for a project built only from registered sources, and
+  `notes_path=default` goes back to the plugin's `source_path`.
+  - The path must lie inside the project and name none of the engine's folders (`canon`, `evidence`, `.kg`,
+    `.git`, `.claude`), so a repository you clone cannot point Burgess at your other files.
+  - Without it, nothing changes: the plugin's `source_path` applies, as before.
+  - `/burgess:kg-sources list`, `kg_status` and the build plan say where the notes come from (`notes_from`:
+    `project`, `none` or `global`).
+
+### Changed
+
+- **Each project keeps its own graph, index and views,** in the plugin's data folder under `projects/<the
+  folder's name>-<a hash>/`. Through 0.22.4 every project shared one folder, so opening another project rebuilt
+  the index, one project's `graph.html` replaced the other's, and the `/burgess:kg-generate` ledger kept the
+  generations of whichever project ran last.
+- **`kg_status` and the build plan report the source as the build reads it.** When a project builds from
+  registered sources only, they no longer name the plugin's notes folder beside files that are not in it.
+- **`/burgess:kg-eval` and `/burgess:kg-experiment` read the project's own graph and source** through a small
+  helper (`python -m kg_engine.paths`). They had named the shared folder and the plugin's `source_path`
+  directly, so since 0.22.0 a project built from registered sources was measured against the wrong documents.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- On its first start in each project, the engine copies over what the old shared folder held for that
+  project. It takes the index and graph when they were built from that project's notes, and the
+  `/burgess:kg-generate` ledger when it tracks that project's nodes. Anything else is rebuilt on the first read.
+  - On your machine, `prueba-burgess-n1` gets the index (it was the last project opened), and `prueba-burgess`
+    gets the generation ledger and rebuilds its index once.
+  - The shared folder is left as it was.
+- `/burgess:kg-view` now writes the views into the project's own folder. Its first run after the upgrade gives
+  the new path.
+
 ## 0.22.4 — 2026-11-22
 
 Fixes from the review of the second phase of the field test, before its `/burgess:kg-ground`. The project now

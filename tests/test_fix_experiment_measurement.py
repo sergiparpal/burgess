@@ -133,7 +133,7 @@ def test_the_prompt_file_is_written_with_write_under_the_run_name():
 
 def test_step_1b_builds_the_rag_passages_before_the_evaluator_starts():
     text = _read(EXPERIMENT)
-    call = '"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "${user_config.source_path}" "$EXP/rag-$RUN"'
+    call = '"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "$SRC" "$EXP/rag-$RUN"'   # 0.23.0
     blocks = [b for b in _bash_blocks(text) if call in b]
     assert len(blocks) == 2  # the default block, and the one that adds the LightRAG answers
     assert "lightrag_arm answer" not in blocks[0] and "lightrag_arm answer" in blocks[1]

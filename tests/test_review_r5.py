@@ -97,7 +97,7 @@ def test_hook_resolves_through_envconfig_not_a_local_copy():
     # the pre-sys.path CLAUDE_PLUGIN_ROOT read is the ONE permitted local _clean; everything else
     # must route through envconfig, so the r4 placeholder-filter class of drift cannot re-enter.
     assert "envconfig.resolve_project" in hook
-    assert "envconfig.resolve_data_dir" in hook
+    assert "envconfig.resolve_project_data_dir" in hook   # the project's own data dir since 0.23.0
     assert "envconfig.resolve_pack_path" in hook
     assert 'plugin_option("METRICS_MODE"' in hook
     assert 'os.environ.get("CLAUDE_PLUGIN_OPTION_' not in hook

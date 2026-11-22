@@ -157,7 +157,7 @@ def test_the_argument_is_a_subset_of_the_configured_source():
     assert "**subset** — optional" in FLAT
     assert "never replaces the configured source" in FLAT
     # ...and the STOP advice never offers a subset as a stand-in for a missing or broken source_path.
-    assert "Naming a subset cannot stand in for it" in FLAT
+    assert "Naming a subset cannot stand in for either" in FLAT   # 0.23.0: the project's notes, or source_path
     assert "or pass the path as `$1`" not in FLAT
 
 

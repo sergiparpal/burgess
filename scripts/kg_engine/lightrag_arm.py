@@ -46,7 +46,7 @@ from pathlib import Path
 from .envconfig import DERIVED_DIRNAME
 from .envconfig import clean_env as _clean_env
 from .envconfig import plugin_option
-from .envconfig import resolve_data_dir as _resolve_data_dir
+from .envconfig import resolve_project_data_dir as _resolve_data_dir
 from .envconfig import resolve_project as _resolve_project
 from .sources import SourceSet
 
@@ -85,8 +85,8 @@ def _needs_rebuild(working_dir: Path, source_path: Path) -> bool:
 
 def default_store_dir() -> Path:
     """The LightRAG working store, under the engine's (gitignored) derived dir — the SAME data-dir
-    rule a KGEngine resolves (``KG_DATA`` if set, else ``<project>/.kg-data``; the rule's one home
-    is ``envconfig``), then ``/derived/lightrag``."""
+    rule a KGEngine resolves (the project's own folder under ``KG_DATA`` since 0.23.0, else
+    ``<project>/.kg-data``; the rule's one home is ``envconfig``), then ``/derived/lightrag``."""
     base = _resolve_data_dir(_resolve_project(os.getcwd()))
     return base / DERIVED_DIRNAME / "lightrag"
 

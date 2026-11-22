@@ -17,6 +17,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import sys
 import threading
 import time
@@ -52,7 +53,7 @@ from .buildplan import (edgeless_records, parse_arguments, related_nodes, resolv
                         vocabulary_digest)
 from .scrub import Scrubber, placeholders_in
 from .sources import SourceSet, plan_sections, split_sections
-from .evidence import (CITATION_MARK, COUNTER_RELATIONS, OWN, REFUTED_BY_MARK, VETO_HINTS as _VETO_HINTS,
+from .evidence import (CITATION_MARK, COUNTER_RELATIONS, NOTES_NONE, OWN, REFUTED_BY_MARK, VETO_HINTS as _VETO_HINTS,
                        EvidenceRegistry, Policy, evidence_dir, failed_veto, label as evidence_label,
                        level_unusable, load_policy, load_registry, note_label, registry_signature,
                        support_segment, supports_of, unusable_reason)
@@ -500,10 +501,13 @@ class _SourceResolver:
     the IDENTICAL source bytes. A single configured file is a one-entry SourceSet, byte-identical to the
     prior single-blob path."""
 
-    def __init__(self, source_path=None, evidence_dir=None):
+    def __init__(self, source_path=None, evidence_dir=None, project_dir=None):
         self.source_path = Path(source_path) if source_path else None
         # The project's evidence directory (0.21.0): registered external copies, verification-only.
         self.evidence_dir = Path(evidence_dir) if evidence_dir else None
+        # The project (0.23.0), which a policy's notes path is relative to.
+        self.project_dir = (Path(project_dir) if project_dir
+                            else (self.evidence_dir.parent if self.evidence_dir else None))
         self._cache: "tuple[tuple, SourceSet] | None" = None  # (signature, SourceSet) memo
         self._ecache: "tuple[tuple, EvidenceRegistry, Policy, list] | None" = None  # (dir sig, registry, policy, problems)
         self._vcache: "tuple[tuple, SourceSet] | None" = None  # (signatures, verification set) memo
@@ -523,6 +527,23 @@ class _SourceResolver:
     def policy(self) -> Policy:
         return self._evidence()[2]
 
+    def notes_path(self) -> "Path | None":
+        """The notes this project reads (0.23.0): the policy's `notes_path`, a path inside the project, or no
+        notes at all for `none`; with neither, the plugin's `source_path`, one value for every project, which is
+        all Claude Code allows a plugin option to be."""
+        value = self.policy().notes_path
+        if not value:
+            return self.source_path
+        if value == NOTES_NONE or self.project_dir is None:
+            return None
+        return self.project_dir / value
+
+    def notes_origin(self) -> str:
+        """Where `notes_path()` comes from: `project` (the policy), `none` (the policy says no notes) or
+        `global` (the plugin's source_path)."""
+        value = self.policy().notes_path
+        return "global" if not value else ("none" if value == NOTES_NONE else "project")
+
     def _split(self) -> "tuple[list, list]":
         """(the registered copies built into the graph, the other registered copies), as paths."""
         reg = self.registry()
@@ -537,8 +558,8 @@ class _SourceResolver:
         when it is the getter (review-r5)."""
         pol = self.policy()
         built, _other = self._split()
-        path = self.source_path if pol.build_from_notes else None
-        sig = (SourceSet.signature(path, built, exclude=self.evidence_dir), pol.build_from_notes)
+        path = self.notes_path() if pol.build_from_notes else None
+        sig = (SourceSet.signature(path, built, exclude=self.evidence_dir), pol.build_from_notes, str(path))
         if self._cache is None or self._cache[0] != sig:
             self._cache = (sig, SourceSet(path, content=built, exclude=self.evidence_dir))
         return self._cache[1]
@@ -551,10 +572,11 @@ class _SourceResolver:
         With nothing registered and the default policy it holds exactly what `resolve()` holds."""
         pol = self.policy()
         built, other = self._split()
-        sig = (SourceSet.signature(self.source_path, built + other, exclude=self.evidence_dir),
-               self._ecache[0], pol.build_from_notes)
+        notes = self.notes_path()
+        sig = (SourceSet.signature(notes, built + other, exclude=self.evidence_dir),
+               self._ecache[0], pol.build_from_notes, str(notes))
         if self._vcache is None or self._vcache[0] != sig:
-            self._vcache = (sig, SourceSet(self.source_path, content=built, extra=other, exclude=self.evidence_dir,
+            self._vcache = (sig, SourceSet(notes, content=built, extra=other, exclude=self.evidence_dir,
                                            path_is_content=pol.build_from_notes))
         return self._vcache[1]
 
@@ -633,7 +655,7 @@ class KGEngine:
         # The configured source: a single file (back-compat), or a DIRECTORY / GLOB of .md/.txt (R4).
         # Resolution + memo live in _SourceResolver, shared verbatim with the read-only PreToolUse hook. It
         # also holds the project's registered external sources (0.21.0, `<project>/evidence/`).
-        self._sources = _SourceResolver(source_path, evidence_dir(self.project_dir))
+        self._sources = _SourceResolver(source_path, evidence_dir(self.project_dir), self.project_dir)
         # Load the pack BEFORE constructing the projector so its specificity_seeds are wired through the
         # SAME _wire_projector seam the read-only hook uses — no construction-site drift between the two
         # (finding: precontext-bypasses-facade). The resolved PATH is kept alongside the loaded pack so
@@ -744,6 +766,12 @@ class KGEngine:
     def source_path(self, value) -> None:
         self._sources.set_path(value)
 
+    @property
+    def notes_path(self) -> "Path | None":
+        """The notes this project reads (0.23.0, `_SourceResolver.notes_path`): its policy's own folder, none,
+        or the plugin's `source_path`."""
+        return self._sources.notes_path()
+
     @classmethod
     def read_only_projector(cls, project_dir, data_dir, *, source_path=None, pack_path=None,
                             metrics_mode="structure_only", lease_ttl=None) -> Projector:
@@ -763,7 +791,7 @@ class KGEngine:
             canon.lock.ttl = float(lease_ttl)
         pack_get = functools.lru_cache(maxsize=1)(lambda: _load_pack_or_none(pack_path))
         return _wire_projector(canon, Path(data_dir) / envconfig.DERIVED_DIRNAME,
-                               sources=_SourceResolver(source_path, evidence_dir(project_dir)),
+                               sources=_SourceResolver(source_path, evidence_dir(project_dir), project_dir),
                                pack_get=pack_get, metrics_mode=metrics_mode)
 
     # ---- tools -----------------------------------------------------------
@@ -2278,15 +2306,20 @@ class KGEngine:
         fallback only fires when it exists under the project); ``exists`` is True iff it resolves to at
         least one readable ``.md``/``.txt`` file; ``files`` is the ordered basename list (R4). It echoes
         the user's OWN declared config back to their OWN session — no canon content crosses here."""
-        sp = self.source_path
-        if sp is None:
-            return {"path": None, "exists": False, "files": []}
+        sp = self.notes_path
+        origin = self._sources.notes_origin()
         try:
             files = self.source_set().basenames
         except Exception as e:  # noqa: BLE001 — a source-read hiccup still reports the path, never crashes kg_status
-            return {"path": str(sp), "exists": False, "files": [],
+            return {"path": str(sp) if sp else None, "notes_from": origin, "exists": False, "files": [],
                     "note": f"source unreadable ({type(e).__name__})"}
-        return {"path": str(sp), "exists": bool(files), "files": files}
+        if sp is None and not files:
+            return {"path": None, "notes_from": origin, "exists": False, "files": []}
+        # `path` is where the notes are, and `notes_from` says whose choice that is (0.23.0): the project's
+        # policy or the plugin's source_path. `files` is what a build reads, the registered copies marked
+        # `build` included, so under build_from_notes off it no longer pairs the notes folder with those copies.
+        return {"path": str(sp) if sp else None, "notes_from": origin, "exists": bool(files), "files": files,
+                "builds_from": ("notes" if self.evidence_policy().build_from_notes else "registered sources")}
 
     def kg_status(self) -> dict:
         """A cheap, projection-FREE status + coverage probe (resume a partial build after any transport
@@ -2321,8 +2354,9 @@ class KGEngine:
         }
 
     # ---- the /kg-build plan (0.5.0) ---------------------------------------
-    _NO_SOURCE = ("no source_path is configured: set the plugin's source_path option to the file, folder "
-                  "or glob to build from, then restart Claude Code")
+    _NO_SOURCE = ("no source is configured: name this project's notes with /burgess:kg-sources policy "
+                  "notes_path=<a folder inside the project>, or set the plugin's source_path option, which "
+                  "applies to every project, then restart Claude Code")
 
     def kg_build_plan(self, arguments: "str | None" = "",
                       configured_wave_size: "str | int | None" = None) -> dict:
@@ -2364,19 +2398,24 @@ class KGEngine:
                "wave_size": wave, "wave_size_from": origin, "source": source}
         if args.problem:
             return {**out, "error": args.problem}
-        if source["path"] is None:
-            return {**out, "error": self._NO_SOURCE}
         pol = self.evidence_policy()
         if not source["exists"]:
-            if not pol.build_from_notes:
+            if not pol.build_from_notes or source.get("notes_from") == "none":
                 return {**out, "error": "this project builds only from registered sources (build_from_notes is "
-                                        "off), and none is registered with build: /burgess:kg-sources add one"}
+                                        "off, or its notes path is none), and none is registered with build: "
+                                        "/burgess:kg-sources add one"}
+            if source["path"] is None:
+                return {**out, "error": self._NO_SOURCE}
+            if source.get("notes_from") == "project":   # 0.23.0: the project's own notes path
+                return {**out, "error": f"this project's notes path ({pol.notes_path}) resolves to no readable "
+                                        ".md/.txt file: /burgess:kg-sources policy notes_path=<folder> names "
+                                        "another, or notes_path=default goes back to the plugin's source_path"}
             return {**out, "error": "the configured source_path resolves to no readable .md/.txt file"}
         texts = self.source_set().texts
         # What extraction reads (0.22.0): the configured files unless the policy builds from registered sources
         # only, then the registered copies marked `build`, in the content set's order.
         built = [self._evidence_dir() / n for n, r in self.evidence_registry().records.items() if r.build]
-        declared = (SourceSet.resolve(self.source_path, exclude=self._evidence_dir())
+        declared = (SourceSet.resolve(self.notes_path, exclude=self._evidence_dir())
                     if pol.build_from_notes else []) + built
         skipped: "list[str]" = []
         if args.subset:
@@ -3112,7 +3151,7 @@ class KGEngine:
     def _is_configured_source(self, p: Path) -> bool:
         try:
             target = p.resolve()
-            return any(q.resolve() == target for q in SourceSet.resolve(self.source_path))
+            return any(q.resolve() == target for q in SourceSet.resolve(self.notes_path))
         except OSError:
             return False
 
@@ -3339,7 +3378,8 @@ class KGEngine:
                 return {"ok": False, "error": self._scrub_error(f"write failed: {e}")}
         return {"ok": True, "name": name, "changed": changed, "source": note_label(pol, name)}
 
-    def kg_source_policy(self, required_level=None, notes_level=None, build_from_notes=None) -> dict:
+    def kg_source_policy(self, required_level=None, notes_level=None, build_from_notes=None,
+                         notes_path=None) -> dict:
         """Read or change the project's evidence policy (0.22.0, `evidence.Policy`, `policy.json` in the
         evidence directory). With no argument it only reads.
 
@@ -3351,7 +3391,11 @@ class KGEngine:
         from those sources alone. A change bears on verdicts from now on. A looser policy offers again the items
         waiting for sources when it makes usable a file they were not judged against; a stricter one leaves them
         waiting (0.22.1). Verdicts already given keep their state, and `on_unusable_total` counts the grounded
-        claims that no longer rest on a usable source."""
+        claims that no longer rest on a usable source.
+
+        `notes_path` (0.23.0) names this project's own notes: a folder, file or glob inside the project, `none`
+        for no notes, or `default` for the plugin's `source_path` (the same for every project: Claude Code keeps
+        plugin options per user). A path outside the project, or one of the engine's folders, is refused."""
         import copy as _copy
         from . import evidence as ev
 
@@ -3373,6 +3417,11 @@ class KGEngine:
                 if v != pol.build_from_notes:
                     pol.build_from_notes = v
                     changed.append("build_from_notes")
+            if notes_path is not None and str(notes_path).strip() != "":
+                v = ev.parse_notes_path(notes_path, self.project_dir)
+                if v != pol.notes_path:
+                    pol.notes_path = v
+                    changed.append("notes_path")
         except ev.EvidenceError as e:
             return {"ok": False, "error": e.code, "detail": e.detail}
         if changed:
@@ -3383,10 +3432,17 @@ class KGEngine:
         report = self._support_report()
         out = {"ok": True, "changed": changed,
                "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
-                          "build_from_notes": pol.build_from_notes},
+                          "build_from_notes": pol.build_from_notes, **self._notes_where()},
                "notes": self._notes_listing(), "on_unusable_total": report["on_unusable_total"],
                "problems": list(self._sources._evidence()[3])}
         return {**out, **self._usable_summary(pol)}
+
+    def _notes_where(self) -> dict:
+        """`notes_path` as the policy stores it ("" for the plugin's source_path), `notes_from` (`project`, `none`
+        or `global`) and `notes_folder`, the path the notes are read from now, or None (0.23.0)."""
+        where = self.notes_path
+        return {"notes_path": self.evidence_policy().notes_path, "notes_from": self._sources.notes_origin(),
+                "notes_folder": str(where) if where else None}
 
     def _usable_summary(self, pol: "Policy | None" = None) -> dict:
         """`usable_sources`, how many files may support or refute under the policy, and, when none may, a
@@ -3437,7 +3493,7 @@ class KGEngine:
                 "usable": sum(1 for rec in reg.records.values() if not unusable_reason(rec, pol.required_level)),
                 "notes": self._notes_listing(),
                 "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
-                           "build_from_notes": pol.build_from_notes},
+                           "build_from_notes": pol.build_from_notes, **self._notes_where()},
                 "problems": list(reg.problems) + list(self._sources._evidence()[3]),
                 "unregistered": list(reg.unregistered), "support": self._support_report(),
                 **self._usable_summary(pol)}
@@ -4846,7 +4902,7 @@ class KGEngine:
         # pins worth promoting, not to read the leftover `unverified` state as a failure. (Part C.)
         pins_in = sum(1 for r in results if "candidate" in r and r.get("status") in PERSISTED_DISPOSITIONS)
         cliches_in = materialized_count - pins_in
-        if self.source_path is not None and pins_in:
+        if self.notes_path is not None and pins_in:
             result["advisory"] = (
                 "A source is already configured. Grounding these pins against it will correctly leave a "
                 "genuinely novel idea `unverified` (novelty has no in-source span yet) — it is NOT falsified "
@@ -4863,6 +4919,64 @@ class KGEngine:
 # --------------------------------------------------------------------------- MCP wiring
 
 
+def adopt_shared_derived(root: "str | Path", project_data: "str | Path", project: "str | Path") -> list:
+    """Carry over, once, what the shared derived layer of 0.22 and earlier held for THIS project (0.23.0): the
+    names of the files copied. Through 0.22.4 every project wrote `<KG_DATA>/derived/`, so it holds the index of
+    the project last opened and the /burgess:kg-generate ledger of the project that last ran it, maybe two
+    different projects. Each file goes where its content belongs:
+
+    - `index.sqlite` and `graph.json` when the index was built from this canon (its notes and the canon's agree
+      by 90% or more), so its re-examination flags survive the move; else this project's first read rebuilds;
+    - `generations.json` when half or more of the nodes it tracks are in this canon.
+
+    Copies, never moves: the shared folder stays as it was, for the other projects to take their part. Nothing
+    is copied over a file the project already has. Fail-silent: a failure only means a rebuild."""
+    root, project_data, project = Path(root), Path(project_data), Path(project)
+    legacy, target = root / envconfig.DERIVED_DIRNAME, project_data / envconfig.DERIVED_DIRNAME
+    adopted: list = []
+    if not legacy.is_dir():
+        return adopted
+    try:
+        here = {q.stem for q in (project / "canon").glob("*.md")}
+    except OSError:
+        return adopted
+    if not here:
+        return adopted
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        old_db, new_db = legacy / envconfig.INDEX_DB_NAME, target / envconfig.INDEX_DB_NAME
+        if old_db.is_file() and not new_db.exists():
+            # a proper file URI (percent-encoded, `file:///C:/…` on Windows), read-only: the shared folder stays as it was
+            src = sqlite3.connect(old_db.resolve().as_uri() + "?mode=ro", uri=True)
+            try:
+                row = src.execute("SELECT value FROM meta WHERE key='file_hashes'").fetchone()
+                notes = set(json.loads(row[0])) if row and row[0] else set()
+                if notes and len(notes & here) / len(notes | here) >= 0.9:
+                    dst = sqlite3.connect(str(new_db))
+                    try:
+                        src.backup(dst)
+                    finally:
+                        dst.close()
+                    adopted.append(envconfig.INDEX_DB_NAME)
+                    graph = legacy / "graph.json"
+                    if graph.is_file() and not (target / "graph.json").exists():
+                        shutil.copy2(graph, target / "graph.json")
+                        adopted.append("graph.json")
+            finally:
+                src.close()
+        ledger = legacy / "generations.json"
+        if ledger.is_file() and not (target / "generations.json").exists():
+            tracked = (json.loads(ledger.read_text(encoding="utf-8")) or {}).get("tracked") or {}
+            if tracked and sum(1 for nid in tracked if nid in here) * 2 >= len(tracked):
+                shutil.copy2(ledger, target / "generations.json")
+                adopted.append("generations.json")
+    except Exception as e:  # noqa: BLE001 — a failed adoption only costs a rebuild, never the server
+        logger.warning("could not carry over the shared derived layer (%s); this project rebuilds its own", e)
+    if adopted:
+        logger.info("carried over from the shared derived layer for this project: %s", ", ".join(adopted))
+    return adopted
+
+
 def build_engine_from_env(*, project=None, data=None, source=None, pack=None) -> KGEngine:
     """Construct a KGEngine from environment config, with optional explicit overrides (CLI flags win
     over env). The resolution RULES — the `${user_config.*}` placeholder filter (an unsubstituted
@@ -4873,7 +4987,12 @@ def build_engine_from_env(*, project=None, data=None, source=None, pack=None) ->
     function keeps only what is server-specific: the explicit-override layering and the flood rate
     limit; every caller (MCP server, headless backend) gets identical behavior."""
     project = project or envconfig.resolve_project(os.getcwd())
-    data = data or _clean_env("KG_DATA")  # None → KGEngine defaults to <project>/DATA_DIRNAME
+    # Each project has its own derived layer under the plugin's data dir (0.23.0); an explicit `data` (a CLI
+    # flag) is taken as given, and with no KG_DATA KGEngine defaults to <project>/DATA_DIRNAME, its own already.
+    root = _clean_env("KG_DATA")
+    if not data and root:
+        data = envconfig.resolve_project_data_dir(project)
+        adopt_shared_derived(root, data, project)
     src = envconfig.resolve_source(project, explicit=source)
     pack_path = envconfig.resolve_pack_path(project, explicit=pack)
     try:
@@ -5207,7 +5326,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_source_policy(required_level: int | None = None, notes_level: int | None = None,
-                         build_from_notes: bool | None = None) -> dict:
+                         build_from_notes: bool | None = None, notes_path: str | None = None) -> dict:
         """Read (no arguments) or change the project's evidence policy. `required_level` (1-4): the worst
         level that may still support or refute; 4 (default) accepts everything but unfiltered sources, 1
         only peer-reviewed ones, so the notes only propose and claims are verified on reviewed sources'
@@ -5216,9 +5335,12 @@ def _register(mcp, engine: KGEngine) -> None:
         into the graph; false, with sources registered with `build`, builds a graph from those sources
         alone. A change applies to verdicts from now on. Only a looser policy that makes usable a file the
         waiting items were not judged against offers them again; a stricter one never does. `on_unusable_total`
-        counts grounded claims that no longer rest on a usable source."""
+        counts grounded claims that no longer rest on a usable source. `notes_path` names THIS project's notes:
+        a folder, file or glob inside the project, `none` for no notes, or `default` for the plugin's
+        source_path, which is the same for every project; a path outside the project is refused. The result's
+        `policy` says where the notes are read from (`notes_from`: project, none or global; `notes_folder`)."""
         return engine.kg_source_policy(required_level=required_level, notes_level=notes_level,
-                                       build_from_notes=build_from_notes)
+                                       build_from_notes=build_from_notes, notes_path=notes_path)
 
     @mcp.tool()
     @_tool_result

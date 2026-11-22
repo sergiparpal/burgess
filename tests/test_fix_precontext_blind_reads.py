@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from kg_engine.model import edge_id
+from kg_engine import envconfig
 from kg_engine.server import KGEngine
 
 REPO = Path(__file__).resolve().parents[1]
@@ -44,7 +45,9 @@ def world(vault: Path, tmp_path: Path, monkeypatch):
     src = tmp_path / "src.md"
     src.write_text(SRC, encoding="utf-8")
     data = tmp_path / "data"
-    e = KGEngine(vault, data, source_path=src, pack_path=PACK)
+    # since 0.23.0 each project's derived layer lives in its own folder under KG_DATA, as the server writes it
+    e = KGEngine(vault, data / envconfig.PROJECTS_DIRNAME / envconfig.project_key(vault), source_path=src,
+                 pack_path=PACK)
     edges = [{"source": "centro", "target": t, "relation": "grounds", "span": SPAN, "source_file": "src.md"}
              for t in "abc"]
     nodes = [{"id": n, "label": n, "node_type": "claim", "body": n} for n in ("centro", *"abc")]

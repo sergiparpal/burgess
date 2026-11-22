@@ -85,7 +85,9 @@ def test_the_plan_refuses_an_unconfigured_source(vault):
     plan = KGEngine(vault).kg_build_plan("", "")
     assert plan["ok"] is False
     assert plan["source"]["path"] is None
-    assert "no source_path is configured" in plan["error"]
+    # 0.23.0 names both ways: the project's own notes path, or the plugin's source_path
+    assert "no source is configured" in plan["error"] and "notes_path=" in plan["error"]
+    assert "source_path option" in plan["error"]
     # A subset cannot stand in for a missing source_path: spans verify against the configured source only.
     assert KGEngine(vault).kg_build_plan("notes.md", "")["ok"] is False
 

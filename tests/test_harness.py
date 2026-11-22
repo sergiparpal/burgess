@@ -366,10 +366,15 @@ def test_lightrag_answer_cli_omits_cleanly_when_unavailable(monkeypatch, tmp_pat
 
 
 def test_lightrag_store_lives_under_gitignored_derived_dir(monkeypatch, tmp_path):
-    """The working store sits under <KG_DATA>/derived/lightrag — inside the already-gitignored derived
-    tree, never the canon."""
+    """The working store sits under the project's derived dir — inside the already-gitignored derived
+    tree, never the canon. Since 0.23.0 that is the project's own folder under KG_DATA."""
+    import os
+
+    from kg_engine import envconfig
     monkeypatch.setenv("KG_DATA", str(tmp_path))
-    assert lightrag_arm.default_store_dir() == tmp_path / "derived" / "lightrag"
+    project = envconfig.resolve_project(os.getcwd())
+    assert lightrag_arm.default_store_dir() == (tmp_path / "projects" / envconfig.project_key(project)
+                                                / "derived" / "lightrag")
 
 
 def test_lightrag_load_prompts_accepts_array_object_and_lines(tmp_path):
