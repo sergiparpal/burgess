@@ -32,7 +32,10 @@ text, so a node rejected then was judged only against the spans other edges cite
 
 Find what is actually pending before spending any subagent budget.
 
-1. `mcp__plugin_burgess_burgess__kg_metrics()` → record the baseline `edges_by_epistemic_state` map (keys are the
+1. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` first, and keep its `advisory` block for step 3
+   and Stages 0b and 0c. This read brings the derived layer up to date (0.22.4): a source registered or edited since
+   the last pass raises its re-examination flags here, so the plan below queues them. Then
+   `mcp__plugin_burgess_burgess__kg_metrics()` → record the baseline `edges_by_epistemic_state` map (keys are the
    `epistemic_state` values: `unverified | grounded | rejected | failed | obsolete`).
 2. Call:
 
@@ -63,7 +66,10 @@ Find what is actually pending before spending any subagent budget.
      the batches until the sources or the pin change, or until a focus names them; in the field, 120 such
      pins were re-judged on every pass until 0.20.1. A record made before 0.20.2 does not count, because its
      grounder saw no source text, so those pins come back once. `reexamine` (0.20.2) counts the rejected nodes
-     queued again with `--reexamine`. In a batch, list such an item as `<id> (node, re-examine)`.
+     queued again with `--reexamine`. `reexaminable` (0.22.4) counts the rejected items queued again because a
+     source changed after they were judged (Stage 0c), and `reexaminable_held` those held back because no
+     source that flagged them is usable. Each such item comes marked `"reexamine": true`: in a batch, list it as
+     `<id> (node, re-examine)` or `<id> (edge, re-examine)`.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
    - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
@@ -82,10 +88,9 @@ Find what is actually pending before spending any subagent budget.
      level) and `hubs` (an attack could fail nothing) are left out of the batches, which then hold only
      extracted claims, still worth judging for what their spans say. Tell the user, with its `hint`, and launch
      no grounder for what it left out.
-3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
-   its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
-   honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to
-   the hub candidates, except any the plan lists in `attacked_hubs`.
+3. If `$ARGUMENTS` is non-empty, read step 1's `advisory` block: `advisory.signal == "structural-bridge"` marks
+   `advisory.nodes[]` as bridges (the honest advisory is degree; specificity-weighted betweenness stays GATED until
+   validated, §1.6). Add them to the hub candidates, except any the plan lists in `attacked_hubs`.
 
 Stop and report "queue empty — nothing to ground" **only if** the plan has **no** `batches` **and** there are
 no hub candidates; when `attacked_hubs` is not empty, add that every hub has been attacked and none has gained
@@ -106,7 +111,7 @@ A grounded/`failed` **span-present** edge's stored `span` is a snapshot taken wh
 source was later edited so that span no longer appears, the verdict is now resting on text that is gone. The
 projector recomputes this off the hot path and surfaces it (read-only — it **never** mutates the verdict):
 
-1. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` → read
+1. In Stage 0's `kg_context` advisory, read
    `advisory.stale_verdicts[]`. Each entry is `{edge_id, reason: "span-no-longer-in-source"}`: a grounded or
    `failed` edge whose stored span no longer verifies against its source file. (Empty when nothing diverged —
    the common case; if so, skip to Stage 1.)
@@ -133,27 +138,33 @@ wrong when the source set later **grows or changes** (sources contradict each ot
 one direction (a span that vanished); this **mirror** catches the other — a `failed`/`rejected` item, **nodes
 and span-less items included** (which R3 cannot see), that was judged against a source set that has since
 changed, so it may now be supportable and deserves a second look. The grounder queue never re-surfaces
-verdicted items on its own, so this is the only place they come back up.
+verdicted items on its own: these flags are how they come back up, and since 0.22.4 the plan queues them.
 
-1. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` → read `advisory.reexaminable_verdicts[]`.
-   Each entry is `{item_id, kind: "node"|"edge", state: "failed"|"rejected", reason}`. (Empty when the source
-   set has not moved since these items were judged — the common case; if so, skip to Stage 1.) When
-   `advisory.reexaminable_held` is present (0.22.2), the list is held back, wholly or in part: no source is
-   usable under the project's policy, or (0.22.3) every source that flagged an item is one the policy does not
-   accept now. No re-check could change those verdicts: say how many items it holds and why, with its `hint`,
-   and re-check only the items still listed (none, when no source is usable). The `reason` says what changed
+1. In Stage 0's `kg_context` advisory, read `advisory.reexaminable_verdicts[]` and its `_total`. Each entry is
+   `{item_id, kind: "node"|"edge", state: "failed"|"rejected", reason, files}`. (Empty when the source set has not
+   moved since these items were judged — the common case; if so, skip to Stage 1.) The `reason` says what changed
    (0.14.4):
    - `span-file-changed-since-judged` — an edge that quotes a span from a source file: the file its span
      comes from changed. Such an edge was judged on its own span, so another file changing never flags it.
    - `source-set-changed-since-judged` — a node, or an edge with no span in a configured file: the source
-     set changed, and the changed text mentions the item (a term-overlap filter).
-2. For each `item_id`, decide whether the source now supports it, then re-verdict it **only** via `kg_ground`
-   — exactly as for a fresh item. For a `span-file-changed-since-judged` edge, read its span in the changed
-   file (`kg_ground_item`) and judge whether it now states the relation. Promote to `grounded` with real
-   support (a verbatim `support_span` for a hypothesized item, else `support_note`), or leave the negative
-   verdict in place. This advisory is **strictly read-only**: it changes no `epistemic_state` and enqueues
-   nothing; re-grounding is always a manual `kg_ground` decision. The flag self-clears on the next projection
-   once the item leaves the `{failed, rejected}` set.
+     set changed, and a paragraph of the changed text shares two of the words of what the item claims (0.22.4;
+     through 0.22.3 any word of it, its verdict notes included, anywhere in that text). `files` (0.22.3) names
+     the sources with such a paragraph.
+2. **Do not re-check them yourself.** The plan already holds the rejected ones, every one rather than the 50
+   the list shows, as items marked `re-examine` (`queue.reexaminable`, 0.22.4), and the Stage 1 grounders judge
+   them with the sections of the source that flagged them (`kg_ground_item`'s `reexamine`). This command never
+   calls `kg_ground`. Tell the user in a line how many come back for a second look, and why.
+   - When `advisory.reexaminable_held` is present (0.22.2), part of the list is held back, and the plan's
+     `queue.reexaminable_held` counts it too: no source is usable under the project's policy, or (0.22.3)
+     every source that flagged an item is one the policy does not accept now. No re-check could change those
+     verdicts: say how many and why, with its `hint`.
+   - A `failed` item is not queued: an adversarial grounder refuted it with a counter-edge, whose span a new
+     source does not remove. Say how many there are, if any. They stay as they are.
+3. A grounder's new verdict on a re-examined item answers its flag, whatever the verdict (0.22.4). A confirmed
+   rejection drops the item from the plan and from this list, and a later change that bears on it flags it
+   again. Through 0.22.3 a flag lasted until its item left the negative states, and this stage asked the
+   orchestrator, which never calls `kg_ground`, to re-verdict the items itself: a re-check that kept a rejection
+   left the flag on every later pass. The advisory itself stays **read-only**: it changes no `epistemic_state`.
 
 ## Stage 1 — Verdict the queue in waves (kg-grounder)
 
@@ -178,14 +189,18 @@ items:
 - e_span-present__grounds__claim (edge)
 - idea-cold-brew-launch-c3 (node)
 - cliche-cold-brew-launch-o2 (node, re-examine)
+- e_cold-brew-launch__bridges__summer-menu (edge, re-examine)
 
 For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>", kind: "<edge|node>") and
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
 of the source (for an edge with no span, a proposal: shared_context, the source sections where both its ends
 are discussed, and, for a proposal from /burgess:kg-perturb, passage, the span a second reading of the source
 wrote it from, with its excerpt; for a node: source_context, the source sections that share the most of its
-words, with excerpts). Do not read files. An item marked re-examine is a rejected node judged again: stamp
-your verdict even though its `from` is that rejection. Then apply ONE verdict with
+words, with excerpts). Do not read files. An item marked re-examine was rejected before and is judged again:
+a node the user asked to have judged again, or an item a source changed under since its verdict, which then
+comes with reexamine, the sections of that source that share its words. Judge it on those as well, and stamp
+your verdict even though its `from` is that rejection: a rejection again is a verdict too, and it answers the
+re-examination. Then apply ONE verdict with
 mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), per your contract:
   - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction,
     between what the two nodes name, as your contract's relation table defines it, and the relation is
@@ -217,7 +232,8 @@ full reproject because the reconciler re-attaches them (§1.8).
 
 **Progress probe.** Between waves, or after a hiccup, call `kg_ground_plan` again with the same two arguments:
 an item drops out of it once it has a verdict, so its `batches` are exactly the work left. Re-launch only
-those. A `[diverge]` pin a grounder left `unverified` for want of support drops out of the plan once the
+those. A re-examined item drops out once a grounder has given it a new verdict, whatever it is (0.22.4). A
+`[diverge]` pin a grounder left `unverified` for want of support drops out of the plan once the
 grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`; since 0.22.0
 so does a claim whose only support lies below the project's required level. One it did not record stays in the
 plan: do not re-launch it, report it.

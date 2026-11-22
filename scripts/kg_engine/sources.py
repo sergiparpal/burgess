@@ -195,10 +195,12 @@ class SourceSet:
         self.path = Path(path) if path is not None else None
         self._exclude = Path(exclude) if exclude is not None else None
         self._texts: dict[str, str] = {}
+        self._paths: dict[str, Path] = {}   # basename -> the file it was read from (file_times, 0.22.4)
         self._content: set[str] = set()
         for p in self.resolve(self.path, exclude=self._exclude):
             try:
                 self._texts[p.name] = p.read_text(encoding="utf-8")
+                self._paths[p.name] = Path(p)
             except (OSError, ValueError):
                 # OSError = unreadable; ValueError covers UnicodeDecodeError (its superclass, NOT an
                 # OSError) so a non-UTF-8 / binary / UTF-16 file among the resolved set is SKIPPED instead
@@ -215,6 +217,7 @@ class SourceSet:
                 continue  # a configured source keeps its basename (an external copy's name is ext-prefixed)
             try:
                 self._texts[p.name] = p.read_text(encoding="utf-8")
+                self._paths[p.name] = p
             except (OSError, ValueError):
                 continue
             self._extra.add(p.name)
@@ -286,6 +289,18 @@ class SourceSet:
             except OSError:
                 sig.append((p.name, None, None))
         return tuple(sig)
+
+    def file_times(self) -> "dict[str, float]":
+        """``{basename: modification time}`` of the files this set read, external copies included (0.22.4): when
+        each last changed, to re-test a re-examination flag stored before 0.22.3, which names no file, against the
+        files changed after its item's verdict. A file that can no longer be stat'ed is left out."""
+        out: "dict[str, float]" = {}
+        for name, path in self._paths.items():
+            try:
+                out[name] = path.stat().st_mtime
+            except OSError:
+                continue
+        return out
 
     def stat_signature(self) -> tuple:
         """``signature`` over this set's own files, external copies included (what the projector's

@@ -224,7 +224,13 @@ not usable when it was recorded (the record keeps the usable files' sha256), and
 `kg_ground_plan` leaves the hypotheses and the hub attacks out as `blocked`, keeping the extracted claims. Since
 0.22.3 a re-examination flag records the changed files that raised it (`files`), and `kg_context` holds back a flag
 while every one of them is unusable: the projector keeps the flags, and the facade, which knows the policy, passes
-the usable files to the reader.
+the usable files to the reader. Since 0.22.4 a flag is answered by the item's next verdict, whatever it is: the flag
+stores the grounding audit log's size when it was raised (`audit_mark`), and a record for the item beyond it drops
+the flag at the next projection. `kg_ground_plan` queues the open flags on rejected items for grounders, marked
+`reexamine`, and `kg_ground_item` gives each the sections of the files that raised it. A node or span-less edge is
+flagged only where a paragraph of the changed text shares two of the words of what it claims
+(`Projector._bearing_files`, `groundplan.rank_units`: the rule its grounder's context is ranked by), so a flag
+stands only where its grounder will be shown such a passage.
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged
@@ -256,8 +262,9 @@ exactly one audit record, defeating replay. State cache: `<project>/.kg-reconcil
   (cheap signature, per-file stats/hashes, and the two read-only source-change advisories below).
 
 Two **read-only** source-change advisories ride in `meta`, computed off the hot path and gated on a
-source-payload hash so they refresh whenever the source set moves — neither ever mutates a verdict or
-re-queues anything (re-grounding stays a `kg_ground` decision):
+source-payload hash so they refresh whenever the source set moves — neither ever mutates a verdict
+(re-grounding stays a `kg_ground` decision); since 0.22.4 `kg_ground_plan` reads the second to queue its
+rejected items for a second look:
 - **R3 stale verdicts** (`stale_verdicts`) — a `grounded`/`failed` **span-present** edge whose stored
   span no longer verifies against its source file (the evidence *shrank*).
 - **R3-mirror re-examinable verdicts** (`reexaminable_verdicts`) — a `failed`/`rejected` item (nodes and
@@ -265,8 +272,11 @@ re-queues anything (re-grounding stays a `kg_ground` decision):
   (non-monotonic evidence), filtered to items whose text overlaps the changed source (`source_file_sigs`
   tracks the per-file baseline). Since 0.14.4 an edge that quotes a span from a configured file is flagged
   only when that file changes (`span-file-changed-since-judged`): it was judged on its own span. Nodes and
-  span-less items keep the source-set rule (`source-set-changed-since-judged`). Self-clearing on re-ground;
-  surfaced in `kg_context.advisory` and the `GRAPH_REPORT`. The divergence side mirrors it: `failed`-fated brief discards are surfaced as
+  span-less items keep the source-set rule (`source-set-changed-since-judged`), since 0.22.4 by paragraph: a
+  paragraph of a changed file must share two of the words of what the item claims, never its verdict notes. Self-clearing on the item's
+  next verdict, whatever it is (0.22.4: a record in the grounding audit log beyond the flag's `audit_mark`;
+  through 0.22.3 only when the item left the negative states); surfaced in `kg_context.advisory` and the
+  `GRAPH_REPORT`, and queued for grounders by `kg_ground_plan`. The divergence side mirrors it: `failed`-fated brief discards are surfaced as
   `reexaminable_discards` on a source change with an explicit un-seal lever (never auto-un-sealed).
 
 Staleness (`is_stale()`) is content-driven, independent of git state: a cheap canon-dir

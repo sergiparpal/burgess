@@ -236,7 +236,9 @@ def test_the_grounder_judges_a_node_against_its_source_context():
     text = _flat(GROUNDER)
     assert "`source_context` (0.20.2): the source sections that share the most of the node's words" in text
     assert "copy a `support_span` verbatim from one that states it" in text
-    assert "The exception is an item your batch marks `re-examine` (0.20.2)" in text
+    # 0.22.4 names the second kind of re-examined item after this one (tests/test_fix_reexamination_answered.py)
+    assert ("The exception is an item your batch marks `re-examine`: a rejected node the user asked to have judged "
+            "again (0.20.2)") in text
 
 
 def test_the_command_reads_reexamine_and_tells_the_grounder():
@@ -244,7 +246,9 @@ def test_the_command_reads_reexamine_and_tells_the_grounder():
     assert "If the line starts with the word `--reexamine`, drop that word" in text
     assert "reexamine: <true only when the line started with --reexamine>" in text
     assert "for a node: source_context, the source sections that share the most of its words" in text
-    assert "An item marked re-examine is a rejected node judged again" in text
+    # 0.22.4: a re-examined item is also one a source changed under (tests/test_fix_reexamination_answered.py)
+    assert ("An item marked re-examine was rejected before and is judged again: a node the user asked to have "
+            "judged again") in text
 
 
 def test_the_tool_reference_documents_it():

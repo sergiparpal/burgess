@@ -197,6 +197,12 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     it shares and an `excerpt`. A node has no span to locate its text by, so this is its evidence: judge what
     the node claims against those excerpts, and copy a `support_span` verbatim from one that states it. Through
     0.20.1 a node came with no source text, and its grounder could only search the spans other edges cited.
+  - For an item your batch marks `re-examine` because a source changed after it was rejected (0.22.4):
+    `reexamine`, with `reason` (why it was flagged), `files` (the sources whose changed text shares its words,
+    each with its level and `usable`) and `context`, the usable sections of those files that share the most of
+    its words, ranked as a node's `source_context` is. Its usual evidence comes too, but that is what it was
+    judged against before; `reexamine.context` is what is new. An edge flagged because its own span's file
+    changed has `context: null` there: judge its span in its own `context`, which is that file's text now.
   - **Every source has a level (0.21.0, 0.22.0).** Each excerpt and section carries `source`: `class` is
     `own` (the user's notes) or `external` (an outside text the user registered with `/burgess:kg-sources`,
     copied by the engine), with its `level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community,
@@ -334,8 +340,13 @@ concept as another node, `get_node` the id you suspect.
       a claim because its only support is below the required level.
 2. **Stamp the verdict** with `kg_ground(target_id=<id>, verdict=..., kind=..., note=...)`, using the id exactly as
    your batch lists it. Confirm `ok:true` and `from == "unverified"`. If `from` was already a verdict, skip —
-   someone else ruled. The exception is an item your batch marks `re-examine` (0.20.2): it is a rejected node
-   the user asked to have judged again, so its `from` is that earlier verdict and yours replaces it.
+   someone else ruled. The exception is an item your batch marks `re-examine`: a rejected node the user asked to
+   have judged again (0.20.2), or a rejected edge or node a source changed under after its verdict (0.22.4). Its
+   `from` is that earlier verdict and yours replaces it. **Always stamp one**, rejected again included, with a
+   note that names what you re-read: that verdict is what tells the engine the item had its second look, so the
+   plan stops offering it. Ground it only on a passage that states it, by the same rules as any item. When the
+   only passage that does lies in a source with `usable: false`, keep it rejected and say so in the note. Never
+   record a re-examined item with `kg_record_unsupported`: that is for unverified items.
 3. **A node in your batch** is a hypothesized one (a `/kg-diverge` pin or a generated proposal), groundable on
    its own even with no incident edge. If the source verbatim-supports the idea, promote it with
    `kg_ground(target_id=<node.id>, kind="node", verdict="grounded", support_span="<verbatim run>")` (or
