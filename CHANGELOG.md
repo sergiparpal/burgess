@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.22.4 — 2026-11-22
+
+Fixes from the review of the second phase of the field test, before its `/burgess:kg-ground`. The project now
+accepts level 4, so the preprint counts and the 113 rejected items it flagged are due for a second look. The
+review found that this second look could not happen as designed.
+
+### Fixed
+
+- **A second look now settles a verdict to re-examine, even when it keeps the rejection.** Through 0.22.3 a flag
+  lasted until its item stopped being rejected. So a re-check that confirmed a rejection left the item on the
+  list for every later pass. The list shows 50 items, so the same 50 of the 113 would have come back each time
+  and the other 63 would never have shown. Now the item's next verdict, whatever it is, answers its flag, and a
+  later source that bears on the item flags it again.
+- **The grounders do the second look, with the text that raised it.**
+  - Through 0.22.3, `/burgess:kg-ground` asked its own orchestrating agent to re-check the flagged items. That
+    agent never calls `kg_ground`, and it reads your memory notes, which the grounders do not.
+  - Now the plan sends every flagged rejected item to the grounders, after the new work, marked for
+    re-examination.
+  - Each grounder gets the passages of the source that flagged the item. A generated idea re-checked this way
+    used to get only the passages of your notes, which it had already been judged against, and nothing from
+    the preprint.
+  - A refuted (`failed`) item is not sent: its refutation stands on a counter-argument the new source does not
+    remove.
+- **A source flags only what it has a passage about.** Through 0.22.3 an item was flagged when it shared a single
+  word with the new text, and its words included the grounders' notes on why it was rejected. Those notes are in
+  English, so the English preprint flagged 113 of your Spanish items, mostly through words like "source",
+  "neither" or "untested". Now a paragraph of the new text must share two of the words of what the item claims,
+  numbers left out. That is the same rule that picks the passages its grounder reads, so every flag comes with a
+  passage. On your graph, 8 of the 113 stand: the first read after the upgrade rebuilds the index once and drops
+  the other 105.
+- **Registering a new copy of a source keeps its flags.** When a source is registered again as a new copy and
+  the old copy is marked `superseded`, the flags it raised now name the new copy too. Through 0.22.3 they kept
+  naming only the old copy, so marking it superseded held them back.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The views carry the 0.22.3 mark, so the first read that projects re-renders them, with the same look.
+- The first read rebuilds the index once (new projection rules). That rebuild re-tests the flags made before this
+  release, and on your graph it keeps 8 of the 113.
+- Those 8 do not record when they were raised. They count the verdicts given since the engine last updated its
+  index, so the next pass judges each of them once.
+
 ## 0.22.3 — 2026-11-22
 
 Two fixes from the first field test of 0.22.2. One of its steps left the project requiring level 2, with one

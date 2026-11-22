@@ -2592,3 +2592,84 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   day, which the derived layer no longer has.
 - **Pinned in:** `tests/test_fix_reexamination_provenance.py` (6 tests). `test_fix_held_reexamination.py` and
   `test_fix_reexaminable_own_file.py` follow the new flag shape and rule.
+
+## A re-examination is answered by the item's next verdict, and the grounders do it with the text that raised it (2026-11-22)
+
+- **Decision:**
+  - A flag stores `audit_mark`, the grounding audit log's size in bytes when it was raised
+    (`Projector._reexaminable_verdicts(mark=)`). `_refilter_reexaminable` drops a flag when the log holds a record
+    for its item beyond that mark (`groundaudit.read_audit_index`, `AuditIndex.judged_since`), whatever the
+    verdict. A flag stored before 0.22.4 gets the mark of the first record after the previous projection wrote
+    the index: the new meta `projected_at`, or the index file's mtime on an older index
+    (`Projector._index_written_at`). The mark is never shown: the advisory's entries keep their shape.
+  - A fresh flag for an item already flagged merges its `files` into the carried flag and keeps the earlier
+    mark. Through 0.22.3 the fresh flag was dropped.
+  - `kg_ground_plan` queues every open flag on a `rejected` item, after everything new, as `{id, kind,
+    reexamine: true}`, counted in `queue.reexaminable`. Held flags are counted in `queue.reexaminable_held`.
+    `failed` items are not queued. The plan reads the stored flags and the audit log (`_open_reexaminations`) and
+    still never projects, so the progress probe drops an item a grounder has just judged.
+  - `kg_ground_item` adds `reexamine: {reason, files, context}` (`_reexamine_view`). `context` is
+    `_ranked_context` restricted to the flag's usable files, or over every usable source for a flag that names
+    none. It is `null` for a span-file flag, whose own `context` is the changed file.
+  - A node or span-less edge is flagged only where a paragraph of a changed file shares two of the words of
+    what it claims (`Projector._claim_words`: `groundplan.node_terms` of its label and body, or of its ends'
+    labels and span, without digits; `_bearing_files`: `groundplan.rank_units` over `text_units`), the rule its
+    grounder's context is ranked by. Through 0.22.3 one shared `_content_terms` word anywhere in the changed text
+    sufficed, and the terms included the edge notes and the node's verdict paragraphs.
+  - `PROJECTION_RULES` goes to "5", so the first read rebuilds the index. The rebuild re-tests every flag
+    stored without a mark, once (`_retest_before_0_22_4`, also run by the plan on a not yet rebuilt index). A
+    0.22.3 flag is tested against the files it names. An older flag is tested against the files whose
+    modification time is after its item's last audit record (`SourceSet.file_times`). Each is kept with the
+    files that bear on it, or dropped. A flag no file can be found for is kept as it was.
+  - `/burgess:kg-ground` Stage 0 reads `kg_context` first, which projects, so a source registered since the
+    last pass flags its items before the plan is read; Stages 0b and 0c read that advisory.
+  - `/burgess:kg-ground` Stage 0c only reports: the counts, the held part with its hint, and the failed items.
+  - The grounder contract stamps a verdict on every re-examined item, rejected again included, with a note
+    naming what it re-read. It never records one as unsupported.
+- **Field review it answers** (Windows, 2026-11-22, session 7de5e817, on 0.22.3, phase 2 of my test plan):
+  - The user moved the policy to `required_level` 4, so all 10 sources count: 119 pins queued, and 113 flags
+    listed (105 span-less generated edges and 8 nodes, all `rejected`, none with `files`).
+  - Reproduced in a temp rig: a flagged item re-stamped `rejected` stayed flagged on every later projection,
+    because `_refilter_reexaminable` dropped a flag only when the item left `{failed, rejected}`.
+  - With `_REEXAMINABLE_CAP` 50 and a stable order, the same 50 would have come back every pass, and the other
+    63 would never have shown.
+  - Stage 0c told the orchestrator to re-verdict via `kg_ground`, which the command neither allows nor does. The
+    orchestrator also reads the user's memory notes, which 0.13.4 kept from the grounders.
+  - `kg_ground_item` gave a span-less proposal its `shared_context`, where its ends' spans lie. That is the
+    notes, which it had already been judged against. A preprint registered without `build` holds no span, so
+    a re-check would never have shown the grounder the text that flagged the item.
+  - The user approved the fix («Sí, prepárala»).
+  - A field check over a copy of the project with the first draft then showed the preprint in the re-check
+    context of only 10 of the 113. The flags came from single words, mostly English words of the grounders'
+    own verdict notes ("source" 50, "neither" 35, "context", "untested"). The claims' own words left 77, nearly
+    all through "meta" or "llm" alone, and a paragraph sharing two of them left 10, the same 10 whose context
+    showed the preprint; leaving numbers out (one matched only "11" and "14") left 8. So the raise rule changed
+    in the same release: a flag the grounder would get no new
+    passage for costs a re-check that cannot change anything, and with an English paper per phase-3 source it
+    would have come back for most of the graph each time.
+- **Why the audit log and not a timestamp or a canon fingerprint:**
+  - The log is append-only, so a byte offset orders a projection and a verdict exactly. Their timestamps are
+    to the second, and in one second a test can reject an item, register a source and project.
+  - A same-state re-verdict keeps `verdict_at` by design (0.10.2, the hub-attack memory reads it), so `verdict_at`
+    cannot tell a re-confirmation.
+  - A fingerprint of the notes would also move for edits that are not verdicts, and would not move for a
+    verdict given with no note.
+- **Why the plan and not Stage 0c:** the command never calls `kg_ground` (its invariant, and its `allowed-tools`).
+  The grounders judge without the user's memory (0.13.4), in parallel, in batches, and with the same contract as
+  every other item. Stage 0b already routes stale verdicts to a grounder for the same reason.
+- **Accepted trade-offs:**
+  - Words, not meaning: a source in another language than the graph's reaches only the items it shares words
+    with. On the field graph the English preprint has a passage about 8 rejected items and 11 of the 119 pins.
+    The grounder could not judge the others against it either: it reads what the ranking gives it.
+  - An older flag is re-tested by file times. A file copied with an old time is never a candidate, and a flag
+    raised by it alone is kept as it was.
+  - A flag stored before 0.22.4 counts only verdicts recorded after the index was last written, so a re-check made
+    between its raise and that write is not counted, and the item is judged once more.
+  - A verdict stamped between a source change and the projection that notices it does not answer the fresh flag
+    that projection raises. That costs one extra re-check, never a lost one.
+  - A `failed` flag stays listed, unqueued, until the clash rules (planned with `obsolete` and dates) decide what
+    a new source may do to a refutation.
+- **Pinned in:** `tests/test_fix_reexamination_answered.py` (25 tests). `tests/test_kg_ground_plan.py` gains the
+  two queue counts. `test_fix_ground_node_evidence.py` and `test_fix_held_reexamination.py` follow the reworded
+  command and grounder texts, and `test_review_r8.py`'s body-terms test names two body words, as the paragraph
+  rule asks.

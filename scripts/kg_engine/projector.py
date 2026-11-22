@@ -26,12 +26,14 @@ from typing import TYPE_CHECKING, NamedTuple
 from . import envconfig
 from .atomicio import atomic_write_text as _atomic_write
 from .buildplan import _STOPWORDS, _WORD, _fold, _forms
-from .canon import Canon, _git
+from .canon import GROUND_AUDIT, Canon, _git
 from .graphio import node_link_data
+from .groundaudit import AuditIndex, audit_key, read_audit_index
+from .groundplan import node_terms, rank_units, text_forms, text_units
 from .harness import idf_seeds, node_specificity
 from .harness import specificity as _specificity_gate
 from .model import (Edge, EpistemicState, FAILURE_STATE_VALUES, NON_LIVE_STATE_VALUES, Node, Provenance,
-                    node_content_hash, normalize_text, slug)
+                    node_content_hash, normalize_text, slug, utcnow)
 from .sources import section_corpus
 
 if TYPE_CHECKING:  # type-only; the projector duck-types .verifies/.concat at runtime
@@ -64,7 +66,11 @@ _NEW_EDGE_COLUMNS = {"owner"}
 #   "4" (0.14.4): a span-backed edge is re-examinable only when its own file changes (_span_file), so the
 #                 full rebuild re-filters the stored flags and drops those the source-set rule raised on
 #                 such edges (the field index held 62).
-PROJECTION_RULES = "4"
+#   "5" (0.22.4): a node or span-less edge is re-examinable only when a paragraph of the changed text shares
+#                 two of the words of what it claims (_bearing_files), so the full rebuild re-tests the flags
+#                 stored before it and drops those no such paragraph bears on (the field index held 113, raised
+#                 mostly by English words of the grounders' own verdict notes; the preprint bears on 8).
+PROJECTION_RULES = "5"
 # The `nodes` table column order, in DDL order — the single source of truth for the positional
 # persistence contract. `_NODES_DDL`, the INSERT placeholder string, `_node_row`, and the
 # incremental rank-refresh all derive from this tuple, so a column add/reorder is one edit here
@@ -127,7 +133,8 @@ _STALE_VERDICTS_CAP = 50
 # The R3-MIRROR re-examinable-verdicts advisory (non-monotonic evidence): a READ-ONLY signal that a
 # failed/rejected item was judged against a source set that has since changed, so it deserves a
 # grounder re-look. Cap parallels the stale-verdict advisory's (_STALE_VERDICTS_CAP) so the inline
-# kg_context list can never bust the token budget. The advisory NEVER mutates a verdict, never re-queues.
+# kg_context list can never bust the token budget. The advisory NEVER mutates a verdict; since 0.22.4
+# kg_ground_plan reads the stored flags (all of them, not this capped list) to queue the rejected items.
 _REEXAMINABLE_CAP = 50
 # The two verdict states the re-examinable advisory covers — the SAME negative-memory vocabulary as
 # model.FAILURE_STATES ({REJECTED, FAILED}), referenced here (never redefining that global) so
@@ -141,6 +148,10 @@ _REEXAMINABLE_STATES = (EpistemicState.FAILED, EpistemicState.REJECTED)
 # changed text that mentions it.
 REEX_SOURCE_SET = "source-set-changed-since-judged"
 REEX_SPAN_FILE = "span-file-changed-since-judged"
+# Where in the grounding audit log a flag was raised (0.22.4): the log's size in bytes then. A verdict recorded
+# beyond it, whatever its state, is the item judged again, and answers the flag (`_refilter_reexaminable`).
+# Kept in the stored flag and never shown: the advisory's entries keep their shape.
+REEX_MARK = "audit_mark"
 # Term-overlap noise filter (§Stage 6): tokens for the relevance test that decides whether the CHANGED
 # source text actually bears on a failed/rejected item. Applied AFTER normalize_text (which casefolds),
 # so the class is lowercase-only; it deliberately splits on '-'/'_' (unlike harness._WORD, which keeps
@@ -688,6 +699,7 @@ class Projector:
         # prior meta is read BEFORE the parse (review-r6): the cache-miss parse is stat-gated
         # against it. Independent of the canon files, so the reorder changes nothing else.
         prior = self._read_meta() if self.db_path.exists() else {}
+        prior_written = self._index_written_at(prior)   # when the previous projection wrote it (0.22.4)
         if cache and cache.sig == cur_sig:
             nodes, cur_hashes, cur_stats = cache.nodes, cache.hashes, cache.stats
         else:
@@ -750,14 +762,28 @@ class Projector:
         # and never re-queues anything (the grounder's queue stays unverified-only).
         cur_source_sigs = self._source_file_sigs(sources)
         prior_reexaminable = prior.get("reexaminable_verdicts") or []
-        if do_full or cur_source_hash != prior.get("source_hash", ""):
+        # The grounding audit log, read only when there are flags to answer or to mark (0.22.4): a verdict
+        # recorded after a flag was raised answers it (_refilter_reexaminable).
+        source_moved = do_full or cur_source_hash != prior.get("source_hash", "")
+        audit = (read_audit_index(self.canon.root / GROUND_AUDIT) if (prior_reexaminable or source_moved)
+                 else AuditIndex())
+        if source_moved:
             fresh_reex = self._reexaminable_verdicts(nodes, sources,
-                                                     self._changed_source_texts(sources, prior))
-            carried_reex = self._refilter_reexaminable(prior_reexaminable, nodes, sources)
-            seen_reex = {r["item_id"] for r in carried_reex}
-            reexaminable = carried_reex + [r for r in fresh_reex if r["item_id"] not in seen_reex]
+                                                     self._changed_source_texts(sources, prior), mark=audit.size)
+            reexaminable = self._refilter_reexaminable(prior_reexaminable, nodes, sources, audit, prior_written)
+            # A fresh flag for an item already flagged adds the files that raised it (0.22.4); the mark stays
+            # the earlier one, since the item has not been judged since. Through 0.22.3 the fresh flag was
+            # dropped, so a source registered again under a new copy left the flag naming only the old
+            # copy, and marking that copy superseded held the flag back.
+            carried_by_id = {r["item_id"]: r for r in reexaminable}
+            for r in fresh_reex:
+                carried = carried_by_id.get(r["item_id"])
+                if carried is None:
+                    reexaminable.append(r)
+                elif carried.get("files") and r.get("files"):
+                    carried["files"] = sorted(set(carried["files"]) | set(r["files"]))
         else:
-            reexaminable = self._refilter_reexaminable(prior_reexaminable, nodes, sources)
+            reexaminable = self._refilter_reexaminable(prior_reexaminable, nodes, sources, audit, prior_written)
 
         G = self._build_graph(nodes)
         # On an incremental reproject hand _ranks the prior topology signature + prior betweenness so it
@@ -1274,19 +1300,87 @@ class Projector:
         ]))
 
     @staticmethod
-    def _reexaminable_entry(item_id, kind, state, reason=None, files=None) -> dict:
+    def _claim_words(item, kind: str, by_id) -> "list[str]":
+        """The words of what an item claims, for the re-examination test (0.22.4): a node's label and body
+        without its lineage lines and verdict paragraphs, an edge's two end labels and its span
+        (`groundplan.node_terms`, the words a grounder's context is ranked by). Never the notes: on the field
+        graph a grounder's English verdict notes ("neither source…", "untested…") tied most of 113 Spanish items
+        to an English preprint with a passage about 8 of them. Numbers are left out too: a paragraph that shares an "11"
+        and a "14" with a claim says nothing about it."""
+        if kind == "node":
+            words = node_terms(item.label, item.body)
+        else:
+            src, tgt = by_id.get(item.source), by_id.get(item.target)
+            ends = " ".join(x for x in ((src.label if src else item.source), (tgt.label if tgt else item.target)) if x)
+            words = node_terms(ends, item.span or "")
+        return [w for w in words if not w.isdigit()]
+
+    @staticmethod
+    def _bearing_files(words, per_file: "dict[str, str]", cache: dict) -> "list[str]":
+        """The files of ``per_file`` (``{name: text}``) with a paragraph that shares at least two of ``words``
+        (one for a one-word claim): `groundplan.rank_units` over `text_units`, the rule a grounder's
+        `reexamine.context` is ranked by, so a flag stands only where its grounder will be shown such a
+        passage (0.22.4). ``cache`` keeps each file's paragraph forms for one pass."""
+        if not words:
+            return []
+        out = []
+        for name, text in per_file.items():
+            if name not in cache:
+                cache[name] = [text_forms(text[a:b]) for a, b in text_units(text or "")]
+            if rank_units(cache[name], words):
+                out.append(name)
+        return out
+
+    def _retest_before_0_22_4(self, entry, item, kind, by_id, sources, audit, cache) -> "tuple[bool, list | None]":
+        """`(keep, files)` for a flag stored before 0.22.4 (no ``REEX_MARK``), tested once by the 0.22.4 rule
+        (`_bearing_files`). A 0.22.3 flag is tested against the files it names, as they read now; one from
+        before 0.22.3 names none, and is tested against the files changed after its item's last verdict (the
+        file's time against the audit log's). Kept, naming the files that bear on it, when one does; dropped when
+        none does. A flag no file can be found for (its files gone, or no file changed since the verdict, or no
+        verdict on record) is kept as it was: nothing says what raised it. A span-file flag keeps its own rule."""
+        if entry.get("reason") == REEX_SPAN_FILE:
+            return True, entry.get("files")
+        try:
+            texts = sources.texts
+        except Exception:  # noqa: BLE001 — no file list: keep the flag as it was
+            return True, entry.get("files")
+        named = [f for f in (entry.get("files") or []) if f in texts]
+        if entry.get("files"):
+            candidates = named
+        else:
+            judged = audit.last_at.get(audit_key(kind, entry.get("item_id")), "")
+            candidates = []
+            if judged:
+                from datetime import datetime, timezone
+                for name, mtime in (sources.file_times() if hasattr(sources, "file_times") else {}).items():
+                    try:
+                        when = datetime.fromtimestamp(mtime, timezone.utc).isoformat(timespec="seconds")
+                    except (OverflowError, OSError, ValueError):
+                        continue
+                    if name in texts and when > judged:
+                        candidates.append(name)
+        if not candidates:
+            return True, entry.get("files")
+        bearing = self._bearing_files(self._claim_words(item, kind, by_id), {c: texts[c] for c in candidates}, cache)
+        return (True, bearing) if bearing else (False, None)
+
+    @staticmethod
+    def _reexaminable_entry(item_id, kind, state, reason=None, files=None, mark=None) -> dict:
         """The advisory record for one re-examinable item — one shape for the full scan and the refilter.
         ``kind`` is ``"node"``/``"edge"``; ``state`` is the current ``failed``/``rejected`` value; ``reason``
         is ``REEX_SPAN_FILE`` for a span-backed edge whose own file changed (0.14.4), else
         ``REEX_SOURCE_SET``. ``files`` (0.22.3) are the changed files whose text bears on the item, so a reader
         that knows the evidence policy can hold back a flag only unusable files raised; a flag from before
-        0.22.3 has none."""
+        0.22.3 has none. ``mark`` (0.22.4, stored as ``REEX_MARK``) is the point of the grounding audit log
+        where the flag was raised: a verdict recorded beyond it answers the flag."""
         out = {"item_id": item_id, "kind": kind,
                "state": state.value if isinstance(state, EpistemicState) else state,
                "reason": reason or REEX_SOURCE_SET}
         names = sorted({f for f in (files or []) if f})
         if names:
             out["files"] = names
+        if isinstance(mark, int) and mark >= 0:
+            out[REEX_MARK] = mark
         return out
 
     def _full_note_for_terms(self, n):
@@ -1303,7 +1397,8 @@ class Projector:
         except Exception:  # noqa: BLE001 — a read hiccup degrades to the shell (label/endpoint terms only)
             return n
 
-    def _reexaminable_verdicts(self, nodes, sources, changed_text: "str | dict[str, str]" = "") -> list[dict]:
+    def _reexaminable_verdicts(self, nodes, sources, changed_text: "str | dict[str, str]" = "",
+                               mark: "int | None" = None) -> list[dict]:
         """R3-MIRROR (READ-ONLY): failed/rejected items — nodes AND edges, span-present AND span-less —
         that were judged against a source set which has since changed, so they deserve a grounder re-look.
         Item-agnostic and span-agnostic on purpose (R3 covers neither nodes nor span-less items), because
@@ -1318,7 +1413,8 @@ class Projector:
         ``changed_text`` is per file, ``{basename: text}`` (``_changed_source_texts``); a plain string is
         the whole changed text with no file to tell, as before. A span-backed edge (``_span_file``) is
         tested against the changed text of ITS file only and flagged ``REEX_SPAN_FILE`` (0.14.4); a file
-        added or edited elsewhere cannot change what its own span states."""
+        added or edited elsewhere cannot change what its own span states. ``mark`` (0.22.4) is the grounding
+        audit log's size now, stored in each flag: a verdict recorded after this point answers it."""
         if not sources:
             return []
         per_file = changed_text if isinstance(changed_text, dict) else {"": changed_text or ""}
@@ -1329,13 +1425,11 @@ class Projector:
             configured = set(sources.texts)
         except Exception:  # noqa: BLE001 — no file list: every item falls back to the source-set rule
             configured = set()
-        # The terms of each changed file (0.22.3), so a flag records which files bear on its item.
+        # The terms of each changed file (0.22.3), for a span-backed edge's own-file test.
         file_terms: dict = {name: self._content_terms(text) for name, text in per_file.items()}
         by_id = {n.id: n for n in nodes}
+        forms_cache: dict = {}
         out: list[dict] = []
-
-        def bearing(terms: set) -> list:
-            return [name for name, ft in file_terms.items() if terms & ft]
 
         for n in nodes:
             node_is_candidate = n.epistemic_state in _REEXAMINABLE_STATES
@@ -1343,31 +1437,44 @@ class Projector:
             if not node_is_candidate and not edge_candidate:
                 continue  # most nodes: skip the canon re-read entirely
             full = self._full_note_for_terms(n)  # recover body + edge notes from canon (shell has neither)
+            # A node or span-less edge is flagged where a paragraph of a changed file shares two of the words of
+            # what it claims (0.22.4, `_bearing_files`); through 0.22.3 any one word of its label, body or notes
+            # anywhere in the changed text did, the grounders' English verdict notes included.
             if node_is_candidate:
-                terms = self._node_terms(full)
-                if terms & changed_terms:
-                    out.append(self._reexaminable_entry(n.id, "node", n.epistemic_state, files=bearing(terms)))
+                files = self._bearing_files(self._claim_words(full, "node", by_id), per_file, forms_cache)
+                if files:
+                    out.append(self._reexaminable_entry(n.id, "node", n.epistemic_state, files=files, mark=mark))
             for e in full.edges:
                 if e.epistemic_state not in _REEXAMINABLE_STATES:
                     continue
                 own = self._span_file(e, configured)
                 if own is None:
-                    terms = self._edge_terms(e, by_id)
-                    if terms & changed_terms:
-                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, files=bearing(terms)))
+                    files = self._bearing_files(self._claim_words(e, "edge", by_id), per_file, forms_cache)
+                    if files:
+                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, files=files,
+                                                            mark=mark))
                 elif own in per_file:
                     if self._edge_terms(e, by_id) & file_terms[own]:
                         out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, REEX_SPAN_FILE,
-                                                            files=[own]))
+                                                            files=[own], mark=mark))
         return out
 
-    def _refilter_reexaminable(self, prior, nodes, sources) -> list[dict]:
+    def _refilter_reexaminable(self, prior, nodes, sources, audit: "AuditIndex | None" = None,
+                               legacy_since: str = "") -> list[dict]:
         """Re-verify ONLY the already-flagged items against the current canon (the term-overlap re-scan
         is gated on do_full/source-moved). Drops a prior flag whose item was DELETED or has LEFT
-        ``{failed, rejected}`` (i.e. was re-grounded) — self-clearing, mirroring _refilter_stale. A flag,
-        once raised, persists (regardless of later term overlap) until the item is re-grounded; new flags
-        can only come from a source change (which moves source_hash → the full re-scan branch), so this
-        loses nothing. Empty when no source is configured."""
+        ``{failed, rejected}`` (i.e. was re-grounded) — self-clearing, mirroring _refilter_stale — and,
+        since 0.22.4, one whose item was JUDGED AGAIN after the flag was raised, whatever the verdict: the
+        grounding audit log (``audit``) holds a record for it beyond the flag's ``REEX_MARK``. That second
+        look is what the flag asked for, and a later source change that bears on the item flags it anew.
+        Through 0.22.3 a flag lasted until its item left the negative states, so a re-check that confirmed a
+        rejection left it flagged on every pass, and with the advisory capped at 50 the same 50 of the field's
+        113 would have come back each time while the other 63 never showed.
+
+        A flag stored before 0.22.4 has no mark. It gets one here, the point of the log after
+        ``legacy_since``, the moment the previous projection wrote the index (which carried the flag): a
+        verdict recorded since then was given after the flag was raised. An index with no such moment, or a
+        log with no record after it, gives the log's end. Empty when no source is configured."""
         if not prior or not sources:
             return []
         try:
@@ -1376,6 +1483,11 @@ class Projector:
             configured = set()
         node_state = {n.id: n.epistemic_state for n in nodes}
         edges = {e.id: e for n in nodes for e in n.edges}
+        owner = {e.id: n for n in nodes for e in n.edges}
+        by_id = {n.id: n for n in nodes}
+        audit = audit if audit is not None else AuditIndex()
+        legacy_mark = None
+        forms_cache: dict = {}
         out: list[dict] = []
         for entry in prior:
             item_id, kind = entry.get("item_id"), entry.get("kind")
@@ -1388,7 +1500,26 @@ class Projector:
             # own file is what bears on its verdict, and a change there raises a REEX_SPAN_FILE flag.
             if edge is not None and reason != REEX_SPAN_FILE and self._span_file(edge, configured):
                 continue
-            out.append(self._reexaminable_entry(item_id, kind, state, reason, entry.get("files")))
+            mark = entry.get(REEX_MARK)
+            files = entry.get("files")
+            if not isinstance(mark, int):
+                if legacy_mark is None:
+                    legacy_mark = audit.mark_after(legacy_since) if legacy_since else audit.size
+                mark = legacy_mark
+                if audit.judged_since(audit_key(kind, item_id), mark):
+                    continue
+                # Stored before 0.22.4: tested once by its rule, with the item as the canon holds it.
+                if kind == "node":
+                    item = self._full_note_for_terms(by_id[item_id])
+                else:
+                    full = self._full_note_for_terms(owner[item_id])
+                    item = next((x for x in full.edges if x.id == item_id), edge)
+                keep, files = self._retest_before_0_22_4(entry, item, kind, by_id, sources, audit, forms_cache)
+                if not keep:
+                    continue
+            if audit.judged_since(audit_key(kind, item_id), mark):
+                continue   # judged again since the flag was raised (0.22.4): the flag is answered
+            out.append(self._reexaminable_entry(item_id, kind, state, reason, files, mark))
         return out
 
     def _save_meta(self, con, head, hashes, gate_on=0, source_hash="", stale_verdicts=None, topo_sig="",
@@ -1407,6 +1538,8 @@ class Projector:
         # the live-topology signature these ranks were computed over (projector-1): lets the next
         # projection reuse betweenness when the topology is unchanged.
         con.execute("INSERT OR REPLACE INTO meta VALUES ('topo_sig', ?)", (topo_sig or "",))
+        # when this projection wrote the index (0.22.4): the moment a flag stored before 0.22.4 was last carried
+        con.execute("INSERT OR REPLACE INTO meta VALUES ('projected_at', ?)", (utcnow(),))
         # the bridge-metric gate verdict for this projection (PLAN Stage 2): one value, read by
         # kg_context to decide whether spec_betweenness is the TRUSTED ranking signal this projection.
         con.execute("INSERT OR REPLACE INTO meta VALUES ('gate_on', ?)", (str(int(gate_on)),))
@@ -1422,6 +1555,23 @@ class Projector:
                     (json.dumps(source_file_sigs or {}, sort_keys=True),))
         # the derivation rules these rows were built under; a mismatch forces one full rebuild.
         con.execute("INSERT OR REPLACE INTO meta VALUES ('projection_rules', ?)", (PROJECTION_RULES,))
+
+    def _index_written_at(self, meta: "dict | None" = None) -> str:
+        """When the previous projection wrote the index (0.22.4), ISO-8601 UTC to the second: its own
+        ``projected_at`` (from ``meta``, the index's meta as read, else read here), or, on an index written
+        before 0.22.4, the file's modification time. Empty when there is no index. A re-examination flag stored
+        before 0.22.4 was carried by that projection, so a verdict recorded since is a second look at its item
+        (`_refilter_reexaminable`)."""
+        if not self.db_path.exists():
+            return ""
+        stamp = (meta if meta is not None else self._read_meta()).get("projected_at", "")
+        if stamp:
+            return stamp
+        try:
+            from datetime import datetime, timezone
+            return datetime.fromtimestamp(self.db_path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+        except (OSError, ValueError, OverflowError):
+            return ""
 
     def _read_meta(self) -> dict:
         try:
@@ -1467,6 +1617,7 @@ class Projector:
         else:
             out["source_stat_sig"] = None
         out["topo_sig"] = rows.get("topo_sig", "")         # projector-1 betweenness-reuse signature
+        out["projected_at"] = rows.get("projected_at", "")  # when the projection wrote this index (0.22.4)
         try:
             out["stale_verdicts"] = json.loads(rows.get("stale_verdicts", "[]"))
         except (ValueError, TypeError):
@@ -2189,7 +2340,9 @@ class DerivedReader:
                 held_info = {"total": len(reexaminable) - len(kept),
                              "reason": "no-usable-source" if not usable else "raised-by-unusable-source"}
                 reexaminable = kept
-        return reexaminable[:_REEXAMINABLE_CAP], len(reexaminable), held_info
+        shown = [{k: v for k, v in f.items() if k != REEX_MARK} if isinstance(f, dict) else f
+                 for f in reexaminable[:_REEXAMINABLE_CAP]]
+        return shown, len(reexaminable), held_info
 
     @staticmethod
     def _bridge_metric_block(con) -> dict:

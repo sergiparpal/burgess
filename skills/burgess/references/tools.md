@@ -501,6 +501,19 @@ the true total across both.
   such as an unfiltered page, a retracted source, or a preprint under a policy requiring level 1. A flag from
   before 0.22.3 has no `files` and is held only when nothing is usable. Held flags stay stored and return as soon
   as one of their sources counts. The read-only hook, which knows no policy, filters nothing.
+  Since 0.22.4 a flag lasts until its item is judged again, whatever the verdict: a verdict recorded in the
+  grounding audit log after the flag was raised answers it, and a later change that bears on the item flags it
+  anew. A fresh flag for an item already flagged adds the files that raised it. A node or span-less edge is
+  flagged only when a paragraph of the changed text shares two of the words of what it claims (its label and
+  body, or its two ends and span; one for a one-word claim; numbers left out), the rule its grounder's context
+  is ranked by. Through 0.22.3 any word of its label, body or notes anywhere in that text did: on the field
+  graph an English preprint flagged 113 Spanish items, mostly through English words of the grounders' verdict
+  notes, and it has a passage about 8 of them. The first read after the upgrade rebuilds the index
+  (`PROJECTION_RULES` "5") and re-tests the flags stored before: a 0.22.3 flag against the files it names, an
+  older one against the files changed after its item's last verdict. Each is kept, naming the files that bear on
+  it, or dropped. `kg_ground_plan` queues the rejected ones for grounders (§1.21); this list is for reading. Through 0.22.3 a flag lasted until its item left
+  the negative states, so a re-check that kept a rejection left it on every pass, and with the list capped at
+  50 the same 50 of the field's 113 would have come back each time.
 
 ---
 
@@ -945,6 +958,14 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   `queue.reexamine`. A node rejected through 0.20.1 was judged without source text, so this is how the user asks
   for it to be judged again against its `source_context` (§1.22). A `failed` node is not offered, since it was
   refuted by a counter-span. The grounder stamps its verdict even though the item's `from` is that rejection.
+- **`queue.reexaminable` (0.22.4):** the rejected items a source changed under since they were judged, the flags
+  `kg_context` lists (§1.11), every one rather than the 50 it shows, queued after everything new as `{id, kind,
+  reexamine: true}`, in the focus like any item. A flag a verdict has answered since is left out, so the progress
+  probe drops an item once a grounder has judged it again, whatever the verdict; the plan reads the audit log
+  for that, and still never projects. One held back, because every file that flagged it is unusable or nothing
+  is, is counted in `queue.reexaminable_held`. A `failed` item is not queued: an adversarial grounder refuted it
+  with a counter-edge, whose span a new source does not remove. Through 0.22.3 the command's Stage 0c asked the
+  orchestrator, which never calls `kg_ground`, to re-check these items itself.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
   for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
@@ -960,7 +981,8 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   - On 0.17.0 a generated compression and its star edges sat in three batches judged in parallel, and one
     grounder rejected the node while another grounded an edge into it.
 - **An item is `{id, kind}`:** an edge id already names its endpoints and relation
-  (`e_<source>__<relation>__<target>`); the grounder fetches the rest with `kg_ground_item`.
+  (`e_<source>__<relation>__<target>`); the grounder fetches the rest with `kg_ground_item`. An item judged
+  again carries `reexamine: true` as well.
 - `focus` — the command's typed `$ARGUMENTS`: keeps the items that touch a node it names (every content word
   of the focus among the node's id or label words, singular or plural, accents ignored). Empty = everything.
 - `configured_wave_size` — the `extract_wave_size` option as the command text carries it, the same channel as
@@ -969,8 +991,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 
 ```json
 {"ok": true, "focus": null,
- "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "extractor_nodes_not_queued": 399,
-           "unsupported_waiting": 0, "leads_pending": 0},
+ "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "reexamine": 0, "reexaminable": 0,
+           "reexaminable_held": 0, "extractor_nodes_not_queued": 399, "unsupported_waiting": 0,
+           "leads_pending": 0},
  "batch_size": 12, "wave_size": 6, "wave_size_from": "default",
  "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
  "waves": 3,
@@ -1072,7 +1095,17 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
   source_file, in_source}`, plus `section`, `title` and `excerpt` when `in_source` is true (the engine's own
   check, now). `null` for every other edge. The grounder judges it as it judges an extractor's span and may
   copy it as `support_span`; `shared_context` still comes with it.
-- For `kind="node"`: `{node, edges, source_context}`, the node with its body (where a `[diverge]` marker shows),
+- `reexamine` (0.22.4) — for a rejected or failed item flagged because a source changed after it was judged
+  (§1.11), and not judged again since: `{reason, files, context}`. `null` for every other item.
+  - `files` are the sources whose changed text shares the item's words, each with its label (`usable` among
+    them). A flag made before 0.22.3 names none, and `files` is then empty.
+  - `context` is `{terms, sections, sections_total}`, ranked as a node's `source_context` is, over the usable
+    sections of those files, or of every usable source when the flag names none.
+  - An edge flagged because its own span's file changed (`span-file-changed-since-judged`) has `context: null`
+    here: its own `context` is that file's text now.
+  - Through 0.22.3 a proposal re-checked this way came with the sections where its ends' spans lie, all in the
+    notes it had been judged against, and nothing from the source that flagged it.
+- For `kind="node"`: `{node, edges, source_context, reexamine}`, the node with its body (where a `[diverge]` marker shows),
   up to 20 incident edges, and `source_context` (0.20.2): `{terms, sections, sections_total}`.
   - `terms` are the node's content words, from its label and body without its lineage lines (`[diverge] …`,
     `[cliche] …`) and verdict paragraphs.

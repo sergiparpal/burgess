@@ -2625,6 +2625,16 @@ class KGEngine:
         again with the sections `kg_ground_item` now gives a node. A failed node is not offered: it was
         refuted by a counter-span, not judged unsupported.
 
+        Every pass also queues the REJECTED items a source changed under since they were judged (0.22.4,
+        `_open_reexaminations`): the projector's re-examination flags, all of them, after everything new, each
+        marked `"reexamine": true` and counted in `queue.reexaminable`, in the focus like any item. A flag no
+        usable file raised is held back, counted in `queue.reexaminable_held`, as `kg_context` holds it. A flag
+        a verdict has answered since is left out, read from the grounding audit log without projecting, so
+        the progress probe drops an item once a grounder has judged it again, whatever the verdict. A failed
+        item is not queued: its refutation stands on a counter-edge's span, which a new source does not
+        remove. Through 0.22.3 the command's Stage 0c asked the orchestrator to re-check these items, and the
+        orchestrator never calls kg_ground.
+
         `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
         channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
         1–20, default 12.
@@ -2735,6 +2745,39 @@ class KGEngine:
                 unsupported_waiting += 1
                 continue
             items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
+        # Rejected items a source changed under since they were judged (0.22.4, `_open_reexaminations`), after
+        # everything new, each marked `reexamine` for a grounder to judge again. Through 0.22.3 the command's
+        # Stage 0c left them to the orchestrator, which never calls kg_ground, and a confirmed rejection kept
+        # its flag. One held back (every file that flagged it unusable, or nothing usable at all) is counted,
+        # not queued. A failed item is not queued: it was refuted by a counter-edge whose span still stands.
+        reexaminable = reexaminable_held = 0
+        flags = self._open_reexaminations()
+        if flags:
+            usable_now = set(self._usable_files())
+            edge_of = {e.id: e for n in nodes for e in n.edges}
+            node_of = {n.id: n for n in nodes}
+            queued_ids = {i for _, i, _ in items}
+            for flag in flags:
+                item_id, kind = flag.get("item_id"), flag.get("kind")
+                item = edge_of.get(item_id) if kind == "edge" else node_of.get(item_id)
+                if item is None or item.epistemic_state != EpistemicState.REJECTED or item_id in queued_ids:
+                    continue
+                if kind == "edge":
+                    if focus and slug(item.source) not in in_focus and slug(item.target) not in in_focus:
+                        continue
+                elif item_id not in in_focus:
+                    continue
+                files = [f for f in (flag.get("files") or []) if f]
+                if not (set(files) & usable_now if files else usable_now):
+                    reexaminable_held += 1
+                    continue
+                hypothesized = item.provenance == Provenance.HYPOTHESIZED
+                where = position(item) if kind == "edge" else (len(texts), 0)
+                items.append(((2, 0 if hypothesized else 1, 1, where, item_id), item_id, f"{kind}:flagged"))
+                if kind == "edge":
+                    ends[item_id] = (slug(item.source), slug(item.target))
+                queued_ids.add(item_id)
+                reexaminable += 1
         items.sort(key=lambda row: row[0])
         # No source usable at all under the policy (0.22.1): a hypothesis can be neither grounded nor rejected for
         # its level, so judging it would only repeat the verdict-less outcome, and an attack could fail nothing.
@@ -2751,7 +2794,7 @@ class KGEngine:
         # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
         # grounder judges a generated compression and its star together, instead of parallel grounders
         # rejecting the node while grounding an edge into it.
-        planned = node_star_batches([{"id": i, "kind": "node", "reexamine": True} if k == "node:reexamine"
+        planned = node_star_batches([{"id": i, "kind": k.split(":")[0], "reexamine": True} if ":" in k
                                      else {"id": i, "kind": k} for _, i, k in items], ends, size)
         # attacks that wrote no counter-edge (0.10.0), each counted like a counter-edge judged at its time
         for hub, times in self._hub_attacks().items():
@@ -2781,6 +2824,9 @@ class KGEngine:
                       "nodes": sum(1 for _, _, k in items if k == "node"),
                       # rejected hypothesized nodes queued to be judged again (0.20.2, `reexamine=True`)
                       "reexamine": reexamined,
+                      # rejected items a source changed under since they were judged, queued to be judged
+                      # again (0.22.4), and those held back because no file that flagged them is usable
+                      "reexaminable": reexaminable, "reexaminable_held": reexaminable_held,
                       "extractor_nodes_not_queued": skipped,
                       # pins judged unsupported against these sources, left out until the sources change
                       # (0.20.1); always 0 with a focus, which offers them again
@@ -2797,6 +2843,89 @@ class KGEngine:
             "evidence": self._evidence_info(),
             # what no usable source could settle (0.22.1): left out of the batches and the hubs, or None
             "blocked": blocked})
+
+    def _open_reexaminations(self) -> "list[dict]":
+        """The re-examination flags the last projection stored (`advisory.reexaminable_verdicts`, every one,
+        not the 50 the advisory shows) that no verdict has answered since (0.22.4). Read without projecting, as
+        the plan reads: a verdict recorded in the grounding audit log beyond a flag's mark answers it
+        (`Projector._refilter_reexaminable`), so a progress probe drops what a grounder has just judged. A flag
+        stored before 0.22.4 has no mark, and counts only the verdicts recorded after the projection that
+        carried it wrote the index. Fail-open: no index, or an unreadable one, is no flag."""
+        from .groundaudit import audit_key, read_audit_index
+        from .projector import REEX_MARK
+        proj = self.projector
+        try:
+            if not proj.db_path.exists():
+                return []
+            meta = proj._read_meta()
+        except Exception:  # noqa: BLE001 — an index hiccup must not break the plan
+            return []
+        flags = [f for f in (meta.get("reexaminable_verdicts") or []) if isinstance(f, dict) and f.get("item_id")]
+        if not flags:
+            return []
+        audit = read_audit_index(self.canon.root / GROUND_AUDIT)
+        legacy = None
+        nodes = edges = None
+        cache: dict = {}
+        out = []
+        for flag in flags:
+            kind, key = flag.get("kind"), audit_key(flag.get("kind"), flag["item_id"])
+            mark = flag.get(REEX_MARK)
+            if not isinstance(mark, int):
+                if legacy is None:
+                    since = proj._index_written_at(meta)
+                    legacy = audit.mark_after(since) if since else audit.size
+                mark = legacy
+                if audit.judged_since(key, mark):
+                    continue
+                # Stored before 0.22.4 and not yet re-tested by a projection: tested here by the same rule
+                # (`Projector._retest_before_0_22_4`), so the plan and the next projection agree.
+                if nodes is None:
+                    nodes = self._canon_baseline()
+                    edges = {e.id: e for n in nodes.values() for e in n.edges}
+                item = nodes.get(flag["item_id"]) if kind == "node" else edges.get(flag["item_id"])
+                if item is None:
+                    continue
+                keep, files = proj._retest_before_0_22_4(flag, item, kind, nodes, self.verify_set(), audit, cache)
+                if not keep:
+                    continue
+                flag = {k: v for k, v in flag.items() if k != "files"}
+                if files:
+                    flag["files"] = files
+            if not audit.judged_since(key, mark):
+                out.append(flag)
+        return out
+
+    def _reexamine_view(self, kind: str, item, scrub) -> "dict | None":
+        """What `kg_ground_item` adds for an item flagged for re-examination that no verdict has answered yet
+        (0.22.4), or None: `reason` (why it was flagged), `files` (the sources whose changed text bears on it,
+        each with its level and `usable`; empty for a flag made before 0.22.3, which names none), and
+        `context`, the usable sections of those files that share the most of the item's words (of every usable
+        source for a flag that names none). An edge flagged because its own span's file changed has no
+        `context` here: its own `context` is that file's text now. Through 0.22.3 a proposal re-checked this way
+        came with the sections where its ends' spans lie, all in the notes it had been judged against, and
+        nothing from the source that flagged it."""
+        from .groundplan import node_terms
+        from .projector import REEX_SPAN_FILE
+        flag = next((f for f in self._open_reexaminations()
+                     if f.get("item_id") == item.id and f.get("kind") == kind), None)
+        if flag is None:
+            return None
+        vs = self.verify_set()
+        names = [f for f in (flag.get("files") or []) if f]
+        out = {"reason": flag.get("reason"), "files": [self._source_side(f, vs) for f in names], "context": None}
+        if flag.get("reason") == REEX_SPAN_FILE:
+            return out
+        if kind == "node":
+            terms = node_terms(item.label, item.body)
+        else:
+            nodes = self._canon_baseline()
+            src, tgt = nodes.get(slug(item.source)), nodes.get(slug(item.target))
+            words = " ".join(x for x in ((src.label if src else item.source), (tgt.label if tgt else item.target)) if x)
+            terms = node_terms(words, item.span or "")
+        usable = [f for f in names if self._usable_file(f, vs)]
+        out["context"] = self._ranked_context(terms, scrub, files=set(usable) if names else None)
+        return out
 
     def _usable_files(self, vs: "SourceSet | None" = None) -> "list[str]":
         """The files that may support or refute anything under the project's policy, in the set's order."""
@@ -3378,9 +3507,11 @@ class KGEngine:
         both its ends are discussed, with excerpts, and the sections where each end is. A proposal whose notes
         open with a passage (0.19.0: an ensemble edge a second construction read from the source, recorded by
         kg_propose) also gets `passage` (``_passage_view``): that span, `in_source`, and the excerpt around it;
-        every other edge gets `passage: null`. For a node: the node and its incident edges. All free text leaves
-        through the SESSION scrub, the same as kg_section, so a support span the grounder copies back to
-        kg_ground, placeholders included, restores and verifies. Read-only."""
+        every other edge gets `passage: null`. For a node: the node and its incident edges. An item flagged for
+        re-examination that no verdict has answered gets `reexamine` (0.22.4, `_reexamine_view`): the sections
+        of the sources that flagged it. All free text leaves through the SESSION scrub, the same as kg_section,
+        so a support span the grounder copies back to kg_ground, placeholders included, restores and verifies.
+        Read-only."""
         if kind not in ("edge", "node"):
             return {"ok": False, "error": "kind must be 'edge' or 'node'", "target_id": target_id}
         nodes = self._canon_baseline()
@@ -3404,7 +3535,8 @@ class KGEngine:
                         for m in nodes.values() for e in m.edges
                         if n.id in (slug(e.source), slug(e.target))][:20]
             return {"ok": True, "kind": "node", "node": view(n), "edges": incident,
-                    "source_context": self._node_source_context(n, scrub)}
+                    "source_context": self._node_source_context(n, scrub),
+                    "reexamine": self._reexamine_view("node", n, scrub)}
         try:
             owner = self._owner_of_edge(target_id)
         except EdgeOwnerUnreadable as e:
@@ -3443,7 +3575,9 @@ class KGEngine:
                 "span_source": self._source_side(self._span_holder(e.span, e.source_file, vs), vs) if has_span else None,
                 "support_source": self._source_side(self._edge_support(e, vs), vs) if has_span else None,
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
-                "context": context, "shared_context": shared, "passage": passage, "support_context": support}
+                "context": context, "shared_context": shared, "passage": passage, "support_context": support,
+                # a rejected item a source changed under since it was judged (0.22.4), or None
+                "reexamine": self._reexamine_view("edge", e, scrub)}
 
     def _section_index(self) -> dict:
         """The units of every section of the configured sources (`groundplan.text_units`: paragraphs, and the
@@ -3490,16 +3624,20 @@ class KGEngine:
         from .groundplan import node_terms
         return self._ranked_context(node_terms(node.label, node.body), scrub)
 
-    def _ranked_context(self, terms: "list[str]", scrub) -> dict:
+    def _ranked_context(self, terms: "list[str]", scrub, files: "set | None" = None) -> dict:
         """`{terms, sections, sections_total}`: the usable sections whose best paragraph shares the most of
         `terms`, rare words weighing more (`_node_source_context`'s rule, 0.20.2), each labelled with its
-        `source` (0.22.0). Also a claim's `support_context` when its own support is not usable."""
+        `source` (0.22.0). Also a claim's `support_context` when its own support is not usable. `files`
+        (0.22.4) keeps the sections of those files only: a re-examined item's `reexamine.context`."""
         from .groundplan import NODE_SECTIONS, rank_units, unit_excerpt
 
         index = self._section_index()
         best: "dict[int, tuple[float, int, list[str]]]" = {}
         for score, ui, matched in rank_units(index["forms"], terms):
-            best.setdefault(index["owner"][ui], (score, ui, matched))
+            sec = index["owner"][ui]
+            if files is not None and index["sections"][sec][0] not in files:
+                continue
+            best.setdefault(sec, (score, ui, matched))
         order = sorted(best.items(), key=lambda kv: (-kv[1][0], kv[0]))
         # The best sections overall, then (0.21.0) up to as many more from registered external copies, so a
         # source registered for this node is never crowded out by a large set of notes. With nothing
@@ -4957,7 +5095,10 @@ def _register(mcp, engine: KGEngine) -> None:
         until the sources or the pin change, or a focus names them. `reexamine=true` (the command's
         `--reexamine`) also queues the rejected hypothesized nodes the focus names, each item marked
         `"reexamine": true` and counted in `queue.reexamine`: a node rejected before 0.20.2 was judged without
-        source text. Read-only."""
+        source text. Every pass also queues, after everything new and marked `"reexamine": true`, the rejected
+        items a source changed under since they were judged (`queue.reexaminable`, the flags kg_context lists,
+        all of them), leaving out those no usable source flagged (`queue.reexaminable_held`). A grounder's new
+        verdict on such an item, whatever it is, answers its flag, so the item leaves the plan. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size, reexamine=bool(reexamine))
 
     @mcp.tool()
@@ -4980,6 +5121,10 @@ def _register(mcp, engine: KGEngine) -> None:
         support. An edge's `span_source` / `support_source` say where its span and its best support lie, and an
         edge whose support is not usable (or a proposal none of whose shared sections is) gets
         `support_context`: usable sections sharing its words, from which a support_span may be copied.
+        An item flagged because a source changed after it was rejected, and not judged since, gets `reexamine`:
+        `reason`, `files` (the sources whose changed text shares its words, each with its level and `usable`)
+        and `context`, the usable sections of those files that share the most of its words (`null` for an edge
+        whose own span's file changed: its `context` is that file now). Every other item has `reexamine: null`.
         Text is egress-scrubbed with the session's placeholders. Read-only."""
         return engine.kg_ground_item(target_id, kind)
 
@@ -5238,7 +5383,9 @@ def _register(mcp, engine: KGEngine) -> None:
         `items_total`/`hypotheses_total` count every edge that qualified: more than the lane holds means the
         budget left the rest out (raise `budget`, up to 100000, or narrow the query). While no source is usable
         under the project's evidence policy, `advisory.reexaminable_verdicts` comes back empty and
-        `advisory.reexaminable_held` says how many items it holds back and why: none could change."""
+        `advisory.reexaminable_held` says how many items it holds back and why: none could change. A flag in
+        that list lasts until its item's next verdict, whatever it is; `kg_ground_plan` queues the rejected
+        ones for grounders, so a reader of this list re-verdicts nothing itself."""
         return engine.kg_context(query, budget)
 
     @mcp.tool()

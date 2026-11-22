@@ -113,5 +113,6 @@ def test_a_usable_source_unrelated_to_the_flag_does_not_release_it(rig):
 
 def test_the_command_reads_the_held_list():
     flat = _flat(GROUND_CMD)
-    assert "When `advisory.reexaminable_held` is present (0.22.2), the list is held back" in flat
+    # 0.22.4 rewrote Stage 0c around the plan, which queues the rest (tests/test_fix_reexamination_answered.py)
+    assert "When `advisory.reexaminable_held` is present (0.22.2), part of the list is held back" in flat
     assert "even when nothing was left out (0.22.2)" in flat

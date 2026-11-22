@@ -189,3 +189,67 @@ class GroundAuditLog:
         if not self.truncate(offset):
             raise OrphanAuditError(
                 f"{what} and orphan audit record(s) could not be truncated back to {offset}")
+
+
+# --------------------------------------------------------------------------- reading the log (0.22.4)
+
+def audit_key(kind: str, item_id: str) -> str:
+    """The key a verdict on an item is recorded under: an edge's id, ``node:<id>`` for a node (``kg_ground``)."""
+    return f"node:{item_id}" if kind == "node" else item_id
+
+
+class AuditIndex:
+    """What a reader needs to tell whether an item was judged again after a given point of the log (0.22.4).
+
+    The log is append-only, so a byte offset orders its records exactly, as no clock does: a verdict and a
+    projection can fall in the same second, and the records are stamped to the second. ``size`` is the log's
+    length in bytes, the point every later record lies beyond. ``last`` maps each key to the offset of its
+    latest record, and ``last_at`` to its time. ``times`` lists ``(offset, at)`` in log order, to turn a moment
+    into a point of the log for a re-examination flag raised before flags recorded one (``mark_after``)."""
+
+    __slots__ = ("size", "last", "last_at", "times")
+
+    def __init__(self, size: int = 0, last: "dict | None" = None, times: "list | None" = None,
+                 last_at: "dict | None" = None):
+        self.size = size
+        self.last = last if last is not None else {}
+        self.last_at = last_at if last_at is not None else {}
+        self.times = times if times is not None else []
+
+    def judged_since(self, key: str, mark: int) -> bool:
+        """Whether the log holds a verdict on ``key`` recorded at or beyond ``mark``."""
+        return self.last.get(key, -1) >= mark
+
+    def mark_after(self, since: str) -> int:
+        """The offset of the first record stamped after ``since`` (ISO-8601 UTC, to the second, as
+        ``model.utcnow``), or ``size`` when there is none: a mark that counts only the verdicts recorded after
+        that moment. A verdict stamped in that very second does not count, which errs on the side of judging
+        an item once more."""
+        for offset, at in self.times:
+            if at > since:
+                return offset
+        return self.size
+
+
+def read_audit_index(path: "str | os.PathLike") -> AuditIndex:
+    """Index the log at ``path`` (0.22.4). Fail-open: a missing or unreadable log is an empty index, a bad
+    line is skipped, and an old in-log checkpoint record (which carries no ``key``) is not a verdict."""
+    last: dict = {}
+    last_at: dict = {}
+    times: list = []
+    offset = 0
+    try:
+        with open(path, "rb") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line.decode("utf-8", "replace"))
+                except ValueError:
+                    rec = None
+                if isinstance(rec, dict) and isinstance(rec.get("key"), str) and "_ckpt" not in rec:
+                    last[rec["key"]] = offset
+                    last_at[rec["key"]] = str(rec.get("at") or "")
+                    times.append((offset, last_at[rec["key"]]))
+                offset += len(line)
+    except OSError:
+        return AuditIndex()
+    return AuditIndex(offset, last, times, last_at)
