@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.22.0 — 2026-11-21
+
+Every source has a level now, your notes included. In 0.21.0 your notes sat outside the scale: notes of unknown
+level verified an idea exactly as a peer-reviewed paper did, a reviewed paper could not fail what they said, and
+a graph could not be built from level-1 sources.
+
+### Added
+
+- **Your notes have a level.** Each note stands at level 4 (a text by an author nobody reviewed) unless you set
+  another: `/burgess:kg-sources set <note.md> level=…`.
+- **A project decides the level it requires to verify.** `/burgess:kg-sources policy required=1` makes it accept
+  support only from peer-reviewed sources. Your notes then propose claims, and `/burgess:kg-ground` verifies each
+  one on a passage from a level-1 source, or leaves it waiting for one. The default, 4, accepts everything but
+  unfiltered sources, as before.
+- **A claim can be verified on another source's passage.** A grounder grounds a claim your notes state on the
+  passage of a usable source; the claim keeps the passage it was extracted from, and the support is recorded
+  beside it. When an item's own support is not usable, the grounder gets the usable sections that share its
+  words.
+- **A claim is never rejected because its support is below the required level.** It stays unverified and waits,
+  like the pinned ideas, until a source is registered or the policy changes.
+- **A graph can be built from registered sources.** `/burgess:kg-sources add <url or path>` with `build` extracts
+  the source like a note. `/burgess:kg-sources policy build_from_notes=no` stops extracting your notes, so the
+  graph is built from such sources alone.
+- One MCP tool: `kg_source_policy` (40 in all).
+
+### Changed
+
+- **The same rules for every source.** A lower level never fails a higher one, whichever kind each is: a
+  reviewed paper can now fail a claim only your notes make. In 0.21.0 your notes and an external source never
+  failed each other.
+- `kg_ground_item` labels every passage with its source and level, your notes included.
+- `/burgess:kg-sources list` shows your notes with their levels, the policy, and the grounded claims whose support
+  is no longer usable under it. Verdicts already given never change by themselves.
+
+### Upgrading
+
+- Nothing to do. Without a policy every default reproduces 0.21.0, except that a reviewed source can now fail a
+  claim only your notes support.
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The views carry the 0.21.0 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.21.0 — 2026-11-21
 
 Outside evidence for grounding. Until now every verdict was judged against your configured sources, your own

@@ -6,9 +6,13 @@ check, recorded as `inferred`. Now the user registers outside texts (`/burgess:k
 each one into `<project>/evidence/` with a level (1 reviewed … 5 unfiltered), a role and marks, and a grounder
 cites verbatim spans from the copy. The level measures the filter a text passed, never the truth of a claim,
 so it only decides what may be used: level 5, retracted and superseded sources support and refute nothing,
-and as a veto on `failed`, the user's notes and an external source never fail each other and a lower level
-never fails a higher one (the clash stays a visible dispute). A registered source is never extracted into the
-graph. The engine fetches pages itself, because WebFetch returns a model's paraphrase.
+and as a veto on `failed` a lower level never fails a higher one (the clash stays a visible dispute). A
+registered source is never extracted into the graph unless it is registered to be built. The engine fetches
+pages itself, because WebFetch returns a model's paraphrase.
+
+Through 0.21.0 the notes sat outside the scale and an external source never failed them; since 0.22.0 they
+have a level too (4 by default) and the same rules hold for every source. The tests below that touch the notes
+pin the 0.22.0 rule; `tests/test_fix_source_policy.py` pins the policy itself.
 """
 from __future__ import annotations
 
@@ -209,18 +213,21 @@ def test_argument_parsing():
 
 
 def test_the_level_vetoes_and_never_decides():
-    own, none = {"class": "own"}, {"class": "none"}
+    none = {"class": "none"}
+    own = lambda level, usable=True: {"class": "own", "level": level, "usable": usable}  # noqa: E731
     ext = lambda level, usable=True: {"class": "external", "level": level, "usable": usable}  # noqa: E731
-    assert failed_veto(own, own) == ""                                   # 0.20.2: the notes refute themselves
-    assert failed_veto(own, ext(1)) == "failed-across-own-and-external"  # a reviewed paper does not fail a note
-    assert failed_veto(ext(1), own) == "failed-across-own-and-external"
+    assert failed_veto(own(4), own(4)) == ""                             # the notes refute themselves
+    assert failed_veto(own(4), ext(1)) == ""                             # 0.22.0: a reviewed paper fails a note
+    assert failed_veto(ext(1), own(4)) == "failed-by-lower-level"        # and a note never fails it
+    assert failed_veto(own(1), ext(3)) == "failed-by-lower-level"        # notes the user rated 1
     assert failed_veto(ext(1), ext(3)) == "failed-by-lower-level"
     assert failed_veto(ext(3), ext(1)) == ""
     assert failed_veto(ext(2), ext(2)) == ""                             # the same level: the text decides
     assert failed_veto(none, ext(4)) == ""                               # nothing to protect
     assert failed_veto(ext(1, usable=False), ext(4)) == ""               # its only support is unusable
     assert failed_veto(none, ext(5, usable=False)) == "failed-by-unusable-source"
-    assert failed_veto(own, none) == "refuted-by-has-no-span"
+    assert failed_veto(own(4), own(4, usable=False)) == "failed-by-unusable-source"
+    assert failed_veto(own(4), none) == "refuted-by-has-no-span"
 
 
 def test_the_fetch_says_nothing_about_the_user(pages):
@@ -416,8 +423,8 @@ def test_an_unusable_source_supports_nothing(rig, level, marks, why):
     eng.kg_propose({"edges": [{"source": "gamma", "target": "delta", "relation": "bridges"}]})
     eid = edge_id("gamma", "bridges", "delta")
     out = eng.kg_ground(eid, "grounded", support_span="Gamma bridges delta across the outside text")
-    assert out == {"ok": False, "error": "support-not-usable", "source": name, "unusable": why,
-                   "hint": out["hint"]}
+    assert (out["ok"], out["error"], out["source"], out["unusable"]) == (False, "support-not-usable", name, why)
+    assert out["source_level"] == level and out["required_level"] == 4 and out["hint"]
     assert _edge(eng, eid).epistemic_state == EpistemicState.UNVERIFIED
 
 
@@ -427,7 +434,8 @@ def test_a_span_the_notes_also_hold_is_supported_by_the_notes(rig):
     eng.kg_propose({"edges": [{"source": "degree", "target": "importance", "relation": "approximates"}]})
     eid = edge_id("degree", "approximates", "importance")
     out = eng.kg_ground(eid, "grounded", support_span="Degree approximates importance")
-    assert out["ok"] and out["support_source"] == {"class": "own", "file": "notes.md"}
+    side = out["support_source"]
+    assert out["ok"] and (side["class"], side["file"], side["level"], side["usable"]) == ("own", "notes.md", 4, True)
 
 
 def test_an_edge_quoting_only_an_unfiltered_source_cannot_be_grounded(rig):
@@ -476,15 +484,28 @@ def test_once_a_source_is_registered_a_failed_names_its_refutation(rig):
     assert _edge(eng, cid).epistemic_state == EpistemicState.GROUNDED
 
 
-def test_an_external_source_never_fails_the_notes(rig, pages):
+def test_a_reviewed_source_can_fail_a_claim_only_the_notes_support(rig, pages):
+    """0.22.0: the notes stand at their level (4 by default), so a level-1 refutation may fail their claim.
+    Through 0.21.0 the notes were out of reach of any external source, however reviewed."""
     eng, _, _ = rig
     cid = _own_claim(eng)
     pages["https://example.org/paper"] = (PAPER, "text/html")
     name = eng.kg_source_add(url="https://example.org/paper", level=1, role="primary")["name"]
     counter = _counter(eng, COUNTER_SPAN, name)
+    out = eng.kg_ground(cid, "failed", refuted_by=counter, note="the study contradicts it")
+    assert out["ok"] and out["refuted_by"] == counter
+    assert _edge(eng, cid).epistemic_state == EpistemicState.FAILED
+
+
+def test_notes_rated_higher_are_not_failed_by_a_lower_source(rig, pages):
+    eng, _, tmp = rig
+    cid = _own_claim(eng)
+    assert eng.kg_source_set("notes.md", level=1)["changed"] == ["level"]
+    blog = _add(eng, tmp, "blog.md", "Specificity does not reconcile with the bridge intuition in sparse graphs.\n", 3)
+    counter = _counter(eng, COUNTER_SPAN, blog)
     out = eng.kg_ground(cid, "failed", refuted_by=counter)
-    assert out["error"] == "failed-across-own-and-external"
-    assert out["claim_source"]["class"] == "own" and out["refuting_source"]["level"] == 1
+    assert out["error"] == "failed-by-lower-level"
+    assert out["claim_source"]["level"] == 1 and out["refuting_source"]["level"] == 3
     assert _edge(eng, cid).epistemic_state == EpistemicState.GROUNDED
     assert _edge(eng, counter).epistemic_state == EpistemicState.UNVERIFIED     # the dispute stays visible
 
@@ -548,7 +569,9 @@ def test_kg_ground_item_labels_external_passages(rig, pages):
     assert item["span_source"]["class"] == "external" and item["span_source"]["file"] == name
     assert item["context"]["source_file"] == name and item["context"]["source"]["level"] == 1
     own = eng.kg_ground_item(_own_claim(eng))
-    assert own["span_source"] == {"class": "own", "file": "notes.md"} and "source" not in own["context"]
+    assert (own["span_source"]["class"], own["span_source"]["file"], own["span_source"]["level"]) == \
+        ("own", "notes.md", 4)
+    assert own["context"]["source"]["class"] == "own" and own["support_context"] is None
 
 
 def test_a_node_sees_external_sections_beside_its_notes(rig):
@@ -565,7 +588,7 @@ def test_a_node_sees_external_sections_beside_its_notes(rig):
     assert "notes.md" in files and name in files and junk not in files
     ext = next(s for s in sections if s["source_file"] == name)
     assert ext["source"]["level"] == 2 and ext["source"]["usable"] is True
-    assert all("source" not in s for s in sections if s["source_file"] == "notes.md")
+    assert all(s["source"]["class"] == "own" for s in sections if s["source_file"] == "notes.md")
 
 
 def test_the_plan_lists_the_usable_sources_for_the_adversary(rig):
@@ -604,7 +627,7 @@ def test_kg_source_list_reports_what_grounded_claims_rest_on(rig, pages):
     listing = eng.kg_source_list()
     assert [s["name"] for s in listing["sources"]] == [name] and listing["by_level"] == {"1": 1}
     support = listing["support"]
-    assert support["edges"] == {"own": 1, "external": {"1": 1}, "unchecked_citation": 1, "unlocated": 0}
+    assert support["edges"] == {"own": {"4": 1}, "external": {"1": 1}, "unchecked_citation": 1, "unlocated": 0}
     assert support["external_items"][0]["source"] == name and support["on_unusable"] == []
     eng.kg_source_set(name, marks="retracted")
     assert eng.kg_source_list()["support"]["on_unusable"][0]["unusable"] == "retracted"
@@ -649,7 +672,7 @@ def test_the_command_copies_through_the_engine_only():
     allowed = next(line for line in head.splitlines() if line.startswith("allowed-tools:"))
     assert allowed.split(":", 1)[1].split(",") == [
         " mcp__plugin_burgess_burgess__kg_source_add", " mcp__plugin_burgess_burgess__kg_source_list",
-        " mcp__plugin_burgess_burgess__kg_source_set"]
+        " mcp__plugin_burgess_burgess__kg_source_set", " mcp__plugin_burgess_burgess__kg_source_policy"]
     flat = _flat(COMMAND)
     assert "never use WebFetch or WebSearch for this" in flat
     assert "The level measures the filter a text passed before it was published, never whether a claim is true" \
@@ -662,7 +685,7 @@ def test_the_grounders_know_the_levels_and_the_refutation_id():
     assert "**The level is not your verdict.**" in GROUNDER and "span_source" in GROUNDER
     flat = _flat(ADVERSARY)
     assert "refuted_by=<the counter-edge's id>" in flat
-    assert "the level vetoes, never decides (0.21.0)" in flat
+    assert "the level vetoes, never decides" in flat
     assert 'refuted_by="e_betweenness__confounded-by__generality-confound"' in ADVERSARY
     ground = _flat(GROUND_CMD)
     assert "refuted_by=<your counter-edge's id>" in ground and "<the plan's evidence.files" in ground

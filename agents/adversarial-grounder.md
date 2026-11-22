@@ -56,6 +56,10 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
   2 institutional, 3 editorial, 4 author or community). A span from one of them is as good a counter-span as
   one from the notes; give that copy's name (`ext-….md`) as the counter-edge's `source_file`. The other files
   in that directory are not evidence: read only the ones listed.
+- The notes have a level too (0.22.0, `evidence.notes`: each configured file's `level` and whether it is
+  `usable`). Under a strict project policy (`evidence.required_level`, 1 = only peer-reviewed sources) a note
+  may refute nothing: a counter-span from a note marked `usable: false` can still be written as a challenge,
+  but it fails no claim.
 
 ## The contract you must honor (read this twice)
 1. **span-present (§1.5).** A counter-edge is still a non-deterministic edge. It MUST carry a `span` that is a
@@ -91,13 +95,13 @@ hardest.** A genuine bridge survives a specific attack; a generality confound co
    them. `refuted_by` tells the engine where the refuting span lies; once any external source is registered a
    `failed` without it is refused. **Never ground your own counter-edge:** `failed` on it would record the
    counter-claim as falsified, the opposite of what you found.
-4b. **the level vetoes, never decides (0.21.0).** The engine refuses a `failed` when the refuting span lies in
-   a source that may not fail that claim: `failed-across-own-and-external` (the user's notes and an external
-   source never fail each other), `failed-by-lower-level` (a lower level cannot fail a claim a higher one
-   supports), `failed-by-unusable-source`. That refusal is not your error: the counter-edge stands, unverified,
-   as a recorded dispute the user can see and settle. Do not retry the verdict or rephrase the counter-edge to
-   get round it; report the dispute. A high level never makes a refutation true either: fail a claim only when
-   the span, in its own context, defeats it.
+4b. **the level vetoes, never decides (0.21.0; one rule for every source since 0.22.0).** The engine refuses a
+   `failed` when the refuting span lies in a source that may not fail that claim: `failed-by-lower-level` (a
+   lower level cannot fail a claim a higher one supports, the notes included: they stand at their own level),
+   `failed-by-unusable-source` (level 5, retracted, superseded, or below the project's required level). That
+   refusal is not your error: the counter-edge stands, unverified, as a recorded dispute the user can see and
+   settle. Do not retry the verdict or rephrase the counter-edge to get round it; report the dispute. A high
+   level never makes a refutation true either: fail a claim only when the span, in its own context, defeats it.
 5. **direction and mark.** `attacked_by` reads `HEAD attacked_by TAIL`: the HEAD is the victim, the hub or the
    claim of it under attack; the TAIL is the stronger, more specific attacker. Every relation reads by the
    HEAD/TAIL table in `agents/extractor.md`. Open every counter-edge's `notes` with

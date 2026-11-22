@@ -53,8 +53,9 @@ from .buildplan import (edgeless_records, parse_arguments, related_nodes, resolv
 from .scrub import Scrubber, placeholders_in
 from .sources import SourceSet, plan_sections, split_sections
 from .evidence import (CITATION_MARK, COUNTER_RELATIONS, OWN, REFUTED_BY_MARK, VETO_HINTS as _VETO_HINTS,
-                       EvidenceRegistry, evidence_dir, failed_veto, label as evidence_label, load_registry,
-                       registry_signature, unusable_reason)
+                       EvidenceRegistry, Policy, evidence_dir, failed_veto, label as evidence_label,
+                       level_unusable, load_policy, load_registry, note_label, registry_signature,
+                       support_segment, supports_of, unusable_reason)
 from .waves import explain_wave_size
 
 # Module logger. The engine had no logging seam, so silent `except Exception: pass` fallbacks were
@@ -504,35 +505,57 @@ class _SourceResolver:
         # The project's evidence directory (0.21.0): registered external copies, verification-only.
         self.evidence_dir = Path(evidence_dir) if evidence_dir else None
         self._cache: "tuple[tuple, SourceSet] | None" = None  # (signature, SourceSet) memo
-        self._ecache: "tuple[tuple, EvidenceRegistry] | None" = None  # (dir signature, registry) memo
+        self._ecache: "tuple[tuple, EvidenceRegistry, Policy, list] | None" = None  # (dir sig, registry, policy, problems)
         self._vcache: "tuple[tuple, SourceSet] | None" = None  # (signatures, verification set) memo
 
-    def resolve(self) -> SourceSet:
-        """The current SourceSet of the configured sources (memoized on the file signature): what
-        extraction, coverage and the specificity corpus read. Named `resolve` — the old name `set()` read
-        as a mutator when it is the getter (review-r5)."""
-        sig = SourceSet.signature(self.source_path, exclude=self.evidence_dir)
-        if self._cache is None or self._cache[0] != sig:
-            self._cache = (sig, SourceSet(self.source_path, exclude=self.evidence_dir))
-        return self._cache[1]
-
-    def registry(self) -> EvidenceRegistry:
-        """The registered external sources (0.21.0), re-read only when a file of the evidence directory
-        moved. An absent directory is an empty registry."""
+    def _evidence(self) -> "tuple[tuple, EvidenceRegistry, Policy, list]":
+        """The registry and the policy (0.21.0 / 0.22.0), re-read only when a file of the evidence directory
+        moved (`policy.json` lives there too). An absent directory is an empty registry and the defaults."""
         sig = registry_signature(self.evidence_dir)
         if self._ecache is None or self._ecache[0] != sig:
-            self._ecache = (sig, load_registry(self.evidence_dir))
-        return self._ecache[1]
+            pol, problems = load_policy(self.evidence_dir)
+            self._ecache = (sig, load_registry(self.evidence_dir), pol, problems)
+        return self._ecache
+
+    def registry(self) -> EvidenceRegistry:
+        return self._evidence()[1]
+
+    def policy(self) -> Policy:
+        return self._evidence()[2]
+
+    def _split(self) -> "tuple[list, list]":
+        """(the registered copies built into the graph, the other registered copies), as paths."""
+        reg = self.registry()
+        built = [reg.directory / name for name, rec in reg.records.items() if rec.build]
+        other = [reg.directory / name for name, rec in reg.records.items() if not rec.build]
+        return built, other
+
+    def resolve(self) -> SourceSet:
+        """The content set (memoized on the file signatures): what extraction, coverage and the specificity
+        corpus read. The configured sources, unless the policy builds from registered sources only, then the
+        registered copies marked `build` (0.22.0). Named `resolve` — the old name `set()` read as a mutator
+        when it is the getter (review-r5)."""
+        pol = self.policy()
+        built, _other = self._split()
+        path = self.source_path if pol.build_from_notes else None
+        sig = (SourceSet.signature(path, built, exclude=self.evidence_dir), pol.build_from_notes)
+        if self._cache is None or self._cache[0] != sig:
+            self._cache = (sig, SourceSet(path, content=built, exclude=self.evidence_dir))
+        return self._cache[1]
 
     def verify(self) -> SourceSet:
         """The verification set (0.21.0): the configured sources, then the text of every registered
         external source. What span checks, the R3 staleness scan, the grounder's evidence views and the
-        source digests read. With nothing registered it holds exactly what `resolve()` holds."""
-        reg = self.registry()
-        extra = reg.text_paths()
-        sig = (SourceSet.signature(self.source_path, extra, exclude=self.evidence_dir), self._ecache[0])
+        source digests read. Its `concat` is the content set's, so the projector's specificity corpus is the
+        same; a configured source that is not built (0.22.0) is still verified against, as evidence only.
+        With nothing registered and the default policy it holds exactly what `resolve()` holds."""
+        pol = self.policy()
+        built, other = self._split()
+        sig = (SourceSet.signature(self.source_path, built + other, exclude=self.evidence_dir),
+               self._ecache[0], pol.build_from_notes)
         if self._vcache is None or self._vcache[0] != sig:
-            self._vcache = (sig, SourceSet(self.source_path, extra=extra, exclude=self.evidence_dir))
+            self._vcache = (sig, SourceSet(self.source_path, content=built, extra=other, exclude=self.evidence_dir,
+                                           path_is_content=pol.build_from_notes))
         return self._vcache[1]
 
     def text(self) -> str:
@@ -681,6 +704,10 @@ class KGEngine:
         """The project's registered external sources (0.21.0), memoized on the evidence directory."""
         return self._sources.registry()
 
+    def evidence_policy(self) -> Policy:
+        """The project's evidence policy (0.22.0, `evidence.Policy`): the defaults when there is none."""
+        return self._sources.policy()
+
     def source_text(self) -> str:
         """The configured source(s) concatenated — feeds the flood-budget size and the projector's IDF
         corpus. Span verification itself is per-file via source_set().verifies, not this blob."""
@@ -697,8 +724,13 @@ class KGEngine:
         registered the payload is the configured concat, so a 0.20.2 ledger record still matches."""
         try:
             payload = self.verify_set().full_concat
+            pol = self.evidence_policy()
         except Exception:  # noqa: BLE001 — a source-read hiccup degrades to "" (no signature), never crashes the sync
             return ""
+        # A policy that changes what may support (0.22.0) is part of what an item was judged against, so a
+        # change to it offers the waiting items again. The default policy adds nothing: a 0.21.0 record matches.
+        if payload and not pol.is_default():
+            payload += "\n" + pol.fingerprint()
         return hashlib.sha256(payload.encode()).hexdigest() if payload else ""
 
     @property
@@ -1299,13 +1331,16 @@ class KGEngine:
         appended and the audit log records the re-verdict at its own time. `kg_ground_plan` reads
         `verdict_at` as when a claim was grounded, so a re-confirmed claim does not reopen a hub.
 
-        **Levels of external sources (0.21.0, `evidence.py`).** Spans verify against the configured sources
-        and the registered external copies, and the level decides only what may be used:
-        - support (a promotion span, or the span of an edge being grounded) must lie in a configured source
-          or in a usable external copy: one at level 1-4, not `retracted` nor `superseded`. When every file
-          that holds it is unusable the verdict is refused with `support-not-usable`, naming the file and
-          why. A promotion records the best file that holds its span: a configured source first, else the
-          usable copy of the highest level.
+        **Levels of sources (0.21.0 external sources; 0.22.0 every source, under the project's policy).** Spans
+        verify against the configured sources and the registered external copies, and the level decides only
+        what may be used:
+        - support (a promotion span, or the support of an edge being grounded) must lie in a usable source: at
+          or above the policy's `required_level` (4 by default), neither unfiltered, retracted nor superseded.
+          The notes have a level too (`notes_level`, 4 unless set per file). When every file that holds it is
+          unusable the verdict is refused with `support-not-usable`, naming the file, its level and why. A
+          promotion records the usable file of the highest level that holds its span.
+        - an edge that carries its span can be grounded on another passage (0.22.0): `support_span` from a
+          usable source, recorded in the notes as a `support:` segment beside the span it was extracted from.
         - `failed` names its refutation in `refuted_by`, the id of the counter-edge (`attacked_by`,
           `confounded_by` or `collapses_into`, touching the claim) whose span refutes it, and is required
           once any external source is registered: the engine must know where the refuting span lies. The
@@ -1360,6 +1395,7 @@ class KGEngine:
                     node = self.canon.read_node(target_id)  # corrupt/invalid-UTF-8 note → structured error (F13/L1)
                 except Exception as e:  # noqa: BLE001 — surface as a structured error, not an MCP exception
                     return {"ok": False, "error": self._scrub_error(f"node unreadable: {e}")}
+                corroboration = None
                 # The level veto on a refutation (0.21.0), decided before any state change like every gate here.
                 if state == EpistemicState.FAILED:
                     refusal = self._failed_refusal("node", node, refuted_by)
@@ -1412,13 +1448,29 @@ class KGEngine:
                     refusal = self._failed_refusal("edge", edge, refuted_by)
                     if refusal:
                         return {"ok": False, **refusal}
-                # Support from a registered source counts only at a usable level (0.21.0). A promotion is
-                # checked inside its gate below; this is the edge that already carries its span.
-                if (state == EpistemicState.GROUNDED and edge.provenance != Provenance.HYPOTHESIZED
-                        and edge.span and edge.span.strip()):
-                    problem = self._support_problem(edge.span)
-                    if problem:
-                        return {"ok": False, **problem}
+                # Support counts only from a usable source (0.21.0; since 0.22.0 under the project's policy, for
+                # every source). A promotion is checked inside its gate below. An edge that already carries its
+                # span may be grounded on another passage instead (0.22.0): a `support_span` from a usable
+                # source, recorded beside the span it was extracted from. Under a strict policy that is how a
+                # claim the notes state is verified by a reviewed source.
+                corroboration = None
+                if state == EpistemicState.GROUNDED and edge.provenance != Provenance.HYPOTHESIZED:
+                    if support_span and support_span.strip():
+                        restore = self._restore_fn()
+                        check = restore(support_span) if restore else support_span
+                        vs = self.verify_set()
+                        if not vs.verifies(check):
+                            return {"ok": False, "error": "support-span-not-in-source"}
+                        if len(normalize_text(check).replace(" ", "")) < MIN_SPAN_CHARS:
+                            return {"ok": False, "error": "support-span-too-short"}
+                        problem = self._support_problem(check, vs)
+                        if problem:
+                            return {"ok": False, **problem}
+                        corroboration = (check, self._support_file(check, "", vs))
+                    elif edge.span and edge.span.strip():
+                        held = self._edge_support(edge)
+                        if held is not None and not self._usable_file(held):
+                            return {"ok": False, **self._unusable_refusal(held)}
                 # the hypothesized→grounded promotion gate: a span-less proposal earns grounding only with
                 # support, which upgrades its provenance. Decided BEFORE any state change so a refusal leaves
                 # the edge untouched (no audit record, no write).
@@ -1459,6 +1511,8 @@ class KGEngine:
                     edge.notes = self._append_note(edge.notes, note)
                 if state == EpistemicState.FAILED and refuted_by.strip():
                     edge.notes = self._append_note(edge.notes, REFUTED_BY_MARK + refuted_by.strip())
+                if corroboration:
+                    edge.notes = self._append_note(edge.notes, support_segment(*corroboration))
                 if triple:
                     from .groundplan import LEAD_MARK
                     edge.notes = self._append_note(edge.notes, LEAD_MARK + " ".join(triple))
@@ -1495,6 +1549,8 @@ class KGEngine:
                         out["support_source"] = self._source_side(held)
             if state == EpistemicState.FAILED and refuted_by.strip():
                 out["refuted_by"] = refuted_by.strip()
+            if kind == "edge" and corroboration:
+                out["support_source"] = self._source_side(corroboration[1])
             if triple:
                 out["lead"] = " ".join(triple)
             if withdrawn:
@@ -1598,48 +1654,65 @@ class KGEngine:
             apply_span=apply_span, apply_note=apply_note,
             support_span=support_span, support_note=support_note)
 
-    # ---- external sources in a verdict (0.21.0, evidence.py)
+    # ---- every source in a verdict (0.21.0 external sources; 0.22.0 one level and one policy for all)
 
-    def _usable_file(self, name: str) -> bool:
-        """True iff a span lying in `name` may support or refute: a configured source, or a registered
-        external copy at level 1-4 that is neither retracted nor superseded."""
-        vs = self.verify_set()
-        if not vs.is_extra(name):
-            return vs.has_file(name)
-        rec = self.evidence_registry().get(name)
-        return rec is not None and not unusable_reason(rec)
+    def _source_side(self, name: "str | None", vs: "SourceSet | None" = None) -> dict:
+        """What a file is to a verdict, with `usable` under the project's policy (0.22.0): a configured
+        source's `evidence.note_label` (class "own", its level from the policy, 4 unless set), a registered
+        copy's `evidence.label` (class "external"), or ``{"class": "none"}`` for no file or one not in the set."""
+        vs = vs if vs is not None else self.verify_set()
+        if not name or not vs.has_file(name):
+            return {"class": "none"}
+        key = SourceSet._key(name)
+        pol = self.evidence_policy()
+        if vs.is_extra(key):
+            rec = self.evidence_registry().get(key)
+            return evidence_label(rec, pol.required_level) if rec is not None else {"class": "none"}
+        return note_label(pol, key)
 
-    def _support_problem(self, span: str) -> "dict | None":
-        """None when `span` lies in a configured source or a usable external copy, or in no file at all (the
-        span checks report that); else the `support-not-usable` refusal naming the first file that holds it
-        and why it cannot support."""
-        vs = self.verify_set()
+    def _usable_file(self, name: str, vs: "SourceSet | None" = None) -> bool:
+        """True iff a span lying in `name` may support or refute under the project's policy."""
+        return bool(self._source_side(name, vs).get("usable"))
+
+    def _support_problem(self, span: str, vs: "SourceSet | None" = None) -> "dict | None":
+        """None when `span` lies in a usable source, or in no file at all (the span checks report that); else
+        the `support-not-usable` refusal naming the first file that holds it, its level and why it cannot
+        support under the policy."""
+        vs = vs if vs is not None else self.verify_set()
         holders = vs.files_containing(span)
-        if not holders or any(self._usable_file(h) for h in holders):
+        if not holders or any(self._usable_file(h, vs) for h in holders):
             return None
-        rec = self.evidence_registry().get(holders[0])
-        why = unusable_reason(rec) if rec is not None else "unregistered"
-        return {"error": "support-not-usable", "source": holders[0], "unusable": why,
-                "hint": "a level-5 source is an object of study only, and a retracted or superseded one "
-                        "supports nothing; find the passage in a usable source, or leave the item as it is"}
+        return self._unusable_refusal(holders[0], vs)
 
-    def _support_file(self, span: str, source_file: str = "") -> "str | None":
+    def _unusable_refusal(self, name: str, vs: "SourceSet | None" = None) -> dict:
+        side = self._source_side(name, vs)
+        return {"error": "support-not-usable", "source": name, "unusable": side.get("unusable", "unregistered"),
+                "source_level": side.get("level"), "required_level": self.evidence_policy().required_level,
+                "hint": "this project accepts support only from sources at or above its required level that are "
+                        "neither unfiltered, retracted nor superseded; cite a passage from a usable source "
+                        "(kg_ground_item's support_context lists them) as support_span, or leave the item "
+                        "unverified and record it with kg_record_unsupported"}
+
+    def _support_file(self, span: str, source_file: str = "", vs: "SourceSet | None" = None) -> "str | None":
         """The file a support span rests on: the named file when it holds the span and is usable, else the
-        first configured source that holds it, else the usable external copy of the highest level (then the
-        first in name order). None when no file holds it."""
-        vs = self.verify_set()
+        usable file of the highest level that holds it (a configured source first among equals, 0.22.0), else
+        the first file that holds it. None when no file holds it."""
+        vs = vs if vs is not None else self.verify_set()
         holders = vs.files_containing(span)
         if not holders:
             return None
         named = SourceSet._key(source_file) if source_file else ""
-        if named in holders and self._usable_file(named):
+        if named in holders and self._usable_file(named, vs):
             return named
-        own = [h for h in holders if not vs.is_extra(h)]
-        if own:
-            return own[0]
-        reg = self.evidence_registry()
-        usable = sorted((reg.get(h).level, h) for h in holders if self._usable_file(h))
-        return usable[0][1] if usable else holders[0]
+        return self._best_of(holders, vs) or holders[0]
+
+    def _best_of(self, files: "list[str]", vs: "SourceSet | None" = None) -> "str | None":
+        """The usable file of the highest level among `files` (configured sources first among equals, then
+        their order), or None when none is usable."""
+        vs = vs if vs is not None else self.verify_set()
+        usable = [(self._source_side(f, vs)["level"], 1 if vs.is_extra(f) else 0, i, f)
+                  for i, f in enumerate(files) if self._usable_file(f, vs)]
+        return min(usable)[3] if usable else None
 
     def _span_holder(self, span: "str | None", source_file: str = "", vs: "SourceSet | None" = None) -> "str | None":
         """The file a stored span lies in: its named file when that holds it, else the first file of the
@@ -1654,39 +1727,42 @@ class KGEngine:
         held = vs.files_containing(span)
         return held[0] if held else None
 
-    def _source_side(self, name: "str | None") -> dict:
-        """What a file is to a verdict: ``{"class": "own", "file"}`` for a configured source, the external
-        copy's `evidence.label` (class "external", level, role, marks, usable, …), or ``{"class": "none"}``."""
-        if not name:
-            return {"class": "none"}
-        vs = self.verify_set()
-        if not vs.is_extra(name):
-            return {"class": OWN, "file": SourceSet._key(name)} if vs.has_file(name) else {"class": "none"}
-        rec = self.evidence_registry().get(name)
-        return evidence_label(rec) if rec is not None else {"class": "none"}
+    def _edge_support(self, edge, vs: "SourceSet | None" = None) -> "str | None":
+        """The file an edge's support rests on now: the usable file of the highest level among the file of its
+        own span and the files of the passages it was grounded on (`support:` segments, 0.22.0), else the first
+        of those files (unusable), else None (no span the engine can place)."""
+        vs = vs if vs is not None else self.verify_set()
+        files = [h for h in [self._span_holder(edge.span, edge.source_file, vs)]
+                 + [self._span_holder(span, name, vs) for span, name in supports_of(edge.notes)] if h]
+        if not files:
+            return None
+        return self._best_of(files, vs) or files[0]
 
     def _node_support_file(self, node, vs: "SourceSet | None" = None) -> "str | None":
-        """The file a node's last promotion span lies in (its `grounding source:` paragraph, else where the
-        span is found), or None."""
+        """The file a node's support rests on: the usable file of the highest level among the files of its
+        promotion spans (`grounding span:` / `grounding source:` paragraphs), else the first of them, or None."""
         from .groundplan import grounding_spans
-        spans = grounding_spans(node.body)
-        if not spans:
+        vs = vs if vs is not None else self.verify_set()
+        files = [h for span, name in grounding_spans(node.body) if (h := self._span_holder(span, name, vs))]
+        if not files:
             return None
-        span, name = spans[-1]
-        return self._span_holder(span, name, vs)
+        return self._best_of(files, vs) or files[0]
 
-    def _claim_side(self, kind: str, item) -> dict:
-        """Where the support of a claim about to be failed lies, for the level veto. An edge: the file of its
-        span ("none" when it has none). A node: the file of its promotion span when it has one; a node that
-        is not a hypothesis was extracted from the configured sources, so it is theirs; a hypothesis with no
-        span (a citation, or nothing yet) has no support to protect."""
+    def _claim_side(self, kind: str, item, vs: "SourceSet | None" = None) -> dict:
+        """Where the support of a claim about to be failed lies, for the level veto. An edge: its best support
+        (`_edge_support`; "none" with no span). A node: the file of its best promotion span; a node that is not
+        a hypothesis was extracted from the configured sources, so it stands at their default level; a
+        hypothesis with no span (a citation, or nothing yet) has no support to protect."""
+        vs = vs if vs is not None else self.verify_set()
         if kind == "edge":
-            return self._source_side(self._span_holder(item.span, item.source_file))
-        held = self._node_support_file(item)
+            return self._source_side(self._edge_support(item, vs), vs)
+        held = self._node_support_file(item, vs)
         if held:
-            return self._source_side(held)
-        if item.provenance != Provenance.HYPOTHESIZED and item.provenance != Provenance.INFERRED:
-            return {"class": OWN}
+            return self._source_side(held, vs)
+        if item.provenance not in (Provenance.HYPOTHESIZED, Provenance.INFERRED):
+            side = note_label(self.evidence_policy(), "")
+            side.pop("file", None)
+            return side
         return {"class": "none"}
 
     def _failed_refusal(self, kind: str, item, refuted_by: str) -> "dict | None":
@@ -1697,7 +1773,7 @@ class KGEngine:
         registered a failed verdict without it is accepted as through 0.20.2 (the configured sources refuting
         themselves). When given it must be an existing counter-edge (`evidence.COUNTER_RELATIONS`) touching the
         claim, with a span the engine can place, and `evidence.failed_veto` must allow its source against the
-        claim's."""
+        claim's: since 0.22.0 by level alone, for every source."""
         rid = (refuted_by or "").strip()
         if not rid:
             if self.evidence_registry():
@@ -1721,8 +1797,9 @@ class KGEngine:
         if not ({slug(counter.source), slug(counter.target)} & ends):
             return {"error": "refuted-by-unrelated", "refuted_by": rid,
                     "hint": "the counter-edge must touch the claim it refutes"}
-        refuting = self._source_side(self._span_holder(counter.span, counter.source_file))
-        claim = self._claim_side(kind, item)
+        vs = self.verify_set()
+        refuting = self._source_side(self._span_holder(counter.span, counter.source_file, vs), vs)
+        claim = self._claim_side(kind, item, vs)
         code = failed_veto(claim, refuting)
         if code:
             return {"error": code, "refuted_by": rid, "claim_source": claim, "refuting_source": refuting,
@@ -2289,10 +2366,18 @@ class KGEngine:
             return {**out, "error": args.problem}
         if source["path"] is None:
             return {**out, "error": self._NO_SOURCE}
+        pol = self.evidence_policy()
         if not source["exists"]:
+            if not pol.build_from_notes:
+                return {**out, "error": "this project builds only from registered sources (build_from_notes is "
+                                        "off), and none is registered with build: /burgess:kg-sources add one"}
             return {**out, "error": "the configured source_path resolves to no readable .md/.txt file"}
         texts = self.source_set().texts
-        declared = SourceSet.resolve(self.source_path)
+        # What extraction reads (0.22.0): the configured files unless the policy builds from registered sources
+        # only, then the registered copies marked `build`, in the content set's order.
+        built = [self._evidence_dir() / n for n, r in self.evidence_registry().records.items() if r.build]
+        declared = (SourceSet.resolve(self.source_path, exclude=self._evidence_dir())
+                    if pol.build_from_notes else []) + built
         skipped: "list[str]" = []
         if args.subset:
             names, problems = resolve_subset(args.subset, project_dir=self.project_dir, declared=declared)
@@ -2617,7 +2702,9 @@ class KGEngine:
                 if focus and slug(e.source) not in in_focus and slug(e.target) not in in_focus:
                     continue
                 pinned = DIVERGE_MARK in (e.notes or "")
-                if pinned and unsupported and waits("edge", e):
+                # A recorded item waits while the sources, the policy and the item are the ones it was judged
+                # against: a pin (0.20.1), or since 0.22.0 an item the policy leaves without usable support.
+                if unsupported and waits("edge", e):
                     unsupported_waiting += 1
                     continue
                 hypothesized = e.provenance == Provenance.HYPOTHESIZED
@@ -2641,7 +2728,7 @@ class KGEngine:
                 skipped += 1
                 continue
             pinned = DIVERGE_MARK in (n.body or "")
-            if pinned and unsupported and waits("node", n):
+            if unsupported and waits("node", n):
                 unsupported_waiting += 1
                 continue
             items.append(((0 if pinned else 1, 0, 1, (len(texts), 0), n.id), n.id, "node"))
@@ -2684,13 +2771,18 @@ class KGEngine:
             "evidence": self._evidence_info()})
 
     def _evidence_info(self) -> dict:
-        """`{path, files: [{name, level, level_name, role, title}]}`: the usable registered external sources,
-        for the adversarial grounder (0.21.0). An unusable one refutes nothing, so it is not offered."""
-        reg = self.evidence_registry()
+        """`{path, files, notes, required_level}` for the adversarial grounder (0.21.0): `files` are the usable
+        registered external sources (`{name, level, level_name, role, title}`), `notes` the configured files
+        with their level and whether they may refute (0.22.0). An unusable source refutes nothing, so it is not
+        offered."""
+        reg, pol, vs = self.evidence_registry(), self.evidence_policy(), self.verify_set()
         files = [{"name": r.name, "level": r.level, "level_name": evidence_label(r)["level_name"],
                   "role": r.role, "title": r.title}
-                 for r in reg.records.values() if not unusable_reason(r)]
-        return {"path": str(self._evidence_dir()), "files": files}
+                 for r in reg.records.values() if not unusable_reason(r, pol.required_level)]
+        notes = [{"name": n, "level": lab["level"], "usable": lab["usable"]}
+                 for n in vs.basenames if not vs.is_extra(n) for lab in [note_label(pol, n)]]
+        return {"path": str(self._evidence_dir()), "files": files, "notes": notes,
+                "required_level": pol.required_level}
 
     def _hub_attacks(self) -> "dict[str, list[str]]":
         """The attacks the ledger records by hub (`groundplan.attack_records`). Fail-open, like the
@@ -2799,11 +2891,12 @@ class KGEngine:
                 marked = item is not None and DIVERGE_MARK in (item.notes or "")
             if item is None:
                 return {"ok": False, "error": f"{kind} not found", "item": item_id}
-            if (item.provenance != Provenance.HYPOTHESIZED or item.epistemic_state != EpistemicState.UNVERIFIED
-                    or not marked):
+            if item.epistemic_state != EpistemicState.UNVERIFIED or not self._recordable(kind, item, marked):
                 return {"ok": False, "item": item_id,
-                        "error": "only an unverified [diverge]-pinned hypothesis can be recorded as "
-                                 "unsupported; give any other item its verdict with kg_ground"}
+                        "error": "only an unverified [diverge]-pinned hypothesis, an unverified edge whose span "
+                                 "lies only in sources this project does not accept, or a hypothesis while the "
+                                 "notes are below the required level can be recorded as unsupported; give any "
+                                 "other item its verdict with kg_ground"}
             at = utcnow()
             path = self.canon.root / UNSUPPORTED_PINS
             line = unsupported_record(kind, item_id, at, self._source_signature(),
@@ -2820,6 +2913,22 @@ class KGEngine:
             self.canon.release_lock()
         return {"ok": True, "item": item_id, "kind": kind, "at": at}
 
+    def _recordable(self, kind: str, item, marked: bool) -> bool:
+        """Whether an unverified item may wait for new sources (`kg_record_unsupported`): a `[diverge]` pin
+        (0.20.1), or, since 0.22.0, an item the policy itself leaves without usable support, which a grounder
+        must leave unverified rather than reject: an edge whose own span lies only in sources the project
+        does not accept, or a hypothesis while the notes, at their default level, are below the required
+        level. A rejection is permanent negative memory, and "not at this level" is not "not supported"."""
+        if item.provenance == Provenance.HYPOTHESIZED and marked:
+            return True
+        if kind == "edge" and item.span and item.span.strip():
+            held = self._edge_support(item)
+            return held is not None and not self._usable_file(held)
+        if item.provenance == Provenance.HYPOTHESIZED:
+            pol = self.evidence_policy()
+            return bool(level_unusable(pol.notes_level, [], pol.required_level))
+        return False
+
     # ---- external sources (0.21.0, evidence.py) ----------------------------------------------------------
 
     def _evidence_dir(self) -> Path:
@@ -2834,7 +2943,7 @@ class KGEngine:
 
     def kg_source_add(self, url: str = "", path: str = "", level="", role: str = "", title: str = "",
                       published: str = "", marks="", derives_from: str = "", note: str = "",
-                      preview: bool = False) -> dict:
+                      preview: bool = False, build=False) -> dict:
         """Register an external source (0.21.0): the engine copies it into `<project>/evidence/` and records
         its level, so a grounder may cite a verbatim span from it.
 
@@ -2850,7 +2959,9 @@ class KGEngine:
         optional. A copy whose text is already registered is refused (`already-registered`); a URL already
         registered with other text is accepted and named in `same_url_as`, so one of the two can be marked
         superseded. The level is recorded as set by the agent (`level_by`); only a hand edit of the sidecar
-        says "human". Writes only the evidence directory: no node, edge or verdict changes."""
+        says "human". `build=true` (0.22.0) also extracts the source into the graph like a configured source,
+        so `/burgess:kg-build` plans its sections and its claims carry its level. Writes only the evidence
+        directory: no node, edge or verdict changes."""
         from . import evidence as ev
 
         url, path = (url or "").strip(), (path or "").strip()
@@ -2885,6 +2996,7 @@ class KGEngine:
             rl = ev.parse_role(role)
             mk = ev.parse_marks(marks)
             pub = ev.parse_published(published)
+            bld = ev.parse_bool(build, "bad-build")
         except ev.EvidenceError as e:
             return {"ok": False, "error": e.code, "detail": e.detail}
         reg = self.evidence_registry()
@@ -2904,7 +3016,7 @@ class KGEngine:
             published=pub or detected, published_from="caller" if pub else ("page" if detected else ""),
             level=lvl, level_by="agent", role=rl, marks=mk, derives_from=derives_from,
             note=(note or "").strip(), content_type=copy.content_type, extractor=copy.extractor,
-            sha256_raw=hashlib.sha256(copy.raw).hexdigest())
+            sha256_raw=hashlib.sha256(copy.raw).hexdigest(), build=bld)
         same_url = sorted(r.name for r in reg.records.values()
                           if url and (r.url == url or (copy.final_url and r.final_url == copy.final_url)))
         # A fetched page, or a local HTML file, keeps its raw bytes: the extraction can be redone from them.
@@ -2913,7 +3025,8 @@ class KGEngine:
             ev.store(edir, rec, copy.text, copy.raw if keep_raw else None, copy.raw_ext)
         except OSError as e:
             return {"ok": False, "error": self._scrub_error(f"write failed: {e}")}
-        out = {"ok": True, "name": rec.name, "source": evidence_label(rec), "chars": len(copy.text),
+        out = {"ok": True, "name": rec.name, "source": evidence_label(rec, self.evidence_policy().required_level),
+               "chars": len(copy.text),
                "retrieved_at": rec.retrieved_at, "published_from": rec.published_from,
                "directory": str(edir)}
         if same_url:
@@ -2924,18 +3037,30 @@ class KGEngine:
 
     def kg_source_set(self, name: str, level=None, role: "str | None" = None, marks=None,
                       published: "str | None" = None, derives_from: "str | None" = None,
-                      title: "str | None" = None, note: "str | None" = None) -> dict:
+                      title: "str | None" = None, note: "str | None" = None, build=None) -> dict:
         """Change the record of a registered source (0.21.0): `level`, `role`, `marks` (the whole set: "" clears
         them), `published` ("" clears it), `derives_from` ("" clears it), `title`, `note`. A parameter left out
         is unchanged. The copy itself is never rewritten. A level set here is recorded as the agent's. A change
         bears on verdicts given from now on (a source marked retracted supports nothing any more); verdicts
-        already given keep their state, and kg_source_list counts those resting on an unusable source."""
+        already given keep their state, and kg_source_list counts those resting on an unusable source.
+
+        `name` may also be a configured file, one of the user's notes (0.22.0): its `level`, `role`, `marks`
+        and `note` are kept in the project's policy (`policy.json`); a note with no record of its own stands
+        at the policy's `notes_level`. `build` (true/false) applies to a registered source: whether it is
+        extracted into the graph."""
         from . import evidence as ev
 
         reg = self.evidence_registry()
-        rec = reg.get((name or "").strip())
+        key = SourceSet._key((name or "").strip())
+        rec = reg.get(key)
+        vs = self.verify_set()
+        if rec is None and key and vs.has_file(key) and not vs.is_extra(key):
+            return self._note_set(key, level=level, role=role, marks=marks, note=note,
+                                  others={"published": published, "derives_from": derives_from, "title": title,
+                                          "build": build})
         if rec is None:
-            return {"ok": False, "error": "source-not-found", "name": name, "registered": sorted(reg.records)}
+            return {"ok": False, "error": "source-not-found", "name": name, "registered": sorted(reg.records),
+                    "notes": [n for n in vs.basenames if not vs.is_extra(n)]}
         changed = []
         try:
             if level is not None and str(level).strip() != "":
@@ -2968,88 +3093,214 @@ class KGEngine:
             if df != rec.derives_from:
                 rec.derives_from = df
                 changed.append("derives_from")
-        for key, value in (("title", title), ("note", note)):
-            if value is not None and value.strip() != getattr(rec, key):
-                setattr(rec, key, value.strip())
-                changed.append(key)
+        for field_name, value in (("title", title), ("note", note)):
+            if value is not None and value.strip() != getattr(rec, field_name):
+                setattr(rec, field_name, value.strip())
+                changed.append(field_name)
+        if build is not None and str(build).strip() != "":
+            try:
+                bld = ev.parse_bool(build, "bad-build")
+            except ev.EvidenceError as e:
+                return {"ok": False, "error": e.code, "detail": e.detail}
+            if bld != rec.build:
+                rec.build = bld
+                changed.append("build")
+        required = self.evidence_policy().required_level
         if not changed:
-            return {"ok": True, "name": rec.name, "changed": [], "source": evidence_label(rec)}
+            return {"ok": True, "name": rec.name, "changed": [], "source": evidence_label(rec, required)}
         rec.updated_at = utcnow()
         try:
             ev.write_record(self._evidence_dir(), rec)
         except OSError as e:
             return {"ok": False, "error": self._scrub_error(f"write failed: {e}")}
-        return {"ok": True, "name": rec.name, "changed": changed, "source": evidence_label(rec)}
+        out = {"ok": True, "name": rec.name, "changed": changed, "source": evidence_label(rec, required)}
+        if "build" in changed:
+            out["hint"] = ("run /burgess:kg-build to extract it" if rec.build else
+                           "its claims already in the graph stay; it is no longer planned for extraction")
+        return out
+
+    def _note_set(self, name: str, *, level, role, marks, note, others: dict) -> dict:
+        """`kg_source_set` on a configured file (0.22.0): the record lives in the project's policy."""
+        import copy as _copy
+        from . import evidence as ev
+
+        given = [k for k, v in others.items() if v is not None and str(v).strip() != ""]
+        if given:
+            return {"ok": False, "error": "not-for-notes", "fields": given,
+                    "hint": "a configured file takes level, role, marks and note; it is your own text"}
+        pol = _copy.deepcopy(self.evidence_policy())
+        before = dict(pol.notes.get(name) or {})
+        entry = {"level": before.get("level", pol.notes_level), "role": before.get("role", ""),
+                 "marks": list(before.get("marks", [])), "note": before.get("note", ""),
+                 "updated_at": before.get("updated_at", "")}
+        changed = []
+        try:
+            if level is not None and str(level).strip() != "":
+                lvl = ev.parse_level(level)
+                if lvl != entry["level"] or not before:
+                    entry["level"] = lvl
+                    changed.append("level")
+            if role is not None and role.strip():
+                rl = ev.parse_role(role)
+                if rl != entry["role"]:
+                    entry["role"] = rl
+                    changed.append("role")
+            if marks is not None:
+                mk = ev.parse_marks(marks)
+                if mk != entry["marks"]:
+                    entry["marks"] = mk
+                    changed.append("marks")
+        except ev.EvidenceError as e:
+            return {"ok": False, "error": e.code, "detail": e.detail}
+        if note is not None and note.strip() != entry["note"]:
+            entry["note"] = note.strip()
+            changed.append("note")
+        if changed:
+            entry["updated_at"] = utcnow()
+            pol.notes[name] = entry
+            try:
+                ev.write_policy(self._evidence_dir(), pol)
+            except OSError as e:
+                return {"ok": False, "error": self._scrub_error(f"write failed: {e}")}
+        return {"ok": True, "name": name, "changed": changed, "source": note_label(pol, name)}
+
+    def kg_source_policy(self, required_level=None, notes_level=None, build_from_notes=None) -> dict:
+        """Read or change the project's evidence policy (0.22.0, `evidence.Policy`, `policy.json` in the
+        evidence directory). With no argument it only reads.
+
+        `required_level` (1-4) is the worst level that may still support or refute: 4, the default, accepts
+        everything but unfiltered sources; 1 accepts only peer-reviewed ones, so the notes (level 4 unless set)
+        only propose claims and a claim is verified on a reviewed source's passage. `notes_level` (1-5) is the
+        level of a configured file with no record of its own. `build_from_notes` (true/false) says whether the
+        configured sources are extracted; false, with registered sources added with `build`, builds a graph
+        from those sources alone. A change bears on verdicts from now on and offers again the items waiting
+        for new sources; verdicts already given keep their state, and `on_unusable_total` counts the grounded
+        claims that no longer rest on a usable source."""
+        import copy as _copy
+        from . import evidence as ev
+
+        pol = _copy.deepcopy(self.evidence_policy())
+        changed = []
+        try:
+            if required_level is not None and str(required_level).strip() != "":
+                v = ev.parse_required_level(required_level)
+                if v != pol.required_level:
+                    pol.required_level = v
+                    changed.append("required_level")
+            if notes_level is not None and str(notes_level).strip() != "":
+                v = ev.parse_level(notes_level)
+                if v != pol.notes_level:
+                    pol.notes_level = v
+                    changed.append("notes_level")
+            if build_from_notes is not None and str(build_from_notes).strip() != "":
+                v = ev.parse_bool(build_from_notes, "bad-build-from-notes")
+                if v != pol.build_from_notes:
+                    pol.build_from_notes = v
+                    changed.append("build_from_notes")
+        except ev.EvidenceError as e:
+            return {"ok": False, "error": e.code, "detail": e.detail}
+        if changed:
+            try:
+                ev.write_policy(self._evidence_dir(), pol)
+            except OSError as e:
+                return {"ok": False, "error": self._scrub_error(f"write failed: {e}")}
+        report = self._support_report()
+        return {"ok": True, "changed": changed,
+                "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
+                           "build_from_notes": pol.build_from_notes},
+                "notes": self._notes_listing(), "on_unusable_total": report["on_unusable_total"],
+                "problems": list(self._sources._evidence()[3])}
+
+    def _notes_listing(self) -> "list[dict]":
+        """The configured files, each with its label under the policy, whether the user set its level, its
+        size, and whether it is built into the graph (0.22.0)."""
+        vs, pol = self.verify_set(), self.evidence_policy()
+        return [{"name": n, **note_label(pol, n), "recorded": pol.note(n)["recorded"], "chars": len(vs.for_file(n)),
+                 "built": n in vs.content_names}
+                for n in vs.basenames if not vs.is_extra(n)]
 
     def kg_source_list(self) -> dict:
-        """The registered external sources with their records, the files the registry leaves out and why, and
-        `support`: what the grounded claims rest on (0.21.0).
+        """The sources and what the grounded claims rest on (0.21.0; the notes and the policy since 0.22.0).
 
-        `support` counts grounded edges and nodes by where their support lies: `own` (a configured source:
-        the user's notes), `external` by level, `unchecked_citation` (a support_note promotion: provenance
-        `inferred`, which the engine cannot check), and `unlocated` (a span no file holds now: R3 flags those).
-        `on_unusable` lists the claims grounded on a source since marked unusable, and `external_items` /
-        `unchecked_items` name the claims behind those counts (at most 50 each). Read-only."""
-        reg = self.evidence_registry()
+        `sources` are the registered external sources with their records; `notes` the configured files with
+        their level (the policy's `notes_level` unless set per file), whether they are usable under the policy
+        and whether they are built into the graph; `policy` the project's evidence policy. `problems` and
+        `unregistered` name what the registry leaves out and why.
+
+        `support` counts grounded edges and nodes by where their best support lies: `own` (the notes) and
+        `external`, each by level, `unchecked_citation` (a support_note promotion: provenance `inferred`, which
+        the engine cannot check), and `unlocated` (a span no file holds now: R3 flags those). `on_unusable` lists
+        the claims whose best support is no longer usable under the policy (a source since marked retracted, or
+        below a required level raised since), and `external_items` / `unchecked_items` name the claims behind
+        those counts (at most 50 each). Read-only."""
+        reg, pol = self.evidence_registry(), self.evidence_policy()
         vs = self.verify_set()
         sources = []
         for rec in reg.records.values():
-            sources.append({"name": rec.name, **evidence_label(rec), "retrieved_at": rec.retrieved_at,
-                            "published_from": rec.published_from, "level_by": rec.level_by,
-                            "note": rec.note, "origin": rec.origin, "chars": len(vs.for_file(rec.name))})
+            sources.append({"name": rec.name, **evidence_label(rec, pol.required_level),
+                            "retrieved_at": rec.retrieved_at, "published_from": rec.published_from,
+                            "level_by": rec.level_by, "note": rec.note, "origin": rec.origin,
+                            "build": rec.build, "chars": len(vs.for_file(rec.name))})
         by_level = Counter(str(rec.level) for rec in reg.records.values())
         return {"ok": True, "directory": str(self._evidence_dir()), "sources": sources,
                 "by_level": dict(sorted(by_level.items())),
-                "usable": sum(1 for rec in reg.records.values() if not unusable_reason(rec)),
-                "problems": list(reg.problems), "unregistered": list(reg.unregistered),
-                "support": self._support_report()}
+                "usable": sum(1 for rec in reg.records.values() if not unusable_reason(rec, pol.required_level)),
+                "notes": self._notes_listing(),
+                "policy": {"required_level": pol.required_level, "notes_level": pol.notes_level,
+                           "build_from_notes": pol.build_from_notes},
+                "problems": list(reg.problems) + list(self._sources._evidence()[3]),
+                "unregistered": list(reg.unregistered), "support": self._support_report()}
 
     def _support_report(self) -> dict:
-        """`kg_source_list`'s `support`: where each grounded claim's support lies."""
+        """`kg_source_list`'s `support`: where each grounded claim's best support lies, and whether it is usable
+        under the policy now."""
         cap = 50
         vs = self.verify_set()
-        reg = self.evidence_registry()
-        counts = {"edges": {"own": 0, "external": {}, "unchecked_citation": 0, "unlocated": 0},
-                  "nodes": {"own": 0, "external": {}, "unchecked_citation": 0, "unlocated": 0}}
+        pol = self.evidence_policy()
+
+        def bucket() -> dict:
+            return {"own": {}, "external": {}, "unchecked_citation": 0, "unlocated": 0}
+
+        counts = {"edges": bucket(), "nodes": bucket()}
         external_items, unchecked_items, on_unusable = [], [], []
 
-        def tally(kind: str, item_id: str, holder: "str | None", inferred: bool, extracted: bool) -> None:
-            bucket = counts["edges" if kind == "edge" else "nodes"]
-            if holder is None:
+        def tally(kind: str, item_id: str, side: "dict | None", inferred: bool) -> None:
+            b = counts["edges" if kind == "edge" else "nodes"]
+            if side is None or side.get("class") not in ("own", "external"):
                 if inferred:
-                    bucket["unchecked_citation"] += 1
+                    b["unchecked_citation"] += 1
                     if len(unchecked_items) < cap:
                         unchecked_items.append({"id": item_id, "kind": kind})
-                elif extracted:
-                    bucket["own"] += 1
                 else:
-                    bucket["unlocated"] += 1
+                    b["unlocated"] += 1
                 return
-            if not vs.is_extra(holder):
-                bucket["own"] += 1
-                return
-            rec = reg.get(holder)
-            level = str(rec.level) if rec is not None else "?"
-            bucket["external"][level] = bucket["external"].get(level, 0) + 1
-            if len(external_items) < cap:
-                external_items.append({"id": item_id, "kind": kind, "source": holder, "level": level})
-            if rec is None or unusable_reason(rec):
-                on_unusable.append({"id": item_id, "kind": kind, "source": holder,
-                                    "unusable": unusable_reason(rec) if rec is not None else "unregistered"})
+            level = str(side.get("level", "?"))
+            b[side["class"]][level] = b[side["class"]].get(level, 0) + 1
+            if side["class"] == "external" and len(external_items) < cap:
+                external_items.append({"id": item_id, "kind": kind, "source": side.get("file", ""), "level": level})
+            if not side.get("usable"):
+                on_unusable.append({"id": item_id, "kind": kind, "source": side.get("file", ""),
+                                    "unusable": side.get("unusable", "")})
 
         for n in self._canon_baseline().values():
             if n.epistemic_state == EpistemicState.GROUNDED:
                 held = self._node_support_file(n, vs)
-                tally("node", n.id, held, n.provenance == Provenance.INFERRED,
-                      n.provenance not in (Provenance.HYPOTHESIZED, Provenance.INFERRED))
+                if held:
+                    side = self._source_side(held, vs)
+                elif n.provenance not in (Provenance.HYPOTHESIZED, Provenance.INFERRED):
+                    side = note_label(pol, "")   # extracted from the configured sources, at their default level
+                else:
+                    side = None
+                tally("node", n.id, side, n.provenance == Provenance.INFERRED)
             for e in n.edges:
                 if e.epistemic_state != EpistemicState.GROUNDED:
                     continue
-                has_span = bool(e.span and e.span.strip())
-                tally("edge", e.id, self._span_holder(e.span, e.source_file, vs) if has_span else None,
-                      e.provenance == Provenance.INFERRED and not has_span, False)
-        for bucket in counts.values():
-            bucket["external"] = dict(sorted(bucket["external"].items()))
+                held = self._edge_support(e, vs)
+                tally("edge", e.id, self._source_side(held, vs) if held else None,
+                      e.provenance == Provenance.INFERRED and not (e.span and e.span.strip()))
+        for b in counts.values():
+            b["own"] = dict(sorted(b["own"].items()))
+            b["external"] = dict(sorted(b["external"].items()))
         return {**counts, "external_items": external_items, "unchecked_items": unchecked_items,
                 "on_unusable": on_unusable[:cap], "on_unusable_total": len(on_unusable)}
 
@@ -3103,6 +3354,21 @@ class KGEngine:
         context = self._span_context(e.span, e.source_file, scrub) if has_span else None
         shared = None if has_span else self._shared_context(e, nodes, scrub)
         passage = None if has_span else self._passage_view(e, scrub)
+        # Where usable support could be (0.22.0): an edge whose own support lies in a source the policy does
+        # not accept, or a proposal none of whose shared sections is usable, also gets the usable sections that
+        # share the most of its words, so a grounder can verify it on another passage without reading a file.
+        support = None
+        vs = self.verify_set()
+        if has_span:
+            held = self._edge_support(e, vs)
+            needs = held is not None and not self._usable_file(held, vs)
+        else:
+            needs = not any(s.get("source", {}).get("usable") for s in (shared or {}).get("sections", []))
+        if needs:
+            from .groundplan import node_terms
+            src, tgt = nodes.get(slug(e.source)), nodes.get(slug(e.target))
+            words = " ".join(x for x in ((src.label if src else e.source), (tgt.label if tgt else e.target)) if x)
+            support = self._ranked_context(node_terms(words, e.span or ""), scrub)
         return {"ok": True, "kind": "edge",
                 "edge": {"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
                          "provenance": e.provenance.value, "authored_by": e.authored_by.value,
@@ -3112,9 +3378,10 @@ class KGEngine:
                 "span_in_source": self.verify_set().verifies(e.span, e.source_file) if has_span else None,
                 # Where the span lies (0.21.0): a configured source ("own") or a registered external copy,
                 # with its level and whether it may support at all.
-                "span_source": self._source_side(self._span_holder(e.span, e.source_file)) if has_span else None,
+                "span_source": self._source_side(self._span_holder(e.span, e.source_file, vs), vs) if has_span else None,
+                "support_source": self._source_side(self._edge_support(e, vs), vs) if has_span else None,
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
-                "context": context, "shared_context": shared, "passage": passage}
+                "context": context, "shared_context": shared, "passage": passage, "support_context": support}
 
     def _section_index(self) -> dict:
         """The units of every section of the configured sources (`groundplan.text_units`: paragraphs, and the
@@ -3127,8 +3394,9 @@ class KGEngine:
         cached = getattr(self, "_section_index_cache", None)
         if cached is not None and cached[0] == sig:
             return cached[1]
-        # The configured sources, then every USABLE registered external copy (0.21.0). An unusable copy
-        # (level 5, retracted, superseded) can support nothing, so a grounder is never shown it as evidence.
+        # Every USABLE source (0.21.0), under the project's policy since 0.22.0: a source that can support
+        # nothing (level 5, retracted, superseded, or below the required level, the notes included) is never
+        # shown to a grounder as evidence. The cache key, the source signature, moves with the policy.
         texts = self.verify_set().texts
         sections, forms, owner = [], [], []
         for fname in texts:
@@ -3157,9 +3425,15 @@ class KGEngine:
         Through 0.20.1 a node's grounder got only the node and its incident edges. A pin or a cliché has no
         edge, so it got no source text, and could find support only among the spans other edges already
         cited. The field pass of 2026-11-21 judged 120 pins and 6 clichés that way, and its report said so."""
-        from .groundplan import NODE_SECTIONS, node_terms, rank_units, unit_excerpt
+        from .groundplan import node_terms
+        return self._ranked_context(node_terms(node.label, node.body), scrub)
 
-        terms = node_terms(node.label, node.body)
+    def _ranked_context(self, terms: "list[str]", scrub) -> dict:
+        """`{terms, sections, sections_total}`: the usable sections whose best paragraph shares the most of
+        `terms`, rare words weighing more (`_node_source_context`'s rule, 0.20.2), each labelled with its
+        `source` (0.22.0). Also a claim's `support_context` when its own support is not usable."""
+        from .groundplan import NODE_SECTIONS, rank_units, unit_excerpt
+
         index = self._section_index()
         best: "dict[int, tuple[float, int, list[str]]]" = {}
         for score, ui, matched in rank_units(index["forms"], terms):
@@ -3176,13 +3450,11 @@ class KGEngine:
         sections = []
         for sec, (_score, ui, matched) in picked:
             fname, s, units, first = index["sections"][sec]
-            entry = {"source_file": fname, "section": s.index,
-                     "title": scrub(s.title) if s.title else "(whole file)",
-                     "matched": [scrub(t) for t in matched],
-                     "excerpt": scrub(unit_excerpt(s.text, units, ui - first))}
-            if vs.is_extra(fname):
-                entry["source"] = self._source_side(fname)
-            sections.append(entry)
+            sections.append({"source_file": fname, "section": s.index,
+                             "title": scrub(s.title) if s.title else "(whole file)",
+                             "matched": [scrub(t) for t in matched],
+                             "excerpt": scrub(unit_excerpt(s.text, units, ui - first)),
+                             "source": self._source_side(fname, vs)})
         return {"terms": [scrub(t) for t in terms], "sections": sections, "sections_total": len(best)}
 
     def _span_context(self, span: str, source_file: str, scrub) -> "dict | None":
@@ -3199,12 +3471,9 @@ class KGEngine:
             for s in plan_sections(texts[fname])[1]:
                 excerpt = span_excerpt(s.text, span)
                 if excerpt is not None:
-                    out = {"source_file": fname, "section": s.index,
-                           "title": scrub(s.title) if s.title else "(whole file)",
-                           "excerpt": scrub(excerpt)}
-                    if vs.is_extra(fname):
-                        out["source"] = self._source_side(fname)
-                    return out
+                    return {"source_file": fname, "section": s.index,
+                            "title": scrub(s.title) if s.title else "(whole file)",
+                            "excerpt": scrub(excerpt), "source": self._source_side(fname, vs)}
         return None
 
     def _passage_view(self, edge, scrub) -> "dict | None":
@@ -3277,11 +3546,8 @@ class KGEngine:
         a, b = ends
 
         def entry(fname: str, s) -> dict:
-            out = {"source_file": fname, "section": s.index,
-                   "title": scrub(s.title) if s.title else "(whole file)"}
-            if vs.is_extra(fname):
-                out["source"] = self._source_side(fname)
-            return out
+            return {"source_file": fname, "section": s.index,
+                    "title": scrub(s.title) if s.title else "(whole file)", "source": self._source_side(fname, vs)}
 
         shared = []
         for key in set(where[a]) & set(where[b]):
@@ -4507,15 +4773,16 @@ def _register(mcp, engine: KGEngine) -> None:
         returned as `lead_withdrawn`). A verdict that keeps an edge's state re-confirms it: the edge keeps
         the time it entered that state, and its lead.
 
-        External sources (registered with kg_source_add): a span verifies against them too, but support
-        must lie in a configured source or a USABLE external source (level 1-4, not retracted nor
-        superseded), else `support-not-usable`. `failed` takes `refuted_by`, the id of the counter-edge
+        Levels: every source has one (the user's notes too, 4 unless set) and the project's policy says the
+        worst level that may still support or refute (kg_source_policy). Support must lie in a USABLE source,
+        else `support-not-usable`. An edge that already carries its span may be grounded on another passage:
+        `support_span` from a usable source, recorded beside the span (how a claim the notes state is verified
+        on a reviewed source under a strict policy). `failed` takes `refuted_by`, the id of the counter-edge
         (attacked_by / confounded_by / collapses_into, touching the claim) whose span refutes it; it is
-        required once any external source is registered. The level vetoes, never decides: an unusable
-        source refutes nothing (`failed-by-unusable-source`), the user's notes and an external source never
-        fail each other (`failed-across-own-and-external`), and a lower level cannot fail a higher one
-        (`failed-by-lower-level`); a refused failed leaves the counter-edge standing as a visible dispute.
-        A support_note promotion is recorded as an unchecked citation."""
+        required once any external source is registered. The level vetoes, never decides: an unusable source
+        refutes nothing (`failed-by-unusable-source`) and a lower level cannot fail a higher one
+        (`failed-by-lower-level`); a refused failed leaves the counter-edge standing as a visible dispute. A
+        support_note promotion is recorded as an unchecked citation."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
                                 support_span=support_span, support_note=support_note, lead=lead,
                                 refuted_by=refuted_by)
@@ -4614,6 +4881,11 @@ def _register(mcp, engine: KGEngine) -> None:
         edges, and `source_context`: the node's `terms` and up to 3 source `sections` that share the most of
         them, rare words weighing more, each with the words it shares (`matched`) and an `excerpt` of its part
         that uses most of them. A support_span for a node is copied verbatim from one of those excerpts.
+        Every excerpt and section carries `source`: the notes (`class: own`) or a registered external source,
+        with its `level` and whether it is `usable` under the project's policy; an unusable one cannot
+        support. An edge's `span_source` / `support_source` say where its span and its best support lie, and an
+        edge whose support is not usable (or a proposal none of whose shared sections is) gets
+        `support_context`: usable sections sharing its words, from which a support_span may be copied.
         Text is egress-scrubbed with the session's placeholders. Read-only."""
         return engine.kg_ground_item(target_id, kind)
 
@@ -4630,11 +4902,12 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_record_unsupported(target_id: str, kind: str = "node", note: str = "") -> dict:
-        """Record that you judged a `[diverge]`-pinned hypothesis and left it `unverified` because no
-        source supports it yet. Call it for each such pin, with a `note` on what you looked for and did
-        not find. `kg_ground_plan` then leaves the pin out (counted in `queue.unsupported_waiting`) until
-        the sources or the pin change, so the next pass does not judge it again for the same answer.
-        Refused for any other item: an ordinary proposal, a verdicted item, or one without the marker
+        """Record that you judged an item and left it `unverified` because no usable source supports it yet:
+        a `[diverge]`-pinned hypothesis, an edge whose own span lies only in sources this project does not
+        accept (below its required level), or a hypothesis while the notes are below the required level.
+        Call it for each such item, with a `note` on what you looked for and did not find. `kg_ground_plan`
+        then leaves it out (counted in `queue.unsupported_waiting`) until the sources, the policy or the item
+        change, so the next pass does not judge it again for the same answer. Refused for any other item: it
         gets its verdict from kg_ground. Writes only the ledger beside the canon: no node, edge or verdict
         changes."""
         return engine.kg_record_unsupported(target_id, kind, note)
@@ -4643,7 +4916,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def kg_source_add(url: str = "", path: str = "", level: str = "", role: str = "", title: str = "",
                       published: str = "", marks: str = "", derives_from: str = "", note: str = "",
-                      preview: bool = False) -> dict:
+                      preview: bool = False, build: bool = False) -> dict:
         """Register an external source so a grounder can cite a verbatim span from it. The ENGINE copies
         it into the project's evidence/ directory: give exactly one of `url` (http/https; the engine fetches
         the page itself; never pass WebFetch output, which is a model's paraphrase) or `path` (a local
@@ -4657,34 +4930,55 @@ def _register(mcp, engine: KGEngine) -> None:
         the fact; secondary: analyses and cites primaries; tertiary: summarizes without the origin).
         Optional: `marks` (comma-separated: interest, corrected, retracted, superseded), `published`
         (YYYY[-MM[-DD]]), `derives_from` (a registered source this one repeats), `title`, `note` (why this
-        level). The level measures the filter the text passed, never whether a claim is true. Registering
-        a source wakes the pins waiting for new sources. Writes only the evidence directory."""
+        level), `build` (true: also extract it into the graph like a configured source, so the graph can be
+        built from such sources; /burgess:kg-build plans it). The level measures the filter the text passed,
+        never whether a claim is true. Registering a source wakes the items waiting for new sources. Writes
+        only the evidence directory."""
         return engine.kg_source_add(url=url, path=path, level=level, role=role, title=title,
                                     published=published, marks=marks, derives_from=derives_from, note=note,
-                                    preview=bool(preview))
+                                    preview=bool(preview), build=bool(build))
 
     @mcp.tool()
     @_tool_result
     def kg_source_list() -> dict:
-        """The registered external sources (name, title, url, level, role, marks, usable, dates), the files
-        of the evidence directory the registry leaves out and why (`problems`: an edited copy, a missing
-        text; `unregistered`: a text with no record), and `support`: how many grounded edges and nodes rest
-        on the user's own notes, on external sources by level, or on an unchecked citation, with the claims
-        grounded on a source since marked unusable (`on_unusable`). Read-only."""
+        """The registered external sources (name, title, url, level, role, marks, usable, build, dates), the
+        user's notes with their level and whether they are usable and built, the project's `policy`, the
+        files the registry leaves out and why (`problems`: an edited copy, a missing text, a bad policy;
+        `unregistered`: a text with no record), and `support`: how many grounded edges and nodes rest on the
+        notes and on external sources, each by level, or on an unchecked citation, with the claims whose
+        support is no longer usable under the policy (`on_unusable`). Read-only."""
         return engine.kg_source_list()
 
     @mcp.tool()
     @_tool_result
     def kg_source_set(name: str, level: str | None = None, role: str | None = None, marks: str | None = None,
                       published: str | None = None, derives_from: str | None = None,
-                      title: str | None = None, note: str | None = None) -> dict:
-        """Change a registered source's record: `level`, `role`, `marks` (the whole set, comma-separated;
-        "" clears them), `published` ("" clears it), `derives_from` ("" clears it), `title`, `note`. Left out
-        means unchanged. The copy itself is never rewritten. A change bears on verdicts from now on (a
-        source marked retracted or superseded supports and refutes nothing); verdicts already given keep
-        their state, and kg_source_list names those now resting on an unusable source."""
+                      title: str | None = None, note: str | None = None, build: bool | None = None) -> dict:
+        """Change a source's record: `level`, `role`, `marks` (the whole set, comma-separated; "" clears
+        them), `note`, and for a registered source also `published` ("" clears it), `derives_from` ("" clears
+        it), `title` and `build` (whether it is extracted into the graph). `name` is a registered source
+        (`ext-….md`) or one of the user's configured notes (its basename): a note's record lives in the
+        project's policy. Left out means unchanged. A copy itself is never rewritten. A change bears on
+        verdicts from now on (a source marked retracted, superseded, or below the required level supports
+        and refutes nothing); verdicts already given keep their state, and kg_source_list names those now
+        resting on an unusable source."""
         return engine.kg_source_set(name, level=level, role=role, marks=marks, published=published,
-                                    derives_from=derives_from, title=title, note=note)
+                                    derives_from=derives_from, title=title, note=note, build=build)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_source_policy(required_level: int | None = None, notes_level: int | None = None,
+                         build_from_notes: bool | None = None) -> dict:
+        """Read (no arguments) or change the project's evidence policy. `required_level` (1-4): the worst
+        level that may still support or refute; 4 (default) accepts everything but unfiltered sources, 1
+        only peer-reviewed ones, so the notes only propose and claims are verified on reviewed sources'
+        passages. `notes_level` (1-5): the level of a note with no record of its own (default 4: a text by an
+        author nobody reviewed). `build_from_notes` (true/false): whether the configured notes are extracted
+        into the graph; false, with sources registered with `build`, builds a graph from those sources
+        alone. A change applies to verdicts from now on and offers again the items waiting for sources;
+        `on_unusable_total` counts grounded claims that no longer rest on a usable source."""
+        return engine.kg_source_policy(required_level=required_level, notes_level=notes_level,
+                                       build_from_notes=build_from_notes)
 
     @mcp.tool()
     @_tool_result

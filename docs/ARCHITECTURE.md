@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (39 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (40 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -40,7 +40,7 @@ verdict path.
 | `atomicio.py` | Stdlib-only leaf: crash-safe atomic writes (temp + fsync + replace) |
 | `graphio.py` | Version-robust NetworkX node-link (de)serialization for `graph.json` |
 | `sources.py` | `SourceSet`: resolve a file/dir/glob of `.md`/`.txt` into ordered `{basename → text}`, source-aware span verification, `##` section splitting |
-| `evidence.py` | External sources (0.21.0): the level/role/marks vocabulary, the engine's own fetch and fixed HTML→text rule, the `evidence/` registry with its integrity check, and the level veto on `failed` |
+| `evidence.py` | Sources and levels (0.21.0, 0.22.0): the level/role/marks vocabulary, the engine's own fetch and fixed HTML→text rule, the `evidence/` registry with its integrity check, the project `Policy` (required level, the notes' levels, building from notes), the `support:` segment, and the level veto on `failed` |
 | `scrub.py` | Egress PII/secret scrubbing (§1.9) with consistent placeholders |
 | `pack.py` | Domain-pack contract/loader/coverage |
 | `boundary.py` | The write boundary: strict payload validation → dispositions (span-present, never-forge-a-verdict, dedup, flood cap) |
@@ -204,6 +204,23 @@ registered source wakes the pins waiting for one), while `concat`, which feeds e
 the specificity corpus, stays the configured sources alone. The directory is durable user data, not engine
 state.
 
+**Every source has a level (0.22.0).** Through 0.21.0 the configured sources sat outside the scale, so notes of
+unknown level verified an idea as a reviewed paper did and could not be failed by it, and a graph could not be
+built from level-1 sources. The project's `Policy` (`evidence/policy.json`, `kg_source_policy`) now gives each
+configured file a level (`notes_level`, 4 unless set per file with `kg_source_set`), sets `required_level`, the
+worst level that may still support or refute (4 by default; 1 = only peer-reviewed), and `build_from_notes`. A
+registered copy with `build` is content like a note: `SourceSet(content=…)` puts it in `concat`, and
+`_SourceResolver.resolve()` / `verify()` build the content set (what extraction reads) and the verification set
+(the content, then the evidence-only files, the notes among them when they are not built) from the policy and the
+registry. The veto is one rule for every source (a lower level never fails a higher one), so a reviewed paper may
+fail a claim only the notes support. A claim whose best support is not usable can be grounded on another
+passage (`support_span` on a span-present edge, recorded as a `support: {json}` segment, so the claim keeps the
+span it was extracted from), or left unverified and recorded with `kg_record_unsupported`, never rejected for its
+level: a rejection is negative memory, and "not at this level" is not "not supported". `kg_ground_item` labels
+every passage with its source and adds `support_context`, the usable sections sharing the claim's words. A
+non-default policy joins the source signature, so a change offers the waiting items again; verdicts already given
+keep their state, and `kg_source_list` names those whose support is no longer usable.
+
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged
 verdict**, and its fields are cleared and re-quarantined. The state it is reset *to* is the
@@ -365,7 +382,7 @@ live compression node was already proposed over (at least half of the other memb
 already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
 2026-11-15 all four compression candidates were of these kinds.
 
-## 5. The MCP tool surface (39 tools)
+## 5. The MCP tool surface (40 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -424,11 +441,13 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   of support, with its note, keyed by the signatures of the sources and of the pin, so the ground plan leaves
   it out until either changes or a focus names it; it refuses anything but an unverified `[diverge]`-pinned
   hypothesis, writes only the unsupported-pin ledger and sets no state).
-- **External sources (3, 0.21.0):** `kg_source_add` (register an outside text: the engine fetches or reads it,
+- **Sources (4, 0.21.0 / 0.22.0):** `kg_source_add` (register an outside text: the engine fetches or reads it,
   copies it into `evidence/` with its level, role and marks, and `preview=true` shows what to propose a level
-  from without writing), `kg_source_list` (the registry, its problems, and what grounded claims rest on:
-  the notes, external sources by level, or unchecked citations), `kg_source_set` (change a record; the copy is
-  never rewritten). They write only the evidence directory and set no state (§3.4).
+  from without writing; `build` also extracts it), `kg_source_list` (the registry, the notes with their levels,
+  the policy, its problems, and what grounded claims rest on: the notes and external sources by level, or
+  unchecked citations), `kg_source_set` (change a source's or a note's record, or `build`; a copy is never
+  rewritten), `kg_source_policy` (the required level, the notes' default level, whether the notes are built).
+  They write only the evidence directory and set no state (§3.4).
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (8):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,

@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the thirty-one graph tools (§1), then the eight divergence-surface
+Load on demand. The MCP **tool surface** — the thirty-two graph tools (§1), then the eight divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,7 +17,7 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-one** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-two** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
@@ -27,9 +27,10 @@ adversarial attack leaves when it writes no counter-edge, `kg_record_edgeless_se
 extraction leaves on a section it wrote no edge from, `kg_record_generation` (§1.25), the record a
 `/burgess:kg-generate` run leaves in the absorption ledger, and `kg_record_unsupported(target_id, kind="node", note)`
 (§1.26), the mark a grounder leaves on a `[diverge]` pin it judged and found no support for, and the
-external-sources trio `kg_source_add` (§1.27), `kg_source_list` (§1.28) and `kg_source_set` (§1.29), which
-register outside texts with an epistemic level so grounders can cite verbatim spans from them (0.21.0).
-The eight **divergence-surface** tools (§1B) complete the server's **thirty-nine**.
+sources tools `kg_source_add` (§1.27), `kg_source_list` (§1.28) and `kg_source_set` (§1.29), which register
+outside texts with an epistemic level so grounders can cite verbatim spans from them (0.21.0), and
+`kg_source_policy` (§1.30), the project's evidence policy (0.22.0).
+The eight **divergence-surface** tools (§1B) complete the server's **forty**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
@@ -38,7 +39,7 @@ the single source of truth) — `kg_propose` (§1.12) is the hypothesized write 
 through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
 `kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon, and
 `kg_record_generation` (§1.25) only the absorption ledger in the derived dir, and `kg_source_add` /
-`kg_source_set` (§1.27, §1.29) only the project's `evidence/` directory. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+`kg_source_set` / `kg_source_policy` (§1.27, §1.29, §1.30) only the project's `evidence/` directory. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -176,6 +177,10 @@ record so the reconciler treats the transition as legitimate.
   `grounding source: <file>` paragraph after its `grounding span:` one. A `support_note` is recorded as
   `citation (unchecked): <note>` (0.21.0; `citation: ` before) and the return says `"support":
   "unchecked-citation"`; a span promotion returns `"support_source"`, the file's class and level.
+  **Since 0.22.0 `support_span` also grounds an edge that already carries its span** on another passage: it
+  must lie in a usable source, the edge keeps the span it was extracted from, and the notes gain the segment
+  `support: {"span": …, "source_file": …}`, which `kg_ground_item` and the report read as its best support.
+  Under a strict policy that is how a claim the notes state is verified on a reviewed source.
 - `refuted_by: str = ""` (0.21.0) — with `verdict="failed"`: the id of the counter-edge (`attacked_by`,
   `confounded_by` or `collapses_into`, touching the claim, with a span) whose span refutes the claim. Required
   once any external source is registered (`failed-needs-refuted-by`), so the engine knows where the refuting
@@ -183,19 +188,22 @@ record so the reconciler treats the transition as legitimate.
   `refuted-by-not-found`, `refuted-by-not-a-counter-edge`, `refuted-by-is-the-claim`, `refuted-by-unrelated`,
   and the level veto below.
 
-**Levels of external sources (0.21.0).** Spans verify against the configured sources and the registered
-external copies (§1.27). The level measures the filter the text passed, never the truth of a claim, so it only
-decides what may be used:
-- support (a promotion span, or the span of a non-hypothesized edge being grounded) must lie in a configured
-  source or in a usable copy: level 1–4, not `retracted` nor `superseded`. Otherwise `support-not-usable`, with
-  `"source"` (the file) and `"unusable"` (`unfiltered`, `retracted`, `superseded`). A span the notes also hold is
-  supported by the notes.
+**Levels of sources (0.21.0; every source since 0.22.0).** Spans verify against the configured sources and the
+registered external copies (§1.27). Every source has a level, the notes too (the policy's `notes_level`, 4 unless
+set per file, §1.30). The level measures the filter the text passed, never the truth of a claim, so it only
+decides what may be used, under the project's `required_level`:
+- support (a promotion span, a `support_span`, or the best support of a non-hypothesized edge being grounded)
+  must lie in a usable source: at or above the required level (4 by default), neither unfiltered, retracted nor
+  superseded. Otherwise `support-not-usable`, with `"source"` (the file), `"source_level"`, `"required_level"` and
+  `"unusable"` (`unfiltered`, `retracted`, `superseded`, `below-required-level`). A promotion records the usable
+  file of the highest level that holds its span.
 - a `failed` is vetoed (`evidence.failed_veto`) when the refuting span lies in an unusable source
-  (`failed-by-unusable-source`), when one side is the configured sources and the other an external copy
-  (`failed-across-own-and-external`: the user's notes and an external source never fail each other), or when an
-  external refutation has a lower level than the external support (`failed-by-lower-level`). A refusal returns
-  `claim_source`, `refuting_source` and a `hint`; the counter-edge stands as a visible dispute. With no source
-  registered, a `failed` without `refuted_by` behaves as through 0.20.2.
+  (`failed-by-unusable-source`) or when the refutation has a lower level than the claim's best usable support
+  (`failed-by-lower-level`), whichever kind of source each is: a reviewed paper may fail a claim only the notes
+  support. Through 0.21.0 the notes and an external source never failed each other
+  (`failed-across-own-and-external`, removed). A refusal returns `claim_source`, `refuting_source` and a `hint`;
+  the counter-edge stands as a visible dispute. With no source registered, a `failed` without `refuted_by`
+  behaves as through 0.20.2.
 - `lead: str = ""` (0.9.0) — with `verdict="rejected"` on an edge only: the edge the rejected span does state
   instead, `"<head-id> <relation> <tail-id>"` (`groundplan.parse_lead`: the ids slugged, the relation a pack
   edge type; a new node gets a new slug id). Appended to the notes after `note` as the segment
@@ -979,9 +987,10 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   degree counted every edge, so every pass offered the same five hubs and left ten new unverified
   counter-edges behind.
 - `source` — the configured source, as in `kg_status`, for the adversarial grounder's searches.
-- `evidence` (0.21.0) — `{path, files: [{name, level, level_name, role, title}]}`: the usable registered external
-  sources (§1.27), which the adversarial grounder may search too. An unusable one refutes nothing and is not
-  listed.
+- `evidence` (0.21.0) — `{path, files: [{name, level, level_name, role, title}], notes: [{name, level, usable}],
+  required_level}`: the usable registered external sources (§1.27), which the adversarial grounder may search
+  too, and the notes with their level and whether they may refute (0.22.0). An unusable source refutes nothing
+  and is not listed in `files`.
 - An item leaves the plan once it carries a verdict, so calling it again between waves is the progress probe.
 
 ### 1.22 `mcp__plugin_burgess_burgess__kg_ground_item(target_id, kind="edge")`
@@ -1002,11 +1011,17 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
 
 - `span_in_source` — the engine's own check, now: does the span still verify against its file? `false` is a
   stale or broken span; `null` for a span-less (hypothesized) edge. Registered external copies count (0.21.0).
-- `span_source` (0.21.0) — where the span lies: `{"class": "own", "file"}` for a configured source, the copy's
-  label for a registered external source (`class: "external"`, `level`, `level_name`, `role`, `marks`, `usable`,
-  `title`, `url`, `published`), `{"class": "none"}` when no file holds it; `null` for a span-less edge. Every
-  `context`, `shared_context` section and `passage` from an external copy carries the same label as `source`;
-  one with no `source` is from the configured sources.
+- `span_source` (0.21.0) — where the span lies: a configured source's label (`class: "own"`, `file`, its
+  `level` and `level_name` from the policy, `role`, `marks`, `usable`), a registered external source's label
+  (`class: "external"`, the same plus `title`, `url`, `published`, `build`), `{"class": "none"}` when no file holds
+  it; `null` for a span-less edge. Since 0.22.0 every `context`, `shared_context` section, `passage` and section
+  carries its file's label as `source`, the notes included.
+- `support_source` (0.22.0) — where the edge's best support lies: the usable file of the highest level among its
+  span's file and the passages it was grounded on (`support:` segments); `null` for a span-less edge.
+- `support_context` (0.22.0) — `{terms, sections, sections_total}`, the usable sections that share the most of
+  the edge's words (its two ends' labels and its span), as a node's `source_context` is ranked. Present when the
+  edge's best support is not usable, or for a proposal none of whose shared sections is usable; `null`
+  otherwise. A grounder copies a `support_span` from one of its excerpts.
 - `context` — the excerpt of the source section that holds the span (`groundplan.span_excerpt`), or `null`.
   It is the paragraph and its neighbours, at most 3000 characters, and for a long table the rows around the
   span under the table's header and rule rows, with a `…` line where rows were skipped (0.8.0: before, a row
@@ -1055,10 +1070,10 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
     A pin or a cliché has none, so its grounder could only search the spans other edges cited, as the field
     pass of 2026-11-21 reported.
   - The section index is cached on the sources' signature.
-  - Registered external copies (0.21.0): the index also holds every usable copy (an unusable one, level 5,
-    retracted or superseded, can support nothing and is left out), and after the best 3 sections come up to 3
-    more from external copies, so a source registered for a node is never crowded out by the notes. Each of
-    those carries `source`, its label.
+  - Registered external copies (0.21.0): the index also holds every usable copy, and after the best 3 sections
+    come up to 3 more from external copies, so a source registered for a node is never crowded out by the
+    notes. Since 0.22.0 the index holds only usable files under the policy (the notes too: below a required
+    level they are left out), and every section carries `source`, its label.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
   placeholders included, restores and verifies.
 - `ok: false` for an unknown id, or a `kind` other than `edge`/`node`.
@@ -1189,7 +1204,12 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
 - `ok: false` for an unknown item or kind, an empty or overlong note, or an item that is not an unverified
   `[diverge]` pin; nothing is written then.
 - Registering an external source (§1.27) changes the source signature, so every waiting pin is offered again
-  to the next pass, which judges it against the new source too (0.21.0).
+  to the next pass, which judges it against the new source too (0.21.0). So does a change of the policy (§1.30),
+  whose fingerprint joins the signature whenever it differs from the defaults (0.22.0).
+- Since 0.22.0 two more kinds of item may be recorded, both ones the policy leaves without usable support, which
+  a grounder leaves `unverified` rather than rejects: an edge whose span lies only in sources the project does
+  not accept, and a hypothesis while the notes, at their default level, are below the required level. The plan
+  leaves out any item whose latest record still matches, pin or not.
 
 ---
 
@@ -1222,6 +1242,9 @@ measures the filter the text passed before it was published, never whether a cla
   `published_from: "page"`. `retrieved_at` is the one date the engine certifies.
 - `derives_from` — a registered source this one repeats (so it is not independent of it); `title`; `note`
   (why this level).
+- `build` (0.22.0) — `true` also extracts the source into the graph like a configured source:
+  `kg_build_plan` lists it, `kg_section` serves it, the specificity corpus counts it, and its claims carry its
+  level. With the policy's `build_from_notes` off, such sources are all that is extracted.
 
 ```json
 {"ok": true, "name": "ext-study-of-degree-8c40b8d9.md",
@@ -1256,17 +1279,21 @@ measures the filter the text passed before it was published, never whether a cla
 The registered external sources and what the grounded claims rest on (0.21.0). Read-only.
 
 - `sources[]` — each one's `name`, label (`level`, `level_name`, `role`, `marks`, `usable`, `unusable`, `title`,
-  `url`, `published`, `derives_from`), `retrieved_at`, `published_from`, `level_by`, `note`, `origin` and
+  `url`, `published`, `derives_from`), `retrieved_at`, `published_from`, `level_by`, `note`, `origin`, `build` and
   `chars`; `by_level` and `usable` count them.
+- `notes[]` (0.22.0) — each configured file's `name`, label (`level`, `level_name`, `role`, `marks`, `usable`),
+  `recorded` (whether the user set its level), `chars` and `built`; `policy` — `{required_level, notes_level,
+  build_from_notes}` (§1.30).
 - `problems[]` — records left out, with `problem`: `text-edited` (the copy no longer matches its sha256, so the
   engine no longer vouches for it: register the source again instead of editing the copy), `text-missing`,
   `name-mismatch`, `sidecar-malformed`, `sidecar-unreadable`, or a field's parse error. `unregistered[]` — text
   files in the directory that no record claims; they are ignored.
-- `support` — `edges` and `nodes`, each `{own, external: {level: n}, unchecked_citation, unlocated}`: grounded
-  claims whose support lies in the configured sources, in external copies by level, in a `support_note` (an
-  `inferred` promotion the engine cannot check), or in a span no file holds now. `external_items`,
-  `unchecked_items` (at most 50 each) and `on_unusable` (claims grounded on a source since marked unusable, with
-  `on_unusable_total`) name them.
+- `support` — `edges` and `nodes`, each `{own: {level: n}, external: {level: n}, unchecked_citation, unlocated}`
+  (`own` by level since 0.22.0): grounded claims whose best support lies in the configured sources or in
+  external copies, by level, in a `support_note` (an `inferred` promotion the engine cannot check), or in a span
+  no file holds now. `external_items`, `unchecked_items` (at most 50 each) and `on_unusable` (claims whose best
+  support is no longer usable under the policy: a source since marked retracted, or below a required level
+  raised since; with `on_unusable_total`) name them.
 
 ---
 
@@ -1279,6 +1306,44 @@ level set here is recorded as the agent's. Returns `{ok, name, changed: [fields]
 `derives-from-unknown`. A change bears on verdicts from now on: a source marked retracted or superseded
 supports and refutes nothing. Verdicts already given keep their state, and `kg_source_list` names those now
 resting on an unusable source.
+
+Since 0.22.0 `name` may also be a configured file (one of the user's notes, by basename): its `level`, `role`,
+`marks` and `note` are kept in the policy (§1.30); the fields only a registered source has are refused
+(`not-for-notes`). `build=True/False` (a registered source only) sets whether it is extracted; the return then
+carries a `hint` (run `/burgess:kg-build`, or: its claims already in the graph stay).
+
+---
+
+### 1.30 `mcp__plugin_burgess_burgess__kg_source_policy(required_level=None, notes_level=None, build_from_notes=None)`
+
+Read (no argument) or change the project's evidence policy (0.22.0, `evidence.Policy`), kept as
+`<project>/evidence/policy.json`. Through 0.21.0 the notes sat outside the scale, so notes of unknown level
+verified an idea as a peer-reviewed paper did and could not be failed by it, and a graph could not be built from
+level-1 sources.
+
+- `required_level` (1–4) — the worst level that may still support or refute. `4` (the default) accepts
+  everything but unfiltered sources; `1` only peer-reviewed ones: the notes then only propose claims, and a claim
+  is verified on a usable passage (`support_span`, §1.4) or left `unverified` and recorded (§1.26).
+- `notes_level` (1–5) — the level of a configured file with no record of its own (default `4`: a text by an author
+  nobody reviewed). Per-file levels are set with `kg_source_set` (§1.29).
+- `build_from_notes` (bool) — whether the configured sources are extracted; `false`, with sources registered
+  with `build`, builds a graph from those sources alone. The notes are still verified against, as evidence only,
+  so the spans of claims extracted from them earlier stay valid.
+
+```json
+{"ok": true, "changed": ["required_level"],
+ "policy": {"required_level": 1, "notes_level": 4, "build_from_notes": true},
+ "notes": [{"name": "notes.md", "class": "own", "file": "notes.md", "level": 4, "level_name": "author-or-community",
+            "role": "", "marks": [], "usable": false, "unusable": "below-required-level", "recorded": false,
+            "chars": 1290, "built": true}],
+ "on_unusable_total": 198, "problems": []}
+```
+
+- A change bears on verdicts from now on: verdicts already given keep their state, and `on_unusable_total` counts
+  the grounded claims that no longer rest on a usable source (`kg_source_list` names them). It offers again every
+  item waiting for sources. With the defaults the source signature is 0.21.0's.
+- A malformed `policy.json` is reported in `problems` and the defaults apply. Refusals: `bad-required-level`,
+  `bad-level`, `bad-build-from-notes`.
 
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 

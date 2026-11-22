@@ -92,8 +92,9 @@ in place without support.
   included. The span must state THIS relation between what the two nodes name, as **What each relation
   asserts** defines it. Two concepts named in one passage are not a relation between them. A citation from
   outside the source still goes in `support_note`, as above. But when the outside text is a registered source
-  (an excerpt with `source`), cite its passage as `support_span` instead: the engine can check a span, while a
-  `support_note` is recorded as an unchecked citation.
+  (an excerpt whose `source.class` is `external`), cite its passage as `support_span` instead: the engine can
+  check a span, while a `support_note` is recorded as an unchecked citation. Only a section with
+  `source.usable: true` can support; when none is, look in `support_context`.
 - **No shared section.** When both ends have sections but `sections` is empty, the source never discusses the
   two together and holds no support for the proposal: reject it `no-support`, unless you cite support from
   outside the source. A `[diverge]` pin stays `unverified`, as the next section says.
@@ -196,16 +197,22 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     it shares and an `excerpt`. A node has no span to locate its text by, so this is its evidence: judge what
     the node claims against those excerpts, and copy a `support_span` verbatim from one that states it. Through
     0.20.1 a node came with no source text, and its grounder could only search the spans other edges cited.
-  - **External sources (0.21.0).** The user can register outside texts with `/burgess:kg-sources`; the engine
-    copies each one and records its level. An excerpt or section that carries `source` comes from such a copy:
-    `source.level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), `role`,
-    `marks`, `title`, `url`, `published`, and `usable`. Every other excerpt is from the user's own notes, and an
-    edge's `span_source` says which one its span lies in (`class`: `own` or `external`). A node's
-    `source_context` lists up to three more sections from external copies after its best three. A support
-    span from a usable external copy grounds an item exactly as one from the notes does; the engine refuses
-    support that lies only in an unusable copy (level 5, retracted or superseded: `support-not-usable`).
+  - **Every source has a level (0.21.0, 0.22.0).** Each excerpt and section carries `source`: `class` is
+    `own` (the user's notes) or `external` (an outside text the user registered with `/burgess:kg-sources`,
+    copied by the engine), with its `level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community,
+    5 unfiltered), `role`, `marks` and **`usable`**. The project's policy says the worst level that may still
+    support (4 by default: everything but unfiltered; 1: only peer-reviewed sources), and the notes have a
+    level too (4 unless the user set another). A passage from a source with `usable: false` cannot support
+    anything: the engine refuses it (`support-not-usable`). An edge's `span_source` says where its span lies,
+    and `support_source` where its best support lies. When that support is not usable, or a proposal has no
+    usable shared section, the item also comes with `support_context`: usable sections that share its words.
+    A node's `source_context` holds only usable sections, with up to three more from external copies after
+    its best three.
     **The level is not your verdict.** Judge only whether the passage states the claim; a high level never
-    makes a claim true, and a low one never makes it false.
+    makes a claim true, and a low one never makes it false. **A claim whose support lies only in sources this
+    project does not accept is not rejected for it**: a rejection says no source states the claim, and one
+    does, below the required level. Ground it on a usable passage, or leave it `unverified` and record it
+    (step 1e).
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
   For a proposal, the excerpts are those of `shared_context`.
@@ -316,7 +323,15 @@ concept as another node, `get_node` the id you suspect.
       strength of an overlapping word; a span hedged into untestability; a relation that survives no possible
       counterexample. If `kg_context.advisory` flagged a node as a `structural-bridge`, weight its edges here.
    d. **Otherwise GROUND it.** The span is present, asserts the relation, and the relation is specific and
-      defeasible → `grounded`, note quoting the deciding clause.
+      defeasible → `grounded`, note quoting the deciding clause. **When `support_source.usable` is `false`**
+      (0.22.0: the span lies only in a source this project does not accept, such as notes below a required
+      level of 1), the span cannot ground it: go to e.
+   e. **Support elsewhere.** Look in `support_context` for a usable passage that states the same claim, by the
+      same rules as b and c. Found → `kg_ground(target_id=<id>, verdict="grounded", support_span="<that passage,
+      verbatim>", note=…)`: the engine records it beside the span the claim was extracted from. Not found →
+      leave the edge `unverified` and call `kg_record_unsupported(target_id=<id>, kind="edge", note=<what you
+      looked for>)`, so the plan does not offer it again until the sources or the policy change. Never reject
+      a claim because its only support is below the required level.
 2. **Stamp the verdict** with `kg_ground(target_id=<id>, verdict=..., kind=..., note=...)`, using the id exactly as
    your batch lists it. Confirm `ok:true` and `from == "unverified"`. If `from` was already a verdict, skip —
    someone else ruled. The exception is an item your batch marks `re-examine` (0.20.2): it is a rejected node
@@ -328,6 +343,8 @@ concept as another node, `get_node` the id you suspect.
    support yet, **leave it `unverified`** (triage — a novel idea has no in-source span by construction) and
    record that with `kg_record_unsupported` (see the triage above); only a
    non-`[diverge]` node with no support is `rejected`. "No edge → can't be grounded" is false — ground the node.
+   Support that lies only in sources with `usable: false` is not support here, and not a reason to reject
+   either: leave the node `unverified` and record it (0.22.0), whatever its lineage.
    Your batch also holds the queued edges that touch the node, such as a compression's star, so judge the node
    first. A proposal into a node that is rejected, failed or obsolete is not promoted: `kg_ground` refuses it
    with `hypothesis-into-non-live-node`. Reject that edge `no-support`, because what it reduces to does not

@@ -42,6 +42,17 @@ native code, which Smart App Control blocks on the user's Windows machine). PDF 
 sources refuse it (`sources.py`): a lossy transcript would make a verbatim span a guess. Convert it to Markdown
 and register the file.
 
+**Every source has a level, the notes included (0.22.0).** Through 0.21.0 the configured sources sat outside
+the scale, so notes of unknown level verified an idea as a peer-reviewed paper did, and were shielded from it.
+Now the project's ``Policy`` (``policy.json`` in the evidence directory) gives each configured file a level
+(``notes_level``, 4 by default: a text by an author nobody reviewed, unless the user sets another per file),
+says the worst level that may still support or refute (``required_level``, 4 by default: everything but
+unfiltered; 1: only peer-reviewed sources verify, and the notes only propose), and whether the configured
+sources are extracted at all (``build_from_notes``). A registered source with ``build`` is extracted like a
+note, so a graph can be built from level-1 sources alone. The veto on `failed` is the same for every source.
+With no policy file every default reproduces 0.21.0, except that the notes are no longer out of reach of an
+external source of a higher level.
+
 Everything here is pure or touches only ``<project>/evidence/``: no canon write, no verdict.
 """
 from __future__ import annotations
@@ -81,14 +92,19 @@ LEVEL_BY = ("agent", "human")
 CITATION_MARK = "citation (unchecked): "
 # What a failed verdict appends: the counter-edge whose span refuted the claim.
 REFUTED_BY_MARK = "refuted by: "
+# What grounding a claim on another source's span appends to the edge's notes (0.22.0), as a JSON object so a
+# ` | ` inside the span (a table row) cannot split it: the claim keeps the span it was extracted from, and the
+# support it was grounded on is recorded beside it.
+SUPPORT_MARK = "support: "
+POLICY_FILE = "policy.json"
+DEFAULT_REQUIRED_LEVEL = 4     # the worst level that may support or refute: everything but unfiltered
+DEFAULT_NOTES_LEVEL = 4        # a configured file with no level of its own: a text by an author nobody reviewed
 VETO_HINTS = {
     "refuted-by-has-no-span": "the counter-edge has no span the engine can place, so nothing says where the "
                               "refutation comes from",
-    "failed-by-unusable-source": "the refuting span lies in a level-5, retracted or superseded source, which "
-                                 "refutes nothing; leave the counter-edge as a recorded challenge",
-    "failed-across-own-and-external": "the user's notes and an external source never fail each other: the "
-                                      "counter-edge stands as a visible dispute, and the user decides whether "
-                                      "to correct the note",
+    "failed-by-unusable-source": "the refuting span lies in a source that refutes nothing under this project's "
+                                 "policy (level 5, retracted, superseded, or below the required level); leave "
+                                 "the counter-edge as a recorded challenge",
     "failed-by-lower-level": "a source of a lower level cannot fail a claim supported by a higher one: the "
                              "counter-edge stands as a visible dispute",
 }
@@ -147,6 +163,7 @@ class EvidenceRecord:
     sha256_raw: str = ""           # of the bytes as received (or as read, for a local file)
     sha256_text: str = ""          # of the text file as written: the integrity check
     raw: str = ""                  # the raw copy's path under evidence/, or ""
+    build: bool = False            # extracted into the graph like a configured source (0.22.0)
     updated_at: str = ""
     schema: int = SCHEMA
 
@@ -158,20 +175,28 @@ class EvidenceRecord:
 _RECORD_FIELDS = {f.name for f in fields(EvidenceRecord)}
 
 
-def unusable_reason(rec: EvidenceRecord) -> str:
-    """Why `rec` can neither support nor refute anything, or "" when it can: `unfiltered` (level 5, an
-    object of study only), or the first of its `UNUSABLE_MARKS`."""
-    if rec.level >= UNFILTERED:
+def level_unusable(level: int, marks, required: int = DEFAULT_REQUIRED_LEVEL) -> str:
+    """Why a source at `level` with `marks` can neither support nor refute anything under a project that
+    requires `required`, or "" when it can: `unfiltered` (level 5, an object of study only), the first of its
+    `UNUSABLE_MARKS`, or `below-required-level` (0.22.0)."""
+    if level >= UNFILTERED:
         return "unfiltered"
     for mark in UNUSABLE_MARKS:
-        if mark in rec.marks:
+        if mark in (marks or ()):
             return mark
+    if level > required:
+        return "below-required-level"
     return ""
 
 
-def label(rec: EvidenceRecord) -> dict:
+def unusable_reason(rec: EvidenceRecord, required: int = DEFAULT_REQUIRED_LEVEL) -> str:
+    """`level_unusable` for a registered source."""
+    return level_unusable(rec.level, rec.marks, required)
+
+
+def label(rec: EvidenceRecord, required: int = DEFAULT_REQUIRED_LEVEL) -> dict:
     """What a grounder sees of an external source beside a passage from it (kg_ground_item)."""
-    why = unusable_reason(rec)
+    why = unusable_reason(rec, required)
     out = {"class": "external", "file": rec.name, "level": rec.level, "level_name": LEVELS[rec.level],
            "role": rec.role, "marks": list(rec.marks), "usable": not why,
            "title": rec.title, "url": rec.url, "published": rec.published}
@@ -179,6 +204,8 @@ def label(rec: EvidenceRecord) -> dict:
         out["unusable"] = why
     if rec.derives_from:
         out["derives_from"] = rec.derives_from
+    if rec.build:
+        out["build"] = True
     return out
 
 
@@ -188,24 +215,157 @@ def failed_veto(claim: dict, refuting: dict) -> str:
     "usable": bool}`` ("none": no span, or a span the engine cannot place).
 
     The level is a veto, never the winner (2026-11-21 design): a refutation only removes what a grounder may
-    do, and the text must still refute the claim. So: an unusable source (level 5, retracted, superseded)
-    refutes nothing; the user's notes and an external source never fail each other (the clash stands as a
-    dispute: the counter-edge stays visible, and the user corrects the note); between two external sources a
-    lower level cannot fail a higher one. A claim with no usable support has nothing to protect."""
+    do, and the text must still refute the claim. An unusable source refutes nothing; a lower level cannot fail
+    a claim a higher one supports; a claim with no usable support has nothing to protect. Since 0.22.0 the
+    same rules hold for every source: the notes have a level (`Policy`), so a source of a higher level can fail
+    a claim only the notes support, and the notes can fail a claim of a lower level. Through 0.21.0 the notes
+    and an external source never failed each other, which shielded notes of unknown level from a reviewed
+    paper."""
     if refuting.get("class") not in ("own", "external"):
         return "refuted-by-has-no-span"
-    if refuting["class"] == "external" and not refuting.get("usable"):
+    if not refuting.get("usable"):
         return "failed-by-unusable-source"
-    side = claim.get("class")
-    if side == "external" and not claim.get("usable"):
-        side = "none"
-    if side not in ("own", "external"):
+    if claim.get("class") not in ("own", "external") or not claim.get("usable"):
         return ""
-    if (side == "own") != (refuting["class"] == "own"):
-        return "failed-across-own-and-external"
-    if side == "external" and int(refuting.get("level", UNFILTERED)) > int(claim.get("level", UNFILTERED)):
+    if int(refuting.get("level", UNFILTERED)) > int(claim.get("level", UNFILTERED)):
         return "failed-by-lower-level"
     return ""
+
+
+# ---------------------------------------------------------------------------------------- the policy
+
+@dataclass
+class Policy:
+    """A project's evidence policy (0.22.0), stored as `policy.json` in its evidence directory.
+
+    `required_level` is the worst level that may still support or refute (1-4; 4 accepts everything but
+    unfiltered sources, 1 only peer-reviewed ones). `notes_level` is the level of a configured file with no
+    record of its own (1-5). `notes` holds the per-file records the user set: ``{basename: {level, role,
+    marks, note, updated_at}}``. `build_from_notes` says whether the configured sources are extracted into
+    the graph; false, with registered sources marked `build`, builds a graph from those sources alone."""
+    required_level: int = DEFAULT_REQUIRED_LEVEL
+    notes_level: int = DEFAULT_NOTES_LEVEL
+    build_from_notes: bool = True
+    notes: dict = field(default_factory=dict)
+    updated_at: str = ""
+    schema: int = SCHEMA
+
+    def is_default(self) -> bool:
+        """True when the policy changes nothing 0.21.0 did on support (the source signature leaves it out)."""
+        return (self.required_level == DEFAULT_REQUIRED_LEVEL and self.notes_level == DEFAULT_NOTES_LEVEL
+                and self.build_from_notes and not self.notes)
+
+    def fingerprint(self) -> str:
+        """A stable text of what bears on verdicts, for the source signature: a change wakes waiting items."""
+        return json.dumps({"required_level": self.required_level, "notes_level": self.notes_level,
+                           "build_from_notes": self.build_from_notes,
+                           "notes": {k: {"level": v.get("level"), "marks": v.get("marks", [])}
+                                     for k, v in sorted(self.notes.items())}},
+                          sort_keys=True, ensure_ascii=False)
+
+    def note(self, name: str) -> dict:
+        """The record of a configured file: its own, else the default level with no role and no marks."""
+        rec = self.notes.get(Path(name or "").name) or {}
+        return {"level": rec.get("level", self.notes_level), "role": rec.get("role", ""),
+                "marks": list(rec.get("marks", [])), "note": rec.get("note", ""), "recorded": bool(rec)}
+
+
+def parse_required_level(value) -> int:
+    level = parse_level(value)
+    if level >= UNFILTERED:
+        raise EvidenceError("bad-required-level", "level 5 supports nothing: the required level is 1-4")
+    return level
+
+
+def parse_bool(value, code: str = "bad-flag") -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    if text in ("1", "true", "yes", "si", "sí", "on"):
+        return True
+    if text in ("0", "false", "no", "off"):
+        return False
+    raise EvidenceError(code, "true or false")
+
+
+def load_policy(directory: "Path | None") -> "tuple[Policy, list]":
+    """The project's policy, or the defaults when there is none; a malformed file is reported and the
+    defaults apply (fail-safe: the defaults are 0.21.0's acceptance), with ``problems`` naming it."""
+    pol, problems = Policy(), []
+    if directory is None:
+        return pol, problems
+    path = Path(directory) / POLICY_FILE
+    if not path.is_file():
+        return pol, problems
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise EvidenceError("policy-malformed", "not a JSON object")
+        out = Policy(required_level=parse_required_level(data.get("required_level", DEFAULT_REQUIRED_LEVEL)),
+                     notes_level=parse_level(data.get("notes_level", DEFAULT_NOTES_LEVEL)),
+                     build_from_notes=parse_bool(data.get("build_from_notes", True), "policy-malformed"),
+                     updated_at=str(data.get("updated_at") or ""))
+        notes = data.get("notes") or {}
+        if not isinstance(notes, dict):
+            raise EvidenceError("policy-malformed", "`notes` is a map of file names")
+        for name, rec in notes.items():
+            if not isinstance(rec, dict) or Path(str(name)).name != name:
+                raise EvidenceError("policy-malformed", f"bad record for {name!r}")
+            entry = {"level": parse_level(rec.get("level", out.notes_level)),
+                     "marks": parse_marks(rec.get("marks", [])),
+                     "role": parse_role(rec["role"]) if rec.get("role") else "",
+                     "note": str(rec.get("note") or ""), "updated_at": str(rec.get("updated_at") or "")}
+            out.notes[name] = entry
+        return out, problems
+    except EvidenceError as e:
+        problems.append({"file": POLICY_FILE, "problem": e.code, "detail": e.detail})
+    except (OSError, ValueError) as e:
+        problems.append({"file": POLICY_FILE, "problem": "policy-unreadable", "detail": str(e)})
+    return pol, problems
+
+
+def write_policy(directory: Path, pol: Policy) -> None:
+    pol.updated_at = utcnow()
+    atomic_write_text(Path(directory) / POLICY_FILE,
+                      json.dumps(asdict(pol), indent=2, ensure_ascii=False) + "\n")
+
+
+def note_label(pol: Policy, name: str) -> dict:
+    """What a grounder sees of a configured file (the user's notes) beside a passage from it (0.22.0)."""
+    rec = pol.note(name)
+    why = level_unusable(rec["level"], rec["marks"], pol.required_level)
+    out = {"class": OWN, "file": Path(name).name, "level": rec["level"], "level_name": LEVELS[rec["level"]],
+           "role": rec["role"], "marks": rec["marks"], "usable": not why}
+    if why:
+        out["unusable"] = why
+    return out
+
+
+# ------------------------------------------------------------------------------ support on another source
+
+def support_segment(span: str, source_file: str) -> str:
+    """The notes segment that records a claim grounded on `span` in `source_file` (0.22.0)."""
+    return SUPPORT_MARK + json.dumps({"span": span, "source_file": source_file}, ensure_ascii=False)
+
+
+def supports_of(notes: "str | None") -> "list[tuple[str, str]]":
+    """``(span, source_file)`` of every support segment in an edge's notes, in order. A segment that is not
+    one the engine writes is skipped."""
+    text, out, pos = notes or "", [], 0
+    decoder = json.JSONDecoder()
+    while True:
+        at = text.find(SUPPORT_MARK + "{", pos)
+        if at < 0:
+            return out
+        try:
+            value, end = decoder.raw_decode(text, at + len(SUPPORT_MARK))
+        except ValueError:
+            pos = at + len(SUPPORT_MARK)
+            continue
+        pos = end
+        if isinstance(value, dict) and isinstance(value.get("span"), str) and value["span"].strip() \
+                and isinstance(value.get("source_file"), str):
+            out.append((value["span"], value["source_file"]))
 
 
 # ----------------------------------------------------------------------------------- argument parsing
@@ -336,6 +496,8 @@ def _record_from(data: dict) -> EvidenceRecord:
     rec.published = parse_published(rec.published)
     if rec.level_by not in LEVEL_BY:
         raise EvidenceError("sidecar-malformed", "`level_by` is agent or human")
+    if not isinstance(rec.build, bool):
+        raise EvidenceError("sidecar-malformed", "`build` is true or false")
     for key in ("title", "url", "final_url", "origin", "retrieved_at", "published_from", "derives_from",
                 "note", "content_type", "extractor", "sha256_raw", "sha256_text", "raw", "updated_at"):
         if not isinstance(getattr(rec, key), str):
