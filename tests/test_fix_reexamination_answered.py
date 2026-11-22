@@ -139,7 +139,8 @@ def test_the_audit_index_orders_records_by_their_place_in_the_log(tmp_path):
     records = [{"key": "e_a", "from": "unverified", "to": "rejected", "by": "agent", "at": "2026-11-21T10:00:00+00:00"},
                {"_ckpt": 1, "consumed": {}, "epistemic": {}, "at": "2026-11-21T10:00:01+00:00"},
                {"key": "node:n", "from": "unverified", "to": "rejected", "by": "agent", "at": "2026-11-22T09:00:00+00:00"}]
-    log.write_text("".join(json.dumps(r) + "\n" for r in records) + "not json\n", encoding="utf-8")
+    text = "".join(json.dumps(r) + "\n" for r in records) + "not json\n"
+    log.write_bytes(text.encode("utf-8"))       # LF on every platform: the offsets below count its bytes
     ix = read_audit_index(log)
     assert ix.size == log.stat().st_size and set(ix.last) == {"e_a", "node:n"}
     first, third = 0, len(json.dumps(records[0])) + 1 + len(json.dumps(records[1])) + 1
@@ -147,6 +148,14 @@ def test_the_audit_index_orders_records_by_their_place_in_the_log(tmp_path):
     assert ix.mark_after("2026-11-23T00:00:00+00:00") == ix.size
     assert ix.judged_since(audit_key("node", "n"), third) and not ix.judged_since("e_a", first + 1)
     assert read_audit_index(tmp_path / "missing.jsonl").size == 0 and AuditIndex().last == {}
+    # The engine appends in text mode, so on Windows each record ends in CRLF: the offsets are still the
+    # file's own bytes, and the log's end is still its size (the first CI run wrote this log with write_text,
+    # which on Windows turned every LF into CRLF under an LF-counting expectation).
+    crlf = tmp_path / "crlf.jsonl"
+    crlf.write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+    ix = read_audit_index(crlf)
+    assert ix.size == crlf.stat().st_size and ix.last["node:n"] == third + 2
+    assert ix.mark_after("2026-11-21T12:00:00+00:00") == third + 2
 
 
 # --------------------------------------------------------------------------- the plan queues them
