@@ -10,7 +10,8 @@ The canon and the derived index are machine surfaces. This command renders two *
 artifacts so a person can *eyeball* the graph and its grounding state — without ever changing it.
 
 `/burgess:kg-view` is **read-only**: it projects-if-stale, then consumes only the derived layer and writes only its
-two artifacts under `${CLAUDE_PLUGIN_DATA}/derived/`. It never writes the canon, never sets a verdict, never
+two artifacts under the project's own folder in `${CLAUDE_PLUGIN_DATA}` (`projects/<the folder's
+name>-<a hash>/derived/`, since 0.23.0). It never writes the canon, never sets a verdict, never
 copies a span — it cannot forge anything (§1.4/§1.5/§1.8). Both files are **regenerable**; treat them as a
 view, not a source of truth (the canon is the source of truth).
 

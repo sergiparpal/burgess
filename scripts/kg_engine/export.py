@@ -1,5 +1,5 @@
 """Human-facing exporter (R1): a deterministic, READ-ONLY render of the derived layer into two fresh,
-disposable artifacts under ``${KG_DATA}/derived/`` — a self-contained offline ``graph.html`` and a
+disposable artifacts under the project's derived dir (``${KG_DATA}/projects/<key>/derived/`` since 0.23.0) — a self-contained offline ``graph.html`` and a
 ``GRAPH_REPORT.md``.
 
 It consumes ONLY the derived layer (the SQLite node/edge rows + their precomputed rank columns, via the

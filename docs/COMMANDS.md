@@ -572,6 +572,11 @@ Each source also has a **role** (`primary`: the origin of the fact; `secondary`:
   is never rejected because its only support is below the required level.
 - A registered source is **evidence, not content**: it is not extracted into the graph unless you add it with
   `build`. With `build_from_notes=no`, the graph is built from such sources alone.
+- **Each project can have its own notes** (0.23.0, `policy notes_path=`). The plugin's `source_path` is one value
+  for every project, because Claude Code keeps a plugin's options per user and ignores a project's settings for
+  them. `notes_path` names a folder, file or glob inside the project, `none` gives it no notes, and `default`
+  goes back to `source_path`. A path outside the project is refused, so a repository you clone cannot point
+  Burgess at your other files.
 
 ### Arguments
 
@@ -580,7 +585,7 @@ Each source also has a **role** (`primary`: the origin of the fact; `secondary`:
 | action | No | `add` · `list` · `set` | `list` |
 | `add` target | With `add` | one `http(s)://` URL, or one path to a `.md`, `.txt` or `.html` file | — |
 | `set` fields | With `set` | a source's name (`ext-….md`) or one of your notes' file names, then `level=`, `role=`, `marks=`, `note=`, and for a registered source `published=`, `derives_from=`, `title=`, `build=` | — |
-| `policy` fields | No | `required=` (1–4), `notes=` (1–5), `build_from_notes=` (yes/no); nothing shows the policy | — |
+| `policy` fields | No | `required=` (1–4), `notes=` (1–5), `build_from_notes=` (yes/no), `notes_path=` (a path inside the project, `none` or `default`); nothing shows the policy | — |
 
 ### Examples
 
@@ -631,6 +636,12 @@ Build a graph from level-1 sources alone: switch the notes off, add each paper w
 /burgess:kg-sources policy required=1 build_from_notes=no
 /burgess:kg-sources add https://example.org/papers/agent-scaffolding
 /burgess:kg-build
+```
+
+Give this project its own notes, in its `notas/` folder, instead of the plugin's `source_path`:
+
+```text
+/burgess:kg-sources policy notes_path=notas
 ```
 
 ### Notes and honest limits

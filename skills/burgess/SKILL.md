@@ -28,8 +28,9 @@ hand structured JSON back across the MCP boundary. Your job is to orchestrate, n
   `${CLAUDE_PROJECT_DIR}/canon/<node-id>.md` (YAML frontmatter + body; directed edges live in the
   source node's `edges:` block). The canon carries the grounding state.
 - **Derived** — a regenerable, *disposable* projection at
-  `${CLAUDE_PLUGIN_DATA}/derived/{graph.json,index.sqlite}`. The derived layer **contains nothing
-  the canon does not**. Never edit it by hand; reproject from canon instead.
+  `${CLAUDE_PLUGIN_DATA}/projects/<project>/derived/{graph.json,index.sqlite}`, one per project since
+  0.23.0. The derived layer **contains nothing the canon does not**. Never edit it by hand; reproject from
+  canon instead.
 
 ## The three axes (§1.3) — orthogonal, never collapsed to one scalar
 

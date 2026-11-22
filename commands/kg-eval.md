@@ -24,16 +24,21 @@ the **best** result. An installed copy records the refinements the numbers point
 Claude Code filled these in when the command loaded. Use them as they stand:
 
 - **Plugin root:** `${CLAUDE_PLUGIN_ROOT}`.
-- **Engine data:** `${CLAUDE_PLUGIN_DATA}`. The derived graph is `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
+- **Engine data:** `${CLAUDE_PLUGIN_DATA}`. Since 0.23.0 each project keeps its own derived layer there, in
+  `projects/<the folder's name>-<a hash>/`, and the derived graph is that folder's `derived/graph.json`:
+  `"$PY" -m kg_engine.paths graph` prints it, and every block below sets `GRAPH` with it.
 - **Project:** `${CLAUDE_PROJECT_DIR}`. The log is its `.kg/PROGRESS.md`, and scratch files go in its
   `.kg/eval/`. Everything this command writes stays under `.kg/`, which Burgess never reads as a source
   document. The source can be the project folder itself, and then every `.md`/`.txt` file at the top of
   that folder is one of its documents.
-- **Source:** `${user_config.source_path}`, what the graph was built from. It is one file, or a folder whose
-  `.md`/`.txt` files are the documents. Each edge's `source_file` names its document in that folder.
+- **Source:** what the graph was built from, which `"$PY" -m kg_engine.paths source` prints (a block that reads
+  it sets `SRC` with it). It is the project's own notes when its policy names them (`/burgess:kg-sources policy
+  notes_path=…`, 0.23.0), else the plugin's `${user_config.source_path}`; when the project builds from
+  registered sources, it is a folder holding a copy of each file the build reads. It is one file, or a folder
+  whose `.md`/`.txt` files are the documents. Each edge's `source_file` names its document in that folder.
 
 `GRAPH` is the path in the arguments, `$ARGUMENTS` (the whole line is one path; drop any surrounding quotes),
-if one was given, else `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
+if one was given, else the project's own graph (`kg_engine.paths graph`).
 
 ## Step 0 — a fresh graph and the engine's interpreter
 
@@ -47,13 +52,14 @@ if one was given, else `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
    ```bash
    PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
    export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-   GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+   GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
    EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
    ```
 
    `engine_python.mjs` prints the interpreter the plugin's launcher uses: `.venv\Scripts\python.exe` on
    Windows, `.venv/bin/python` elsewhere. If it exits 1, the engine is not provisioned yet: tell the user to
-   start a new Claude Code session, whose SessionStart hook builds it, and stop.
+   start a new Claude Code session, whose SessionStart hook builds it, and stop. A block that reads the
+   source also sets `SRC` right after the `export` line, with the line that block shows.
 
 ---
 
@@ -64,10 +70,12 @@ if one was given, else `${CLAUDE_PLUGIN_DATA}/derived/graph.json`.
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" summary "$GRAPH"
-"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "${user_config.source_path}"
+"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "$SRC"
+echo "SRC=$SRC"   # the source: the annotator's prompt names it
 ```
 
 This prints node/edge counts, the nodes grouped by `file_type` (distinct from the `node_type` used in the
@@ -84,7 +92,7 @@ the end, and go on. Don't move or delete the file; that is the user's call.
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" sheet "$GRAPH" --n 80 --out "$EVAL/labels.csv"
 ```
@@ -105,7 +113,7 @@ Task(
   description: "Label Stage-4 precision sheet",
   prompt: """
     Label the sheet at ${CLAUDE_PROJECT_DIR}/.kg/eval/labels.csv and write your labels to
-    ${CLAUDE_PROJECT_DIR}/.kg/eval/labels.json. The source is ${user_config.source_path}. If that is a
+    ${CLAUDE_PROJECT_DIR}/.kg/eval/labels.json. The source is <the SRC= path Step 0 printed>. If that is a
     folder, each row's document is the file its `source_file` column names inside it; if it is a file, that
     file is the whole source. Read each document your rows cite; those documents are your only ground truth.
 
@@ -142,7 +150,7 @@ verdict into the canon (verdicts reach the canon only via `kg_ground`, §1.4).
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" fill "$EVAL/labels.csv" "$EVAL/labels.json" || exit 1
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" score "$EVAL/labels.csv"
@@ -214,7 +222,8 @@ plugin is running. Its root is `${CLAUDE_PLUGIN_ROOT}`:
    ```bash
    PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
    export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-   "$PY" -m kg_engine.pack validate "${CLAUDE_PLUGIN_ROOT}/pack/pack.yaml" "${user_config.source_path}"
+   SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
+   "$PY" -m kg_engine.pack validate "${CLAUDE_PLUGIN_ROOT}/pack/pack.yaml" "$SRC"
    ```
 3. Re-run `/burgess:kg-build` (re-extract → re-project → fresh `graph.json`), then redo 4.2–4.4.
 
@@ -233,7 +242,7 @@ pass blind to the other (no shared notes, no second pass seeing the first's labe
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" sheet "$GRAPH" --n 80 --out "$EVAL/labels_a.csv"
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" sheet "$GRAPH" --n 80 --out "$EVAL/labels_b.csv"
@@ -257,7 +266,7 @@ convert the two CSVs (key each row by `edge_id`, value = `verdict`) into `label_
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" fill "$EVAL/labels_a.csv" "$EVAL/labels_a.json" || exit 1
 "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/f4_probe.py" fill "$EVAL/labels_b.csv" "$EVAL/labels_b.json" || exit 1
@@ -281,9 +290,10 @@ than 2 coders are ignored, so both passes must cover the same `edge_id`s — the
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
-"$PY" -m kg_engine.harness specificity "$GRAPH" "${user_config.source_path}"
+"$PY" -m kg_engine.harness specificity "$GRAPH" "$SRC"
 ```
 
 The source may be the folder of documents: the harness reads it exactly as the projector does, so the IDF
@@ -311,13 +321,14 @@ first two lines is a quoted heredoc, so the shell leaves that text alone: write 
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
-GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"   # or the path given in the arguments
+GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"   # or the path given in the arguments
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
 EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 {
   printf '\n## /kg-eval — %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'graph: %s   (labeled n=%s)\n' "$GRAPH" "<N>"
+  printf 'source: %s\n' "$SRC"
   cat <<'EOF'
-source: ${user_config.source_path}
 
 Stage 4 — extraction precision
 - PRECISION (best of <K> pass(es)):  <precision>   (target >= 0.70 — recorded, non-gating)

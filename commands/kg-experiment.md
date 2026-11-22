@@ -61,8 +61,11 @@ Claude Code filled these in when the command loaded. Use them as they stand:
   `.kg/experiment/`: the prompt file, the rag passages and the outputs. Everything this command
   writes stays under `.kg/`, which Burgess never reads as a source document. The source can be the project
   folder itself, and then every `.md`/`.txt` file at the top of that folder is one of its documents.
-- **Source:** `${user_config.source_path}`, what the graph was built from. It is one file, or a folder whose
-  `.md`/`.txt` files are the documents. The `rag` and `lightrag` arms read it, and the harness scores
+- **Source:** what the graph was built from, which `"$PY" -m kg_engine.paths source` prints (a block that reads
+  it sets `SRC` with it). It is the project's own notes when its policy names them (`/burgess:kg-sources policy
+  notes_path=…`, 0.23.0), else the plugin's `${user_config.source_path}`; when the project builds from
+  registered sources, it is a folder holding a copy of each file the build reads. It is one file, or a folder
+  whose `.md`/`.txt` files are the documents. The `rag` and `lightrag` arms read it, and the harness scores
   novelty and unsupported claims against it.
 
 ---
@@ -76,9 +79,10 @@ Windows, `.venv/bin/python` elsewhere.
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
 EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
 "$PY" -m kg_engine.harness ideation 2>&1 | head -n 1   # smoke-test: harness importable
-"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "${user_config.source_path}"
+"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "$SRC"
 "$PY" -m kg_engine.lightrag_arm check                  # {"available": ..., "reason": ...}
 echo "RUN=$(date -u +%Y%m%dT%H%M%SZ)"
 ```
@@ -121,7 +125,7 @@ To enable it, all three must hold (Step 0 probes this with
    is opt-in, not automatic.
 
 When enabled, Step 1b runs the isolated helper, which builds a LightRAG index over the **same** source
-documents the `rag` arm reads (`${user_config.source_path}`, so the comparison is fair), under a
+documents the `rag` arm reads (the project's source, `$SRC`, so the comparison is fair), under a
 **gitignored, disposable** working store in the derived dir, and answers each prompt through LightRAG's own
 retrieval — it never reads our graph's structure. When **not** enabled, the `lightrag` arm is omitted and the
 harness simply scores the arms present. Either way the run proceeds; the arm never blocks the experiment.
@@ -185,8 +189,9 @@ BM25 over the source's paragraphs, accents folded, best first, within the 2000-t
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
 EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; RUN="<RUN>"
-"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "${user_config.source_path}" "$EXP/rag-$RUN"
+"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "$SRC" "$EXP/rag-$RUN"
 ```
 
 It writes one Markdown file per prompt (`01.md`, `02.md`, …) and an `index.json` of what each holds into
@@ -198,9 +203,10 @@ arm's answers exist before the evaluator starts:
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
 EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; RUN="<RUN>"
-"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "${user_config.source_path}" "$EXP/rag-$RUN"
-"$PY" -m kg_engine.lightrag_arm answer --source "${user_config.source_path}" \
+"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "$SRC" "$EXP/rag-$RUN"
+"$PY" -m kg_engine.lightrag_arm answer --source "$SRC" \
     --prompts "$EXP/prompts-$RUN.json" --out "$EXP/lightrag-$RUN.json"
 ```
 
@@ -276,7 +282,7 @@ GraphRAG baseline. All of these are absent when their arm is — a missing optio
 
 Constraints to put in the Task prompt: each **present** `outputs` list has the **same length** (= number of
 prompts); one output string per prompt per condition. The JSON carries **no source text**: the harness reads
-`${user_config.source_path}` itself to compute `novelty` (n-gram overlap with the source) and
+the project's source (`$SRC`) itself to compute `novelty` (n-gram overlap with the source) and
 `unsupported_rate` (sentences whose key terms never appear in the source). The evaluator returns the
 **file path** it wrote.
 
@@ -287,8 +293,9 @@ prompts); one output string per prompt per condition. The JSON carries **no sour
 ```bash
 PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
 export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
 EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
-"$PY" -m kg_engine.harness ideation "$EXP/ideation_outputs.json" "${user_config.source_path}"
+"$PY" -m kg_engine.harness ideation "$EXP/ideation_outputs.json" "$SRC"
 ```
 
 The second path is the source, read exactly as the projector reads it (one file, or a folder of
@@ -414,9 +421,10 @@ from the prompt cache (two field runs, 2026-11-11). Tell the user so before laun
    ```bash
    PY="$(node "${CLAUDE_PLUGIN_ROOT}/scripts/engine_python.mjs" "${CLAUDE_PLUGIN_DATA}")" || exit 1
    export PYTHONPATH="${CLAUDE_PLUGIN_ROOT}/scripts"
+   SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"
    EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; J="$EXP/judge-<RUN>"
    "$PY" -m kg_engine.harness judge-packets "$EXP/ideation_outputs.json" "$EXP/prompts-<RUN>.json" \
-     "${user_config.source_path}" "$J/private/controls.json" "$J"
+     "$SRC" "$J/private/controls.json" "$J"
    ```
 
    - **Exit 0:** the packets are in `$J/packets/`.

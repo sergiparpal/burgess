@@ -145,7 +145,8 @@ def main() -> int:
             return 0  # Burgess's own working files, never the project's knowledge (see _BLIND_AGENTS)
     except (OSError, ValueError):
         pass  # an unresolvable path is no reason to withhold context
-    data = envconfig.resolve_data_dir(project, plugin_data_fallback=True)
+    # the project's own data dir (0.23.0): the server writes each project's derived layer apart
+    data = envconfig.resolve_project_data_dir(project, plugin_data_fallback=True)
     # Check the index exists BEFORE constructing the engine — this hook runs on every Grep/Glob/Read;
     # don't build context (or touch the derived tree) when nothing has been projected yet. The names
     # come from the same envconfig leaf the projector consumes, so they can't drift (review-r5).

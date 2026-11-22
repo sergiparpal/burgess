@@ -114,7 +114,7 @@ synthesis; the papers themselves can be registered).
 ## policy
 
 Call `mcp__plugin_burgess_burgess__kg_source_policy` with only the fields the user gave (`required_level`,
-`notes_level`, `build_from_notes`), or with none to read it. Report the policy, the notes with their levels, and
+`notes_level`, `build_from_notes`, `notes_path`), or with none to read it. Report the policy, the notes with their levels, and
 `on_unusable_total`: the grounded claims that no longer rest on a usable source (they keep their verdict). **When
 the result carries `warning`** (`usable_sources` is 0), say it first and plainly: under this policy no source can
 support or refute anything, so nothing can be verified until a source at the required level is registered or
@@ -125,6 +125,13 @@ uses:
   until one is registered.
 - **Build a graph from level-1 sources alone:** `policy required=1 build_from_notes=no`, register each paper
   with `build` (`add <url or path>`, then confirm `build`), and run `/burgess:kg-build`.
+- **Give this project its own notes** (0.23.0): `policy notes_path=<a folder, file or glob inside the project>`,
+  `notes_path=none` for no notes, or `notes_path=default` to go back to the plugin's `source_path`. The plugin's
+  option is one value for every project (Claude Code keeps plugin options per user), so this is how two
+  projects read different notes. A path outside the project is refused: a cloned repository must not choose
+  files outside itself. Report `policy.notes_from` (`project`, `none` or `global`) and `policy.notes_folder`.
+  The notes are what a build extracts and what claims are verified against, so a change takes effect at once:
+  the next `/burgess:kg-build` reads the new notes, and verdicts already given keep their state.
 A looser policy brings back the items waiting for new sources only when it makes usable a source they were not
 judged against; a stricter one leaves them waiting. Never tell the user that a policy change brings them back
 otherwise.

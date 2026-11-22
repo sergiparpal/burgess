@@ -130,9 +130,10 @@ def test_legacy_log_is_silent_when_no_old_log_is_a_source_document(tmp_path, cap
 
 
 def test_both_commands_check_for_an_old_log_in_their_first_block():
-    call = '"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "${user_config.source_path}"'
+    call = '"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "$SRC"'   # the project's source, 0.23.0
     for path in (EVAL, EXPERIMENT):
-        first = next(b for b in _bash_blocks(_read(path)) if '"$PY"' in b)  # the first block that runs Python
+        # the first block that runs the harness (since 0.23.0 the block template itself runs "$PY" for GRAPH)
+        first = next(b for b in _bash_blocks(_read(path)) if '"$PY" -m kg_engine.harness' in b)
         assert call in first, path.name
     assert "pass it on to the user now and again at the end, and go on" in _flat(_read(EVAL))
     assert "If it prints a note, pass it on to the user and stop" in _flat(_read(EXPERIMENT))
@@ -388,7 +389,8 @@ def test_the_log_block_appends_the_models_text_as_written(tmp_path):
                    .replace('<K> (<pack/extractor refinements made, or recommended in an installed copy, or "none">)',
                             "1 (a precondition is `enables`, not `grounds`; $HOME stays as written)"))
     (tmp_path / ".kg").mkdir()
-    subprocess.run(["bash", "-c", 'GRAPH=/data/derived/graph.json\n' + filled], check=True, timeout=30)
+    # since 0.23.0 the block's earlier lines set GRAPH and SRC with kg_engine.paths
+    subprocess.run(["bash", "-c", 'GRAPH=/data/derived/graph.json\nSRC=/src/docs\n' + filled], check=True, timeout=30)
     log = (tmp_path / ".kg" / "PROGRESS.md").read_text(encoding="utf-8")
     assert "a precondition is `enables`, not `grounds`; $HOME stays as written" in log
     assert re.search(r"\n## /kg-eval — \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n", log)

@@ -771,7 +771,8 @@ build** after a transport hiccup without grepping the filesystem. No args.
   "edges_by_epistemic_state": {"unverified": 150, "grounded": 25, "failed": 5},
   "nodes_by_epistemic_state": {"unverified": 113},
   "unverified_edges": 150,
-  "source": {"path": "/abs/path/source.md", "exists": true, "files": ["source.md"]},
+  "source": {"path": "/abs/path/source.md", "notes_from": "global", "exists": true, "files": ["source.md"],
+             "builds_from": "notes"},
   "coverage": {
     "files": [{"file": "source.md", "covered": true, "sections": 19, "covered_sections": 12}],
     "sections": [{"file": "source.md", "title": "The boundary", "covered": true}]
@@ -782,9 +783,13 @@ build** after a transport hiccup without grepping the filesystem. No args.
 ```
 
 - `unverified_edges` — the still-`unverified` grounding-queue size (the `/burgess:kg-ground` backlog).
-- `source` — the **engine-resolved** source (`{path, exists, files}`): `path` is the configured
-  `source_path` the server resolved (or `null` when nothing is configured), `exists` is true iff it
-  resolves to ≥1 readable `.md`/`.txt` file, `files` are the ordered basenames (R4). `/burgess:kg-build` reads the
+- `source` — the **engine-resolved** source (`{path, notes_from, exists, files, builds_from}`): `path` is where
+  the notes are read from (or `null` when there are none): the project's own `notes_path` (0.23.0, §1.30) when
+  `notes_from` is `project`, else the plugin's `source_path` the server resolved (`global`); `none` says the
+  project has no notes. `files` are the ordered basenames a build reads (R4), the registered copies marked
+  `build` included, and `exists` is true iff there is at least one. `builds_from` is `notes`, or
+  `registered sources` when the policy builds from those alone; through 0.22.4 `path` named the plugin's
+  folder even then, beside files that are not in it. `/burgess:kg-build` reads the
   source from the ENGINE (this block, which `kg_build_plan` §1.19 also returns), never from a shell env
   var — the host injects userConfig only into the server process, so a Bash-shell env-var read would
   silently miss a configured `source_path` and build the demo by surprise.
@@ -1370,7 +1375,7 @@ carries a `hint` (run `/burgess:kg-build`, or: its claims already in the graph s
 
 ---
 
-### 1.30 `mcp__plugin_burgess_burgess__kg_source_policy(required_level=None, notes_level=None, build_from_notes=None)`
+### 1.30 `mcp__plugin_burgess_burgess__kg_source_policy(required_level=None, notes_level=None, build_from_notes=None, notes_path=None)`
 
 Read (no argument) or change the project's evidence policy (0.22.0, `evidence.Policy`), kept as
 `<project>/evidence/policy.json`. Through 0.21.0 the notes sat outside the scale, so notes of unknown level
@@ -1385,10 +1390,22 @@ level-1 sources.
 - `build_from_notes` (bool) — whether the configured sources are extracted; `false`, with sources registered
   with `build`, builds a graph from those sources alone. The notes are still verified against, as evidence only,
   so the spans of claims extracted from them earlier stay valid.
+- `notes_path` (0.23.0) — THIS project's notes: a folder, file or glob inside the project, stored relative to it;
+  `none` for no notes at all; `default` for the plugin's `source_path`. Claude Code keeps a plugin's options per
+  user and ignores a project's settings for them (a cloned repository must not choose what the plugin reads), so
+  the plugin's `source_path` is one value for every project, and this is how a project reads its own. A path
+  outside the project (`notes-path-outside-project`), one of the engine's folders (`canon`, `evidence`, `.kg`,
+  `.git`, `.claude`: `notes-path-reserved`) or a path that does not exist (`notes-path-not-found`; a glob may
+  match nothing yet) is refused. A stored value that lies outside the project, from a hand edit or a cloned
+  repository, is reported in `problems` and ignored: the plugin's `source_path` applies. The notes are what a
+  build extracts and what spans are verified against, so the change takes effect at once. The result's
+  `policy` carries `notes_path`, `notes_from` (`project`, `none` or `global`) and `notes_folder` (the path read
+  now, or `null`), and so does `kg_source_list`'s (§1.28).
 
 ```json
 {"ok": true, "changed": ["required_level"],
- "policy": {"required_level": 1, "notes_level": 4, "build_from_notes": true},
+ "policy": {"required_level": 1, "notes_level": 4, "build_from_notes": true, "notes_path": "",
+            "notes_from": "global", "notes_folder": "C:/docs/notes"},
  "notes": [{"name": "notes.md", "class": "own", "file": "notes.md", "level": 4, "level_name": "author-or-community",
             "role": "", "marks": [], "usable": false, "unusable": "below-required-level", "recorded": false,
             "chars": 1290, "built": true}],
@@ -1403,7 +1420,7 @@ level-1 sources.
   says so and that `/burgess:kg-ground` leaves the items that need support out (§1.21's `blocked`) until a source
   at the required level is registered or the level is lowered.
 - A malformed `policy.json` is reported in `problems` and the defaults apply. Refusals: `bad-required-level`,
-  `bad-level`, `bad-build-from-notes`.
+  `bad-level`, `bad-build-from-notes`, and the three `notes-path-*` above.
 
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 

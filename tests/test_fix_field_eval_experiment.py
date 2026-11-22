@@ -93,9 +93,12 @@ def test_every_bash_block_that_runs_python_resolves_it_first(path):
 
 def test_kg_eval_reads_the_engine_graph_and_the_configured_source():
     text = _read(EVAL)
-    assert 'GRAPH="${CLAUDE_PLUGIN_DATA}/derived/graph.json"' in text
-    assert "query_graph(limit=1)" in text  # re-projects the shared derived dir for this project first
-    assert '"$PY" -m kg_engine.harness specificity "$GRAPH" "${user_config.source_path}"' in text
+    # since 0.23.0 the graph is the project's own and the source what its build reads (kg_engine.paths;
+    # tests/test_fix_per_project_sources.py)
+    assert 'GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"' in text
+    assert "query_graph(limit=1)" in text  # re-projects the project's derived layer first
+    assert '"$PY" -m kg_engine.harness specificity "$GRAPH" "$SRC"' in text
+    assert 'SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"' in text
     # the log moved under .kg/ in 0.11.7: at the top of the project it was a source document
     assert "${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md" in text and "${CLAUDE_PROJECT_DIR}/.kg/eval" in text
     assert "examples/source.md" not in text and ".kg-data" not in text
@@ -123,8 +126,9 @@ def test_kg_experiment_drafts_its_prompts_for_any_corpus_but_the_demo():
 
 def test_kg_experiment_scores_and_retrieves_from_the_configured_source():
     text = _read(EXPERIMENT)
-    assert '"$PY" -m kg_engine.harness ideation "$EXP/ideation_outputs.json" "${user_config.source_path}"' in text
-    assert '--source "${user_config.source_path}"' in text
+    # since 0.23.0 "$SRC", what the project's build reads (tests/test_fix_per_project_sources.py)
+    assert '"$PY" -m kg_engine.harness ideation "$EXP/ideation_outputs.json" "$SRC"' in text
+    assert '--source "$SRC"' in text
     assert "/tmp" not in text
 
 
@@ -135,7 +139,7 @@ def test_the_evaluator_reads_the_source_it_is_given_and_pastes_none():
     assert '"source"' not in template  # the harness reads the source by path
     # Since 0.11.8 the command runs the LightRAG helper on the configured source itself (the evaluator has
     # no shell) and gives the evaluator the source's passages in the rag folder.
-    assert '--source "${user_config.source_path}"' in _read(EXPERIMENT)
+    assert '--source "$SRC"' in _read(EXPERIMENT)   # the project's source since 0.23.0
     assert "the rag folder" in text
 
 

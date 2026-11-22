@@ -99,6 +99,13 @@ SUPPORT_MARK = "support: "
 POLICY_FILE = "policy.json"
 DEFAULT_REQUIRED_LEVEL = 4     # the worst level that may support or refute: everything but unfiltered
 DEFAULT_NOTES_LEVEL = 4        # a configured file with no level of its own: a text by an author nobody reviewed
+# A project's own notes folder (0.23.0, `Policy.notes_path`): empty for the plugin's global `source_path`, this
+# word for no notes at all, else a path inside the project. Claude Code keeps plugin options per user and ignores
+# a project's settings for them (a cloned repository must not choose what the plugin reads), so the project's
+# choice lives in its policy, and stays inside the project for the same reason.
+NOTES_NONE = "none"
+# What a project's notes path may not name: the engine's own folders, whose files are not the user's notes.
+NOTES_RESERVED = (".git", ".claude", ".kg", ".kg-data", "canon", EVIDENCE_DIRNAME)
 VETO_HINTS = {
     "refuted-by-has-no-span": "the counter-edge has no span the engine can place, so nothing says where the "
                               "refutation comes from",
@@ -245,26 +252,31 @@ class Policy:
     unfiltered sources, 1 only peer-reviewed ones). `notes_level` is the level of a configured file with no
     record of its own (1-5). `notes` holds the per-file records the user set: ``{basename: {level, role,
     marks, note, updated_at}}``. `build_from_notes` says whether the configured sources are extracted into
-    the graph; false, with registered sources marked `build`, builds a graph from those sources alone."""
+    the graph; false, with registered sources marked `build`, builds a graph from those sources alone.
+    `notes_path` (0.23.0) is the project's own notes: empty for the plugin's `source_path`, `NOTES_NONE` for no
+    notes, else a path relative to the project, a folder, a file or a glob, always inside it."""
     required_level: int = DEFAULT_REQUIRED_LEVEL
     notes_level: int = DEFAULT_NOTES_LEVEL
     build_from_notes: bool = True
     notes: dict = field(default_factory=dict)
+    notes_path: str = ""
     updated_at: str = ""
     schema: int = SCHEMA
 
     def is_default(self) -> bool:
         """True when the policy changes nothing 0.21.0 did on support (the source signature leaves it out)."""
         return (self.required_level == DEFAULT_REQUIRED_LEVEL and self.notes_level == DEFAULT_NOTES_LEVEL
-                and self.build_from_notes and not self.notes)
+                and self.build_from_notes and not self.notes and not self.notes_path)
 
     def fingerprint(self) -> str:
         """A stable text of what bears on verdicts, for the source signature: a change wakes waiting items."""
-        return json.dumps({"required_level": self.required_level, "notes_level": self.notes_level,
-                           "build_from_notes": self.build_from_notes,
-                           "notes": {k: {"level": v.get("level"), "marks": v.get("marks", [])}
-                                     for k, v in sorted(self.notes.items())}},
-                          sort_keys=True, ensure_ascii=False)
+        out = {"required_level": self.required_level, "notes_level": self.notes_level,
+               "build_from_notes": self.build_from_notes,
+               "notes": {k: {"level": v.get("level"), "marks": v.get("marks", [])}
+                         for k, v in sorted(self.notes.items())}}
+        if self.notes_path:   # left out when unset, so a 0.22 policy keeps its fingerprint
+            out["notes_path"] = self.notes_path
+        return json.dumps(out, sort_keys=True, ensure_ascii=False)
 
     def note(self, name: str) -> dict:
         """The record of a configured file: its own, else the default level with no role and no marks."""
@@ -278,6 +290,67 @@ def parse_required_level(value) -> int:
     if level >= UNFILTERED:
         raise EvidenceError("bad-required-level", "level 5 supports nothing: the required level is 1-4")
     return level
+
+
+_GLOB_CHARS = set("*?[")
+
+
+def _glob_cut(parts) -> int:
+    """The index of the first path part with a wildcard, or the number of parts."""
+    return next((i for i, part in enumerate(parts) if _GLOB_CHARS & set(part)), len(parts))
+
+
+def notes_path_problem(value: str, project_dir: "Path | None") -> str:
+    """Why a stored or given notes path cannot be used (0.23.0), or "" when it can. It must lie inside the
+    project once resolved, symlinks and `..` included, and name none of the engine's own folders
+    (`NOTES_RESERVED`). A glob is checked by the folder before its first wildcard."""
+    if not value or value.lower() == NOTES_NONE:
+        return ""
+    if project_dir is None:
+        return "notes-path-without-project"
+    raw = Path(value)
+    cut = _glob_cut(raw.parts)
+    base = Path(*raw.parts[:cut]) if cut else Path(".")
+    full = base if base.is_absolute() else Path(project_dir) / base
+    try:
+        root = Path(project_dir).resolve()
+        target = full.resolve()
+    except (OSError, RuntimeError):
+        return "notes-path-unreadable"
+    try:
+        rel = target.relative_to(root)
+    except ValueError:
+        return "notes-path-outside-project"
+    if rel.parts and rel.parts[0].lower() in {r.lower() for r in NOTES_RESERVED}:
+        return "notes-path-reserved"
+    return ""
+
+
+def parse_notes_path(value, project_dir: "Path | None") -> str:
+    """The notes path a user gives (0.23.0), as the policy stores it: "" for `default` (the plugin's
+    `source_path`), `NOTES_NONE` for `none`, else a path inside the project, stored relative to it with
+    forward slashes ("." for the project folder itself). Refused when it lies outside the project, names one of
+    the engine's folders, or names nothing that exists (a glob may match nothing yet)."""
+    text = str(value if value is not None else "").strip().strip('"').strip("'").strip()
+    if text.lower() in ("", "default", "global"):
+        return ""
+    if text.lower() == NOTES_NONE:
+        return NOTES_NONE
+    problem = notes_path_problem(text, project_dir)
+    if problem:
+        hint = {"notes-path-outside-project": "a project's notes must lie inside the project folder; the "
+                "plugin option source_path names a folder anywhere, for every project",
+                "notes-path-reserved": "canon, evidence, .kg, .git and .claude hold the engine's own files, "
+                "not notes"}.get(problem, "")
+        raise EvidenceError(problem, f"{text}: {hint}" if hint else text)
+    raw = Path(text)
+    cut = _glob_cut(raw.parts)
+    base = Path(*raw.parts[:cut]) if cut else Path(".")
+    full = base if base.is_absolute() else Path(project_dir) / base
+    if cut == len(raw.parts) and not full.exists():
+        raise EvidenceError("notes-path-not-found", text)
+    rel = full.resolve().relative_to(Path(project_dir).resolve())
+    return Path(rel, *raw.parts[cut:]).as_posix() if (rel.parts or cut < len(raw.parts)) else "."
 
 
 def parse_bool(value, code: str = "bad-flag") -> bool:
@@ -308,6 +381,17 @@ def load_policy(directory: "Path | None") -> "tuple[Policy, list]":
                      notes_level=parse_level(data.get("notes_level", DEFAULT_NOTES_LEVEL)),
                      build_from_notes=parse_bool(data.get("build_from_notes", True), "policy-malformed"),
                      updated_at=str(data.get("updated_at") or ""))
+        # The project's own notes (0.23.0). A value a hand edit or a cloned repository put there is checked
+        # here too: one outside the project is reported and ignored, and the plugin's source_path applies.
+        stored = data.get("notes_path") or ""
+        if not isinstance(stored, str):
+            raise EvidenceError("policy-malformed", "`notes_path` is a path")
+        stored = stored.strip()
+        problem = notes_path_problem(stored, Path(directory).parent)
+        if problem:
+            problems.append({"file": POLICY_FILE, "problem": problem, "detail": stored})
+        else:
+            out.notes_path = NOTES_NONE if stored.lower() == NOTES_NONE else stored
         notes = data.get("notes") or {}
         if not isinstance(notes, dict):
             raise EvidenceError("policy-malformed", "`notes` is a map of file names")

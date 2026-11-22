@@ -2673,3 +2673,60 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   two queue counts. `test_fix_ground_node_evidence.py` and `test_fix_held_reexamination.py` follow the reworded
   command and grounder texts, and `test_review_r8.py`'s body-terms test names two body words, as the paragraph
   rule asks.
+
+## Each project has its own notes and its own engine data (2026-11-22)
+
+- **Decision:**
+  - `evidence.Policy.notes_path` holds a project's own notes. It is `""` for the plugin's `source_path`, `none` for
+    no notes, or else a path relative to the project, inside it.
+    - `parse_notes_path` refuses `notes-path-outside-project`, `notes-path-reserved` (`canon`, `evidence`, `.kg`,
+      `.kg-data`, `.git`, `.claude`) and `notes-path-not-found`; a glob may match nothing yet.
+    - `load_policy` checks a stored value the same way (`notes_path_problem`). A bad one is reported in `problems`
+      and ignored, and the plugin's `source_path` applies.
+    - `fingerprint()` includes the path only when it is set, so a 0.22 policy keeps its signature.
+  - `_SourceResolver.notes_path()` is the one place the notes path is read: by `resolve()` and `verify()` (and their
+    memo signatures), the facade's `notes_path` property, the build plan's declared files, the configured-source
+    check and the materialization advisory.
+    - The PreToolUse hook builds the same resolver, so it reads the same notes.
+    - `_source_info` reports `notes_from` (`project`, `none` or `global`) and `builds_from`.
+    - `kg_source_policy(notes_path=)` sets the path. Its `policy`, and `kg_source_list`'s, carry `notes_path`,
+      `notes_from` and `notes_folder`.
+  - `envconfig.resolve_project_data_dir` gives each project `<KG_DATA>/projects/<project_key>`, where the key is the
+    folder name folded to `[a-z0-9-]`, then 12 hex of the sha256 of the normalized absolute path.
+    - The server (`build_engine_from_env`), the hook and the LightRAG arm use it.
+    - An explicit `--data`, or the `<project>/.kg-data` fallback, is taken as given.
+    - `server.log` stays at the root, where the Node launcher writes it too.
+  - `adopt_shared_derived` copies, once and file by file, what the shared `<KG_DATA>/derived/` holds for the
+    project:
+    - the index and `graph.json` when the index's notes and the canon agree by Jaccard ≥ 0.9;
+    - `generations.json` when half or more of its tracked ids are canon nodes.
+    - It never overwrites, never moves, and fails silent.
+  - `kg_engine.paths` (`graph`, `data-dir`, `source`) gives command text the project's own paths. `source` prints the
+    notes path when the build reads the notes alone; otherwise it refreshes a copy of the content files in
+    `<project data>/content/` and prints that folder. `/burgess:kg-eval` and `/burgess:kg-experiment` set `GRAPH` and
+    `SRC` with it.
+- **What it answers** (2026-11-22, after phase 3 of the field test):
+  - The user asked why `source_path` is global when each project may follow its own policy. In `prueba-burgess-n1`
+    the 9 notes of `prueba-burgess` were listed as that project's notes.
+  - The Claude Code docs (checked by the claude-code-guide agent) settle it. `pluginConfigs` is "User or managed",
+    and "Claude Code ignores project and local entries because it substitutes these values into plugin hook, MCP,
+    and LSP configurations, and a cloned repository must not be able to supply them". `claude plugin configure` has
+    no scope flag. `${CLAUDE_PLUGIN_DATA}` is keyed by plugin id, not by project.
+  - The user approved the change after phase 3 («Sí, después», then «Sí, empieza»).
+- **Why the policy and not a settings file:**
+  - The project already owns its policy (`<project>/evidence/policy.json`).
+  - The documented per-project channel is `${CLAUDE_PROJECT_DIR}`, which the engine has as `KG_PROJECT_DIR`.
+  - Keeping the path inside the project carries over Claude Code's reason to ignore project values: a cloned
+    repository cannot make the engine read, extract and quote files outside itself.
+- **Why copy file by file:**
+  - The field's shared folder held `n1`'s index (it was the last project opened) and `prueba-burgess`'s generation
+    ledger (written on 11-15), so no single owner exists for that folder.
+  - Checked on copies of the field data: `n1` took `index.sqlite` and `graph.json`; `prueba-burgess` took
+    `generations.json`; a second run copied nothing.
+- **Accepted trade-offs:**
+  - Re-examination flags in a shared index that belonged to another project are lost for this one. That is moot in
+    the field: none was open.
+  - `server.log` stays shared, as before.
+  - The project key changes if the folder is moved or renamed, which costs one rebuild.
+- **Pinned in:** `tests/test_fix_per_project_sources.py`. `test_fix_field_eval_experiment.py`,
+  `test_fix_experiment_measurement.py` and `test_fix_eval_log_and_annotator.py` follow the `kg_engine.paths` lines.

@@ -26,7 +26,9 @@ or on the user. If a step seems to need a shell or a file, stop and report it in
 
 Do not split that line yourself: pass it to `kg_build_plan` exactly as it appears, and the engine reads it.
 
-- **Empty** → the whole configured `source_path`, at the configured wave size.
+- **Empty** → the project's whole source, at the configured wave size: its own notes when its policy names them
+  (`/burgess:kg-sources policy notes_path=…`, 0.23.0), else the plugin's configured `source_path`, plus the
+  registered sources marked `build`.
 - **A trailing whole number after a space** is the **wave size**, and the rest is the **subset**. So an
   unquoted name with spaces works: `/burgess:kg-build Fábricas de software.md 4`.
 - **A line that is only a whole number** is the wave size: `/burgess:kg-build 4`.
@@ -76,8 +78,10 @@ Copy `configured_wave_size` exactly as this text shows it, even if it still read
 **`ok: false` → STOP.** Report `error`, and each of `problems` if there are any. Do not build anything, and
 never fall back to the demo corpus:
 
-- **No `source_path` is configured:** tell the user how to set it (*Changing `source_path`*, below). Naming a
-  subset cannot stand in for it: spans verify against the configured source only.
+- **No `source_path` is configured:** tell the user the two ways to give the project a source: its own notes
+  folder, `/burgess:kg-sources policy notes_path=<a folder inside the project>` (0.23.0, this project only),
+  or the plugin's `source_path` for every project (*Changing `source_path`*, below). Naming a subset cannot
+  stand in for either: spans verify against the configured source only.
 - **Nothing readable at the configured path:** report `source.path`. Do not work around it with a subset,
   for the same reason.
 - **A subset problem:** the subset names files outside the configured source, or nothing at all. Report it,
@@ -106,7 +110,11 @@ are the ones that extraction read, so a new one would read the same text: skip i
 plan holds. A section is to extract when it is neither covered nor edgeless. When no section is, say so,
 launch nothing, and go on to step 2.
 
-**Changing `source_path`.** Give the user the value the engine reported, then the fix. From a terminal,
+**Changing `source_path`.** It is one value for every project: Claude Code keeps a plugin's options per user
+and ignores a project's settings for them. When the user wants another folder for THIS project only, the fix is
+`/burgess:kg-sources policy notes_path=<a folder inside the project>` (0.23.0), and `source.notes_from` says
+which applies (`project`, `none` or `global`). To change the plugin's value, give the user the value the engine
+reported, then the fix. From a terminal,
 pipe a JSON object to `claude plugin configure burgess@<marketplace> --values-stdin` (Claude Code 2.1.285
 or later; `burgess@sergiparpal` for this repo's own marketplace), for example in PowerShell:
 `'{"source_path": "C:/docs/notes"}' | claude plugin configure burgess@sergiparpal --values-stdin`. Forward

@@ -92,7 +92,11 @@ def test_the_defaults_are_the_0_21_0_acceptance(rig):
     eng, project, _ = rig
     out = eng.kg_source_policy()
     assert out["ok"] and out["changed"] == []
-    assert out["policy"] == {"required_level": 4, "notes_level": 4, "build_from_notes": True}
+    # 0.23.0 adds where the notes come from (tests/test_fix_per_project_sources.py)
+    assert {k: out["policy"][k] for k in ("required_level", "notes_level", "build_from_notes", "notes_path",
+                                          "notes_from")} == {"required_level": 4, "notes_level": 4,
+                                                             "build_from_notes": True, "notes_path": "",
+                                                             "notes_from": "global"}
     assert [n["name"] for n in out["notes"]] == ["notes.md"] and out["notes"][0]["level"] == 4
     assert out["notes"][0]["usable"] and out["notes"][0]["built"] and not out["notes"][0]["recorded"]
     assert not (project / "evidence" / "policy.json").exists()       # reading writes nothing
@@ -106,7 +110,8 @@ def test_the_policy_is_kept_and_validated(rig):
     data = json.loads((project / "evidence" / "policy.json").read_text(encoding="utf-8"))
     assert (data["required_level"], data["notes_level"], data["build_from_notes"]) == (1, 3, False)
     again = KGEngine(project, source_path=eng.source_path, pack_path=PACK)
-    assert again.kg_source_policy()["policy"] == {"required_level": 1, "notes_level": 3, "build_from_notes": False}
+    got = again.kg_source_policy()["policy"]
+    assert (got["required_level"], got["notes_level"], got["build_from_notes"]) == (1, 3, False)
     assert eng.kg_source_policy(required_level=5)["error"] == "bad-required-level"
     assert eng.kg_source_policy(notes_level=7)["error"] == "bad-level"
     assert eng.kg_source_policy(build_from_notes="maybe")["error"] == "bad-build-from-notes"

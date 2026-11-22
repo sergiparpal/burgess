@@ -71,9 +71,20 @@ verdict path.
   `<project>/canon/<slug(id)>.md` — YAML frontmatter + free body; directed edges live in the
   source node's `edges:` block. The canon carries the grounding state. Full note format with an
   example: `skills/burgess/references/contract.md` §8.
-- **Derived** = disposable projection at `<data_dir>/derived/{graph.json,index.sqlite}` (data dir:
-  `$KG_DATA`, falling back to `<project>/.kg-data`). It contains nothing the canon does not; never
-  hand-edit it — reproject.
+- **Derived** = disposable projection at `<data_dir>/derived/{graph.json,index.sqlite}` (data dir: since
+  0.23.0 the project's own folder under `$KG_DATA`, `projects/<folder-name>-<hash>/`
+  (`envconfig.resolve_project_data_dir`), falling back to `<project>/.kg-data`). It contains nothing the
+  canon does not; never hand-edit it — reproject. Through 0.22.4 every project shared `$KG_DATA/derived/`, so
+  opening another project rebuilt the index and the `/burgess:kg-generate` ledger kept whichever project ran
+  last; the first start of 0.23.0 copies over, file by file, what that shared folder held for the project
+  (`server.adopt_shared_derived`: the index when it was built from this canon, the ledger when it tracks this
+  canon's nodes) and leaves the shared folder as it was.
+- **Notes per project** (0.23.0): the plugin's `source_path` is one value for every project, because Claude
+  Code keeps plugin options per user and ignores a project's settings for them. A project names its own notes
+  in its policy (`evidence.Policy.notes_path`, `/burgess:kg-sources policy notes_path=…`), a path inside the
+  project only, so a cloned repository cannot point the engine at files outside itself; `none` gives it no
+  notes. `_SourceResolver.notes_path()` is the one place the engine, the hook and `kg_engine.paths` (the
+  command-text helper) read it.
 
 Frontmatter key order is fixed (load-bearing for byte-identical canon): `id`, `label`,
 `node_type`, `file_type`, the three axes, `created_at`/`updated_at`, `edges:`. Edge ids are
@@ -748,9 +759,9 @@ divergence templates ship as pack fragments under `pack/domains/`.
 | Variable | Meaning |
 |---|---|
 | `KG_PROJECT_DIR` | Project dir (canon, audit ledger, reconcile state, `.kg/diverge` live here); falls back to `CLAUDE_PROJECT_DIR` |
-| `KG_DATA` | Engine data dir (derived layer, `server.log`, model cache); falls back to `CLAUDE_PLUGIN_DATA`, else `<project>/.kg-data` |
+| `KG_DATA` | Engine data root (`server.log`, model cache; each project's derived layer in `projects/<name>-<hash>/` since 0.23.0); falls back to `CLAUDE_PLUGIN_DATA`, else `<project>/.kg-data` |
 | `KG_PACK_PATH` | Domain pack path; else `<plugin>/pack/pack.yaml`, else `<project>/pack/pack.yaml` |
-| `KG_SOURCE_PATH` | The source document (file, dir, or glob of `.md`/`.txt`); set from the required `source_path` userConfig |
+| `KG_SOURCE_PATH` | The source document (file, dir, or glob of `.md`/`.txt`); set from the required `source_path` userConfig, one value for every project; a project's policy `notes_path` overrides it (0.23.0) |
 | `KG_ENGINE_VENV` | Explicit venv override |
 | `KG_READY_MARKER` | Set by the supervisor for each engine it spawns: where that engine writes its readiness marker. Not a user setting; an engine started without it writes none |
 | `KG_MAX_EDGES_PER_KB` | Write flood-cap rate (default 20/KB, floor 64) |
@@ -791,11 +802,14 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-unsupported-pins.jsonl    [diverge] pins judged unsupported (gitignored engine state, 0.20.1)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
   .kg/constructions/<slug>/     /burgess:kg-perturb second construction (alt canon/ + derived/; ephemeral)
-<data dir>/                     $KG_DATA (or <project>/.kg-data)
-  derived/                      graph.json, index.sqlite, generations.json, graph.html, GRAPH_REPORT.md
+<data dir>/                     $KG_DATA (or <project>/.kg-data, already one per project)
+  projects/<name>-<hash>/       one project's own data (0.23.0, envconfig.resolve_project_data_dir)
+    derived/                    graph.json, index.sqlite, generations.json, graph.html, GRAPH_REPORT.md
+    content/                    kg_engine.paths source: a copy of the files a build reads, when it reads registered sources
+  derived/                      the shared derived layer of 0.22.4 and earlier, left as it was
   .venv/                        provisioned engine venv
   models/                       embedder cache (via HF_HOME)
-  server.log                    supervisor + engine log
+  server.log                    supervisor + engine log, for every project
 ```
 
 ## 10. Measurement (never gates)
