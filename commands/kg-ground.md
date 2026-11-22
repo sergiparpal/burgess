@@ -138,9 +138,11 @@ verdicted items on its own, so this is the only place they come back up.
 1. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` → read `advisory.reexaminable_verdicts[]`.
    Each entry is `{item_id, kind: "node"|"edge", state: "failed"|"rejected", reason}`. (Empty when the source
    set has not moved since these items were judged — the common case; if so, skip to Stage 1.) When
-   `advisory.reexaminable_held` is present (0.22.2), the list is held back because no source is usable under
-   the project's policy, so no re-check could change a verdict: say how many items it holds, with its `hint`,
-   and go on to Stage 1 without re-checking any. The `reason` says what changed (0.14.4):
+   `advisory.reexaminable_held` is present (0.22.2), the list is held back, wholly or in part: no source is
+   usable under the project's policy, or (0.22.3) every source that flagged an item is one the policy does not
+   accept now. No re-check could change those verdicts: say how many items it holds and why, with its `hint`,
+   and re-check only the items still listed (none, when no source is usable). The `reason` says what changed
+   (0.14.4):
    - `span-file-changed-since-judged` — an edge that quotes a span from a source file: the file its span
      comes from changed. Such an edge was judged on its own span, so another file changing never flags it.
    - `source-set-changed-since-judged` — a node, or an edge with no span in a configured file: the source

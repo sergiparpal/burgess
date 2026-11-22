@@ -79,7 +79,7 @@ def test_a_change_to_its_own_file_flags_it_and_says_so(vault, tmp_path):
     _bump(d / "a.md", A_TEXT + "\nAhora la revisión humana se apoya en clasificadores de riesgo.\n")
     eng.projector.project()
     assert _flags(eng)[EDGE] == {"item_id": EDGE, "kind": "edge", "state": "rejected",
-                                 "reason": REEX_SPAN_FILE}
+                                 "reason": REEX_SPAN_FILE, "files": ["a.md"]}   # 0.22.3: the file that raised it
 
 
 def test_span_less_items_keep_the_source_set_rule(vault, tmp_path):

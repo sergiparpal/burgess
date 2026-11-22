@@ -3219,8 +3219,9 @@ class KGEngine:
         only propose claims and a claim is verified on a reviewed source's passage. `notes_level` (1-5) is the
         level of a configured file with no record of its own. `build_from_notes` (true/false) says whether the
         configured sources are extracted; false, with registered sources added with `build`, builds a graph
-        from those sources alone. A change bears on verdicts from now on and offers again the items waiting
-        for new sources; verdicts already given keep their state, and `on_unusable_total` counts the grounded
+        from those sources alone. A change bears on verdicts from now on. A looser policy offers again the items
+        waiting for sources when it makes usable a file they were not judged against; a stricter one leaves them
+        waiting (0.22.1). Verdicts already given keep their state, and `on_unusable_total` counts the grounded
         claims that no longer rest on a usable source."""
         import copy as _copy
         from . import evidence as ev
@@ -4319,32 +4320,38 @@ class KGEngine:
         return self._with_degraded(self._scrub_egress(self._proj.query_graph(**kw)))
 
     def kg_context(self, query: str | None = None, budget: int = 2000) -> dict:
-        return self._hold_reexamination(
-            self._with_degraded(self._scrub_egress(self._proj.kg_context(query, budget=budget))))
+        usable = self._usable_for_reading()
+        out = self._with_degraded(self._scrub_egress(self._proj.kg_context(query, budget=budget, usable=usable)))
+        return self._explain_held(out)
 
-    def _hold_reexamination(self, out: dict) -> dict:
-        """While no source is usable under the policy (0.22.2), hold back `advisory.reexaminable_verdicts`:
-        no source could change one of those verdicts, so re-checking them would only repeat it. The list empties
-        and `advisory.reexaminable_held` says how many items it holds and why. The projector keeps the flags, so
-        they come back as soon as a source counts again. On 2026-11-22 a policy requiring level 1, with only
-        level-4 sources, still listed 113 rejected items flagged when a preprint was registered under level 4."""
-        adv = out.get("advisory") if isinstance(out, dict) else None
-        if not isinstance(adv, dict) or not adv.get("reexaminable_verdicts_total"):
-            return out
+    def _usable_for_reading(self) -> "set | None":
+        """The files the evidence policy accepts, for the readers that hold back what only unusable sources
+        could settle (0.22.2, 0.22.3); None on a source hiccup, so the advisory shows as before rather than
+        disappearing."""
         try:
-            if self._usable_files():
-                return out
-            pol = self.evidence_policy()
-        except Exception:  # noqa: BLE001 — a source hiccup must never hide the advisory: show it as before
+            return set(self._usable_files())
+        except Exception:  # noqa: BLE001 — never hide the advisory over a source-read problem
+            return None
+
+    def _explain_held(self, out: dict) -> dict:
+        """Add the policy's level and a hint to `advisory.reexaminable_held`, set by the reader when it held flags
+        back: while no source is usable (0.22.2), or, for a flag that records the files that raised it, while
+        every one of them is unusable (0.22.3). On 2026-11-22 a policy requiring level 1 over level-4 sources
+        still listed 113 rejected items flagged when a preprint was registered; under level 2 they showed again
+        because one note counted, and a pass would have re-checked them against that note for nothing."""
+        adv = out.get("advisory") if isinstance(out, dict) else None
+        held = adv.get("reexaminable_held") if isinstance(adv, dict) else None
+        if not isinstance(held, dict):
             return out
-        adv["reexaminable_held"] = {
-            "total": adv["reexaminable_verdicts_total"], "reason": "no-usable-source",
-            "required_level": pol.required_level,
-            "hint": f"no source is usable under this project's policy (it requires level {pol.required_level} or "
-                    f"better), so none of these verdicts can change; they return once a source at that level is "
-                    f"registered or the level is lowered"}
-        adv["reexaminable_verdicts"] = []
-        adv["reexaminable_verdicts_total"] = 0
+        level = self.evidence_policy().required_level
+        held["required_level"] = level
+        held["hint"] = ("no source is usable under this project's policy (it requires level "
+                        f"{level} or better), so none of these verdicts can change; they return once a source at "
+                        "that level is registered or the level is lowered"
+                        if held.get("reason") == "no-usable-source" else
+                        "these items were flagged only by sources the policy does not accept now (below level "
+                        f"{level}, unfiltered, retracted or superseded), so re-checking them could change nothing; "
+                        "each returns once one of its sources counts")
         return out
 
     def kg_agenda(self, *, limit: int = 5) -> dict:
@@ -5019,8 +5026,8 @@ def _register(mcp, engine: KGEngine) -> None:
         (YYYY[-MM[-DD]]), `derives_from` (a registered source this one repeats), `title`, `note` (why this
         level), `build` (true: also extract it into the graph like a configured source, so the graph can be
         built from such sources; /burgess:kg-build plans it). The level measures the filter the text passed,
-        never whether a claim is true. Registering a source wakes the items waiting for new sources. Writes
-        only the evidence directory."""
+        never whether a claim is true. Registering a source the policy accepts wakes the items waiting for new
+        sources; one it does not accept leaves them waiting. Writes only the evidence directory."""
         return engine.kg_source_add(url=url, path=path, level=level, role=role, title=title,
                                     published=published, marks=marks, derives_from=derives_from, note=note,
                                     preview=bool(preview), build=bool(build))
@@ -5062,8 +5069,9 @@ def _register(mcp, engine: KGEngine) -> None:
         passages. `notes_level` (1-5): the level of a note with no record of its own (default 4: a text by an
         author nobody reviewed). `build_from_notes` (true/false): whether the configured notes are extracted
         into the graph; false, with sources registered with `build`, builds a graph from those sources
-        alone. A change applies to verdicts from now on and offers again the items waiting for sources;
-        `on_unusable_total` counts grounded claims that no longer rest on a usable source."""
+        alone. A change applies to verdicts from now on. Only a looser policy that makes usable a file the
+        waiting items were not judged against offers them again; a stricter one never does. `on_unusable_total`
+        counts grounded claims that no longer rest on a usable source."""
         return engine.kg_source_policy(required_level=required_level, notes_level=notes_level,
                                        build_from_notes=build_from_notes)
 

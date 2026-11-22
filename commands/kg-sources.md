@@ -9,8 +9,8 @@ allowed-tools: mcp__plugin_burgess_burgess__kg_source_add, mcp__plugin_burgess_b
 Every verdict so far was judged against the configured sources: the user's own notes. So `grounded` means
 "my notes say it". This command brings in **outside evidence**: a page or a file the engine copies into the
 project's `evidence/` directory, with a level. A grounder can then cite a verbatim span from that copy, to
-support an unverified item (the pins waiting for new sources come back to the queue on their own) or, through
-the adversarial grounder, to refute one.
+support an unverified item (the pins waiting for new sources come back to the queue on their own when the copy
+is usable under the project's policy) or, through the adversarial grounder, to refute one.
 
 **The level measures the filter a text passed before it was published, never whether a claim is true.** The
 grounder still judges only whether a passage says what a claim says. The level decides what may be used:
@@ -82,9 +82,10 @@ Split it at the first space. The first word is the action, and the rest of the l
    - `already-registered`: the same text is already a source (`name`). Report it and stop.
    - `same_url_as` in the result: the URL had been registered before with other text. Tell the user, and ask
      whether the old copy should be marked `superseded` (`set <old name> marks=superseded`).
-5. Report in a few lines: the registered `name`, its level, role and marks, and what happens next: the pins
-   waiting for new sources come back to the next `/burgess:kg-ground`, which judges them against this source
-   too. Nothing was added to the graph.
+5. Report in a few lines: the registered `name`, its level, role and marks, and what happens next. When the
+   result's `source.usable` is true, the pins waiting for new sources come back to the next
+   `/burgess:kg-ground`, which judges them against this source too; when it is false, they keep waiting and the
+   source changes nothing until the policy accepts its level. Nothing was added to the graph.
 
 ## list
 
@@ -124,7 +125,9 @@ uses:
   until one is registered.
 - **Build a graph from level-1 sources alone:** `policy required=1 build_from_notes=no`, register each paper
   with `build` (`add <url or path>`, then confirm `build`), and run `/burgess:kg-build`.
-A change of policy brings back the items that were waiting for new sources.
+A looser policy brings back the items waiting for new sources only when it makes usable a source they were not
+judged against; a stricter one leaves them waiting. Never tell the user that a policy change brings them back
+otherwise.
 
 ## Rules
 

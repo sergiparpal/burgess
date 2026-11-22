@@ -2565,3 +2565,30 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Accepted trade-off:** while some source is usable, a flag raised by a source the policy now rejects still
   shows. That is the residual of not tracking which file raised each flag.
 - **Pinned in:** `tests/test_fix_held_reexamination.py` (4 tests).
+
+## A re-examination flag remembers the sources that raised it; the policy texts say what wakes a waiting item (2026-11-22)
+
+- **Decision:**
+  - `Projector._reexaminable_verdicts` records in each new flag `files`, the changed files whose words the item
+    shares (for a span-backed edge, its own file). `_refilter_reexaminable` carries them.
+  - `DerivedReader._read_reexaminable_advisory(con, usable)` holds back a flag whose `files` are all outside
+    `usable`, and a flag without `files` (made before 0.22.3) only when `usable` is empty. It returns the shown list,
+    its total and `{total, reason}` for what it held. `kg_context` takes `usable` from the facade, which knows the
+    policy, and the facade adds `required_level` and a hint. The read-only hook passes nothing and filters nothing.
+  - The texts that still said any policy change wakes the waiting items now state the 0.22.1 rule: the
+    `kg_source_policy` and `kg_source_add` descriptions, `/burgess:kg-sources` (with a rule never to say otherwise),
+    `tools.md`, COMMANDS, README and ARCHITECTURE.
+- **Field test it answers** (Windows, 2026-11-22, session 976557d4, on 0.22.2, phase 1 of my test plan). The
+  project was left at `required_level` 2 with the Síntesis note at level 2. A read-only check over a fresh copy of
+  the Windows index showed two things. The 119 pins still waited, correctly. But the 113 legacy flags, raised by the
+  level-4 preprint, were listed again because one note counted, so the next pass would have re-checked them
+  against that note for nothing. The session also told the user the policy change would bring back the 119: it was
+  repeating the stale tool description. The user approved the fixes («Sí, prepárala»).
+- **Why per-flag provenance and not a policy-aware raise:** raising flags only from usable text would lose the
+  re-check when a source registered under a strict policy is later accepted, since its text is then no longer
+  "changed". Recording the files and deciding at read time keeps the flag for the day its source counts.
+- **Accepted trade-off:** the field's 113 flags are legacy, with no `files`, so under level 2 they still show. The
+  practical answer there is to restore the earlier policy. A one-off migration would need the changed text of that
+  day, which the derived layer no longer has.
+- **Pinned in:** `tests/test_fix_reexamination_provenance.py` (6 tests). `test_fix_held_reexamination.py` and
+  `test_fix_reexaminable_own_file.py` follow the new flag shape and rule.

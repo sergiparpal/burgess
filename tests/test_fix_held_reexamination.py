@@ -93,7 +93,10 @@ def test_the_re_examination_list_is_held_while_nothing_is_usable(rig):
     assert "reexaminable_held" not in advisory
 
 
-def test_a_usable_source_shows_the_list_under_a_strict_policy(rig):
+def test_a_usable_source_unrelated_to_the_flag_does_not_release_it(rig):
+    """0.22.2 held flags only while no source at all was usable, so this flag came back as soon as an unrelated
+    level-1 review was registered. Since 0.22.3 it remembers that only the preprint raised it, and stays held
+    until the preprint counts (tests/test_fix_reexamination_provenance.py)."""
     eng, tmp = rig
     eid = _rejected_proposal(eng)
     eng.kg_context()
@@ -102,8 +105,10 @@ def test_a_usable_source_shows_the_list_under_a_strict_policy(rig):
     assert eng.kg_context()["advisory"]["reexaminable_held"]["total"] == 1
     _add(eng, tmp, "review.md", "## Results\n\nA reviewed study of networks.\n", 1)
     advisory = eng.kg_context()["advisory"]
-    assert "reexaminable_held" not in advisory
-    assert eid in [r["item_id"] for r in advisory["reexaminable_verdicts"]]
+    assert advisory["reexaminable_held"]["reason"] == "raised-by-unusable-source"
+    assert eid not in [r["item_id"] for r in advisory["reexaminable_verdicts"]]
+    eng.kg_source_policy(required_level=4)
+    assert eid in [r["item_id"] for r in eng.kg_context()["advisory"]["reexaminable_verdicts"]]
 
 
 def test_the_command_reads_the_held_list():

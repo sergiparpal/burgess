@@ -1274,14 +1274,20 @@ class Projector:
         ]))
 
     @staticmethod
-    def _reexaminable_entry(item_id, kind, state, reason=None) -> dict:
+    def _reexaminable_entry(item_id, kind, state, reason=None, files=None) -> dict:
         """The advisory record for one re-examinable item — one shape for the full scan and the refilter.
         ``kind`` is ``"node"``/``"edge"``; ``state`` is the current ``failed``/``rejected`` value; ``reason``
         is ``REEX_SPAN_FILE`` for a span-backed edge whose own file changed (0.14.4), else
-        ``REEX_SOURCE_SET``."""
-        return {"item_id": item_id, "kind": kind,
-                "state": state.value if isinstance(state, EpistemicState) else state,
-                "reason": reason or REEX_SOURCE_SET}
+        ``REEX_SOURCE_SET``. ``files`` (0.22.3) are the changed files whose text bears on the item, so a reader
+        that knows the evidence policy can hold back a flag only unusable files raised; a flag from before
+        0.22.3 has none."""
+        out = {"item_id": item_id, "kind": kind,
+               "state": state.value if isinstance(state, EpistemicState) else state,
+               "reason": reason or REEX_SOURCE_SET}
+        names = sorted({f for f in (files or []) if f})
+        if names:
+            out["files"] = names
+        return out
 
     def _full_note_for_terms(self, n):
         """Re-read a candidate note from canon so the term-overlap filter sees the FULL body + edge
@@ -1323,29 +1329,36 @@ class Projector:
             configured = set(sources.texts)
         except Exception:  # noqa: BLE001 — no file list: every item falls back to the source-set rule
             configured = set()
-        file_terms: dict = {}
+        # The terms of each changed file (0.22.3), so a flag records which files bear on its item.
+        file_terms: dict = {name: self._content_terms(text) for name, text in per_file.items()}
         by_id = {n.id: n for n in nodes}
         out: list[dict] = []
+
+        def bearing(terms: set) -> list:
+            return [name for name, ft in file_terms.items() if terms & ft]
+
         for n in nodes:
             node_is_candidate = n.epistemic_state in _REEXAMINABLE_STATES
             edge_candidate = any(e.epistemic_state in _REEXAMINABLE_STATES for e in n.edges)
             if not node_is_candidate and not edge_candidate:
                 continue  # most nodes: skip the canon re-read entirely
             full = self._full_note_for_terms(n)  # recover body + edge notes from canon (shell has neither)
-            if node_is_candidate and (self._node_terms(full) & changed_terms):
-                out.append(self._reexaminable_entry(n.id, "node", n.epistemic_state))
+            if node_is_candidate:
+                terms = self._node_terms(full)
+                if terms & changed_terms:
+                    out.append(self._reexaminable_entry(n.id, "node", n.epistemic_state, files=bearing(terms)))
             for e in full.edges:
                 if e.epistemic_state not in _REEXAMINABLE_STATES:
                     continue
                 own = self._span_file(e, configured)
                 if own is None:
-                    if self._edge_terms(e, by_id) & changed_terms:
-                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state))
+                    terms = self._edge_terms(e, by_id)
+                    if terms & changed_terms:
+                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, files=bearing(terms)))
                 elif own in per_file:
-                    if own not in file_terms:
-                        file_terms[own] = self._content_terms(per_file[own])
                     if self._edge_terms(e, by_id) & file_terms[own]:
-                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, REEX_SPAN_FILE))
+                        out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, REEX_SPAN_FILE,
+                                                            files=[own]))
         return out
 
     def _refilter_reexaminable(self, prior, nodes, sources) -> list[dict]:
@@ -1375,7 +1388,7 @@ class Projector:
             # own file is what bears on its verdict, and a change there raises a REEX_SPAN_FILE flag.
             if edge is not None and reason != REEX_SPAN_FILE and self._span_file(edge, configured):
                 continue
-            out.append(self._reexaminable_entry(item_id, kind, state, reason))
+            out.append(self._reexaminable_entry(item_id, kind, state, reason, entry.get("files")))
         return out
 
     def _save_meta(self, con, head, hashes, gate_on=0, source_hash="", stale_verdicts=None, topo_sig="",
@@ -1709,8 +1722,8 @@ class Projector:
     def shortest_path(self, source: str, target: str) -> "list[str] | None":
         return self.reader.shortest_path(source, target)
 
-    def kg_context(self, query: "str | None" = None, *, budget: int = 2000) -> dict:
-        return self.reader.kg_context(query, budget=budget)
+    def kg_context(self, query: "str | None" = None, *, budget: int = 2000, usable: "set | None" = None) -> dict:
+        return self.reader.kg_context(query, budget=budget, usable=usable)
 
     def kg_agenda(self, *, limit: int = 5) -> dict:
         return self.reader.kg_agenda(limit=limit)
@@ -2149,18 +2162,34 @@ class DerivedReader:
         return stale_verdicts[:_STALE_VERDICTS_CAP], len(stale_verdicts)
 
     @staticmethod
-    def _read_reexaminable_advisory(con) -> "tuple[list, int]":
-        """The R3-MIRROR re-examinable-verdicts advisory list (capped) + its true total. Failed/rejected
-        items (nodes and edges, span-less included) judged against a source set that has since changed —
-        READ-ONLY; the verdict stays untouched until /kg-ground re-runs. Capped at ``_REEXAMINABLE_CAP``
-        (parallel to the stale-verdict cap) so it can't bypass the token budget; the true total is
-        surfaced separately so truncation stays visible."""
+    def _read_reexaminable_advisory(con, usable: "set | None" = None) -> "tuple[list, int, dict | None]":
+        """The R3-MIRROR re-examinable-verdicts advisory list (capped) + its true total + what it held back.
+        Failed/rejected items (nodes and edges, span-less included) judged against a source set that has since
+        changed — READ-ONLY; the verdict stays untouched until /kg-ground re-runs. Capped at
+        ``_REEXAMINABLE_CAP`` (parallel to the stale-verdict cap) so it can't bypass the token budget; the true
+        total is surfaced separately so truncation stays visible.
+
+        ``usable`` (0.22.3) is the set of files the project's evidence policy accepts, from the engine (the
+        projector knows no policy; None = no filtering, as for the read-only hook). A flag whose ``files`` are
+        all outside it was raised only by sources that can support nothing, so it is held back; a flag from
+        before 0.22.3, with no ``files``, is held only when no file at all is usable (0.22.2's rule). Held flags
+        stay stored: they show again once one of their files counts."""
         rrow = con.execute("SELECT value FROM meta WHERE key='reexaminable_verdicts'").fetchone()
         try:
             reexaminable = json.loads(rrow[0]) if rrow and rrow[0] else []
         except (ValueError, TypeError):
             reexaminable = []
-        return reexaminable[:_REEXAMINABLE_CAP], len(reexaminable)
+        held_info = None
+        if usable is not None and reexaminable:
+            def held(flag) -> bool:
+                files = [f for f in (flag.get("files") or []) if f] if isinstance(flag, dict) else []
+                return not (set(files) & usable) if files else not usable
+            kept = [f for f in reexaminable if not held(f)]
+            if len(kept) < len(reexaminable):
+                held_info = {"total": len(reexaminable) - len(kept),
+                             "reason": "no-usable-source" if not usable else "raised-by-unusable-source"}
+                reexaminable = kept
+        return reexaminable[:_REEXAMINABLE_CAP], len(reexaminable), held_info
 
     @staticmethod
     def _bridge_metric_block(con) -> dict:
@@ -2186,9 +2215,11 @@ class DerivedReader:
             "nodes": [dict(r) for r in con.execute(bm_sql)],
         }
 
-    def kg_context(self, query: str | None = None, *, budget: int = 2000) -> dict:
+    def kg_context(self, query: str | None = None, *, budget: int = 2000, usable: "set | None" = None) -> dict:
         """Grounding-aware, provenance-carrying, token-budgeted context. Reads precomputed columns
-        only — no centrality is computed here (it is O(1) on the index).
+        only — no centrality is computed here (it is O(1) on the index). ``usable`` (0.22.3): the files the
+        evidence policy accepts, so re-examination flags only unusable files raised are held back
+        (``_read_reexaminable_advisory``).
 
         With a `query` (0.11.5), each lane holds the edges whose span, relation, endpoint ids or endpoint
         labels share a search word with it (_search_words: case, accents and function words ignored), best
@@ -2291,7 +2322,7 @@ class DerivedReader:
                 f"ORDER BY degree DESC, id ASC LIMIT {BRIDGE_LIMIT}")]
             bridge_metric = self._bridge_metric_block(con)
             stale_verdicts, stale_total = self._read_stale_advisory(con)
-            reexaminable, reexaminable_total = self._read_reexaminable_advisory(con)
+            reexaminable, reexaminable_total, reexaminable_held = self._read_reexaminable_advisory(con, usable)
             out = {
                 "items": items,
                 "hypotheses": hypotheses,   # the SEPARATE hypothesized lane — proposals, NOT grounded content
@@ -2308,7 +2339,8 @@ class DerivedReader:
                              # R3-mirror: failed/rejected items whose source set changed since judged —
                              # a re-look candidate, never a verdict change (read-only).
                              "reexaminable_verdicts": reexaminable,
-                             "reexaminable_verdicts_total": reexaminable_total},
+                             "reexaminable_verdicts_total": reexaminable_total,
+                             **({"reexaminable_held": reexaminable_held} if reexaminable_held else {})},
             }
             if terms is not None:
                 out["query_terms"] = terms  # the words the query was matched on (none: it matched nothing)

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.22.3 — 2026-11-22
+
+Two fixes from the first field test of 0.22.2. One of its steps left the project requiring level 2, with one
+note rated 2.
+
+### Fixed
+
+- **A verdict to re-examine now remembers which sources flagged it.** The 113 rejected items flagged when the
+  preprint was registered showed again as soon as one note counted, so a `/burgess:kg-ground` would have
+  re-checked them against that note, which they had already been judged against. Now each new flag names the
+  sources that raised it, and stays held back while none of them is usable. So an unfiltered page, a retracted
+  source, or a preprint under a stricter policy no longer sends verdicts to be re-checked for nothing. The 113
+  flags made before this release keep the previous rule: they are held only while no source at all is usable.
+- **The texts say what wakes a waiting idea.** The session told you a policy change would bring back the 119
+  waiting ideas, because `kg_source_policy` and `/burgess:kg-sources` still described the 0.22.0 rule. Since 0.22.1
+  only a usable source the idea was not judged against wakes it: registering a source the policy accepts, or a
+  looser policy that makes one usable. A stricter policy never does.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The views carry the 0.22.2 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.22.2 — 2026-11-22
 
 Two fixes from the first `/burgess:kg-ground` on 0.22.1, under a policy no source met. The pass queued nothing and
