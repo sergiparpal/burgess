@@ -77,10 +77,11 @@ Find what is actually pending before spending any subagent budget.
      0.22.0) and the project's `required_level`. A source the policy accepts, registered or edited since the
      last pass, or a looser policy, brings back the items that were waiting for new sources; a source it does
      not accept, or a stricter policy, does not (0.22.1).
-   - `blocked` (0.22.1): set when no source is usable under the project's policy. Its `items` (the
-     hypotheses: no source can ground them, and none may be rejected for its level) and `hubs` (an attack could
-     fail nothing) are left out of the batches, which then hold only extracted claims, still worth judging for
-     what their spans say. Tell the user, with its `hint`, and launch no grounder for what it left out.
+   - `blocked` (0.22.1): set when no source is usable under the project's policy, even when nothing was left
+     out (0.22.2). Its `items` (the hypotheses: no source can ground them, and none may be rejected for its
+     level) and `hubs` (an attack could fail nothing) are left out of the batches, which then hold only
+     extracted claims, still worth judging for what their spans say. Tell the user, with its `hint`, and launch
+     no grounder for what it left out.
 3. If `$ARGUMENTS` is non-empty, also call `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` and read
    its `advisory` block: `advisory.signal == "structural-bridge"` marks `advisory.nodes[]` as bridges (the
    honest advisory is degree; specificity-weighted betweenness stays GATED until validated, §1.6). Add them to
@@ -136,8 +137,10 @@ verdicted items on its own, so this is the only place they come back up.
 
 1. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` → read `advisory.reexaminable_verdicts[]`.
    Each entry is `{item_id, kind: "node"|"edge", state: "failed"|"rejected", reason}`. (Empty when the source
-   set has not moved since these items were judged — the common case; if so, skip to Stage 1.) The `reason`
-   says what changed (0.14.4):
+   set has not moved since these items were judged — the common case; if so, skip to Stage 1.) When
+   `advisory.reexaminable_held` is present (0.22.2), the list is held back because no source is usable under
+   the project's policy, so no re-check could change a verdict: say how many items it holds, with its `hint`,
+   and go on to Stage 1 without re-checking any. The `reason` says what changed (0.14.4):
    - `span-file-changed-since-judged` — an edge that quotes a span from a source file: the file its span
      comes from changed. Such an edge was judged on its own span, so another file changing never flags it.
    - `source-set-changed-since-judged` — a node, or an edge with no span in a configured file: the source

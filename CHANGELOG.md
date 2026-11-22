@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.22.2 — 2026-11-22
+
+Two fixes from the first `/burgess:kg-ground` on 0.22.1, under a policy no source met. The pass queued nothing and
+launched no grounder, as intended.
+
+### Fixed
+
+- **The plan says when no source is usable, even when it leaves nothing out.** The pass read `blocked: null`,
+  because every pinned idea was already waiting, although `/burgess:kg-ground` says the block is reported
+  whenever no source is usable.
+- **The list of verdicts to re-examine is held back while no source is usable.** It held 113 rejected items,
+  flagged when the preprint was registered under level 4. Under level 1 no source could change one of those
+  verdicts, yet the list would have shown on every pass. Now it comes back empty, with a count of what it holds
+  and why, and `/burgess:kg-ground` re-checks none of them. The flags are kept, so they return as soon as a
+  source counts again.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The views carry the 0.22.1 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.22.1 — 2026-11-22
 
 Fixes from the first field run of `/burgess:kg-sources` on 0.22.0: a level-4 arXiv preprint registered, then a

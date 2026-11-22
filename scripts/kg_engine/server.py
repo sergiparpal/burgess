@@ -2764,8 +2764,10 @@ class KGEngine:
                                     if already_attacked(attacks.get(nid, []), newest_claim.get(nid))}
         hubs = [{"id": nid, "label": by_id[nid].label if nid in by_id else nid, "degree": d}
                 for nid, d in eligible if nid not in done][:5]
+        # Set whenever nothing is usable (0.22.2), even when nothing was left out because every such item was
+        # already waiting: the field pass of 2026-11-22 read `blocked: null` under a policy no source met.
         blocked = None
-        if nothing_usable and (blocked_items or hubs):
+        if nothing_usable:
             blocked = {"reason": "no-usable-source", "items": blocked_items, "hubs": len(hubs),
                        "required_level": pol.required_level,
                        "hint": f"no source is usable under this project's policy (it requires level "
@@ -4317,7 +4319,33 @@ class KGEngine:
         return self._with_degraded(self._scrub_egress(self._proj.query_graph(**kw)))
 
     def kg_context(self, query: str | None = None, budget: int = 2000) -> dict:
-        return self._with_degraded(self._scrub_egress(self._proj.kg_context(query, budget=budget)))
+        return self._hold_reexamination(
+            self._with_degraded(self._scrub_egress(self._proj.kg_context(query, budget=budget))))
+
+    def _hold_reexamination(self, out: dict) -> dict:
+        """While no source is usable under the policy (0.22.2), hold back `advisory.reexaminable_verdicts`:
+        no source could change one of those verdicts, so re-checking them would only repeat it. The list empties
+        and `advisory.reexaminable_held` says how many items it holds and why. The projector keeps the flags, so
+        they come back as soon as a source counts again. On 2026-11-22 a policy requiring level 1, with only
+        level-4 sources, still listed 113 rejected items flagged when a preprint was registered under level 4."""
+        adv = out.get("advisory") if isinstance(out, dict) else None
+        if not isinstance(adv, dict) or not adv.get("reexaminable_verdicts_total"):
+            return out
+        try:
+            if self._usable_files():
+                return out
+            pol = self.evidence_policy()
+        except Exception:  # noqa: BLE001 — a source hiccup must never hide the advisory: show it as before
+            return out
+        adv["reexaminable_held"] = {
+            "total": adv["reexaminable_verdicts_total"], "reason": "no-usable-source",
+            "required_level": pol.required_level,
+            "hint": f"no source is usable under this project's policy (it requires level {pol.required_level} or "
+                    f"better), so none of these verdicts can change; they return once a source at that level is "
+                    f"registered or the level is lowered"}
+        adv["reexaminable_verdicts"] = []
+        adv["reexaminable_verdicts_total"] = 0
+        return out
 
     def kg_agenda(self, *, limit: int = 5) -> dict:
         # scrubbed like the sibling reads: the agenda's question strings embed canon labels (§1.9)
@@ -5200,7 +5228,9 @@ def _register(mcp, engine: KGEngine) -> None:
         ignored), grounded first and then best match first, and echoes the words in `query_terms` (the first
         12 at most; the rest are dropped).
         `items_total`/`hypotheses_total` count every edge that qualified: more than the lane holds means the
-        budget left the rest out (raise `budget`, up to 100000, or narrow the query)."""
+        budget left the rest out (raise `budget`, up to 100000, or narrow the query). While no source is usable
+        under the project's evidence policy, `advisory.reexaminable_verdicts` comes back empty and
+        `advisory.reexaminable_held` says how many items it holds back and why: none could change."""
         return engine.kg_context(query, budget)
 
     @mcp.tool()

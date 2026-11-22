@@ -262,7 +262,7 @@ def test_a_registered_page_records_the_new_rule(rig, monkeypatch):
 
 def test_the_commands_explain_a_blocked_queue_and_the_warning():
     ground = _flat(GROUND_CMD)
-    assert "`blocked` (0.22.1): set when no source is usable under the project's policy." in ground
+    assert "`blocked` (0.22.1): set when no source is usable under the project's policy" in ground
     assert "launch no grounder for what it left out" in ground
     sources = _flat(SOURCES_CMD)
     assert "**When the result carries `warning`**" in sources
