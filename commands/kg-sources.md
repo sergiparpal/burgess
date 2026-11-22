@@ -94,7 +94,8 @@ Call `mcp__plugin_burgess_burgess__kg_source_list` and report:
 - `problems` (an edited copy is left out: the engine never vouches for a copy it did not write; the user
   registers the source again) and `unregistered` files, if any;
 - `notes`: each of the user's notes with its level (and whether the user set it or it is the default), and
-  whether it is usable and built into the graph; and the `policy`.
+  whether it is usable and built into the graph; and the `policy`, with `usable_sources` (how many files may
+  support anything) and its `warning` when there is none.
 - `support`: how many grounded edges and nodes rest on the user's notes (`own`) and on external sources, each by
   level, and on unchecked citations (support given as a citation the engine cannot check: registering that
   source and citing its span makes it checkable). Name the claims in `on_unusable` (whose support is no longer
@@ -113,8 +114,11 @@ synthesis; the papers themselves can be registered).
 
 Call `mcp__plugin_burgess_burgess__kg_source_policy` with only the fields the user gave (`required_level`,
 `notes_level`, `build_from_notes`), or with none to read it. Report the policy, the notes with their levels, and
-`on_unusable_total`: the grounded claims that no longer rest on a usable source (they keep their verdict). Two
-common uses:
+`on_unusable_total`: the grounded claims that no longer rest on a usable source (they keep their verdict). **When
+the result carries `warning`** (`usable_sources` is 0), say it first and plainly: under this policy no source can
+support or refute anything, so nothing can be verified until a source at the required level is registered or
+the level is lowered, and `/burgess:kg-ground` leaves the items that need support out until then. Two common
+uses:
 - **Rely only on reviewed sources:** `policy required=1`. The notes still propose claims, and
   `/burgess:kg-ground` verifies each one only on a passage from a level-1 source, or leaves it unverified
   until one is registered.

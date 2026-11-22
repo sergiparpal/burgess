@@ -2501,3 +2501,40 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Open:** the search for sources (`find`), and the clash classification with `obsolete`.
 - **Pinned in:** `tests/test_fix_source_policy.py` (18 tests); `tests/test_fix_external_sources.py` updated to the
   uniform veto and the labels; `tests/fusion/test_diverge_surface.py` counts 40 tools.
+
+## Nothing usable, nothing queued; waiting items wake only for new usable evidence; a formula once (2026-11-22)
+
+- **Decision:**
+  - `kg_ground_plan`: when no file is usable under the policy, the hypotheses (pins, proposals, re-examined nodes)
+    and the hubs are left out and reported as `blocked: {reason: "no-usable-source", items, hubs,
+    required_level, hint}`. Extracted claims stay queued. The queue counts count what is queued.
+  - The unsupported-item ledger keeps `usable`, the sha256 of each file usable when the record was made.
+    `groundplan.waits_for_sources` makes an item wait while every file usable now was usable then. A record
+    without the list (0.20.1–0.22.0) whose `source_sig` equals the configured sources' current 0.20.x signature
+    stands for those files; any other keeps the signature rule.
+  - The HTML rule becomes `html-text/2`: `annotation` / `annotation-xml` are skipped, invisible math operators
+    (U+2061–U+2064) dropped, and a zero-width space dropped inside `<math>`. A copy keeps its rule in its record.
+  - `kg_source_policy` and `kg_source_list` return `usable_sources` and, with none, a `warning`; the commands
+    `/burgess:kg-ground` and `/burgess:kg-sources` pass both on.
+- **Field run it answers** (Windows, 2026-11-22, session a00131d8, on 0.22.0): `list`, `add` of a level-4 arXiv
+  preprint, `policy required=1`. All three behaved as designed, and the user approved the fixes («Sí,
+  prepárala»). A read-only engine over the project showed that no file was usable, yet the plan queued 119 pins
+  in 10 batches. Registering the preprint, usable at the time, had changed the source signature, and the
+  stricter policy changed it again instead of putting them back to sleep. The copy of the preprint held its
+  formulas twice (36 LaTeX annotations, 30 commands left in the text).
+- **Why a set of usable hashes, not a signature:** a signature changes on every change, including those that can
+  only remove support. What can make an unsupported item supported is a file that is usable now and was not
+  then: a new or edited source, or a looser policy. A subset test says exactly that.
+- **Why old records are read against the notes:** the 120 field records were made on 0.20.x against the notes
+  alone, all usable under the default policy of the time. When the notes still give that signature, the record
+  stands for them. Without this, the fix would have left the field state as it was.
+- **Why extracted claims stay queued when nothing is usable:** a grounder can still reject a span that does not
+  state its relation. Only the items whose outcome is already fixed (a hypothesis cannot be grounded and may not
+  be rejected for its level) are left out.
+- **Rejected alternatives:**
+  - (a) *Leave out every item when nothing is usable.* It would skip the rejections a grounder can still make.
+  - (b) *Use a formula's `alttext` (LaTeX) instead of its rendering.* It reads worse in prose (`15$\times$`), and
+    an excerpt should read like the page.
+- **Accepted trade-offs:** subscripts and superscripts still flatten in plain text (`R^t=Et(Pt,Bt)`). A copy made
+  on 0.22.0 keeps its doubled formulas until it is registered again.
+- **Pinned in:** `tests/test_fix_no_usable_source.py` (13 tests).

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.22.1 — 2026-11-22
+
+Fixes from the first field run of `/burgess:kg-sources` on 0.22.0: a level-4 arXiv preprint registered, then a
+policy requiring level 1.
+
+### Fixed
+
+- **A policy that leaves no source usable no longer costs a grounding pass for nothing.**
+  - With the required level at 1, the notes and the preprint (both level 4) could support nothing, yet the next
+    `/burgess:kg-ground` would have sent the 119 pinned ideas to 10 grounders.
+  - Now, when no source is usable, the queue leaves out what no source could settle: the proposed ideas, and
+    the attack on the hubs. It keeps the extracted claims, which can still be rejected for what their passages
+    say. `/burgess:kg-ground` says what it left out and how to change it.
+- **Ideas waiting for sources wake only when a usable source appears.**
+  - Registering a source the policy does not accept, or making the policy stricter, no longer wakes them. A
+    usable source, an edited note, or a looser policy still does.
+  - The ideas recorded before this release are read against the notes they were judged on, so the 119 pins of
+    the field run go back to waiting under level 1.
+- **Formulas are copied once.** The copy of a page held each formula twice, as rendered and as its LaTeX source:
+  `15×\times`, `(κ=0.91\kappa=0.91)`. Pages registered from now on read `15×` and `κ=0.91`; a copy already
+  registered keeps its text until you register the page again.
+- **`/burgess:kg-sources policy` and `list` say when no source is usable**, and what that means.
+
+### Upgrading
+
+- Nothing to do. To get a clean copy of a page registered on 0.22.0, register it again and mark the old copy
+  `superseded`.
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The views carry the 0.22.0 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.22.0 — 2026-11-21
 
 Every source has a level now, your notes included. In 0.21.0 your notes sat outside the scale: notes of unknown

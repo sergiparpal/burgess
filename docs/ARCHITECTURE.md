@@ -218,8 +218,10 @@ passage (`support_span` on a span-present edge, recorded as a `support: {json}` 
 span it was extracted from), or left unverified and recorded with `kg_record_unsupported`, never rejected for its
 level: a rejection is negative memory, and "not at this level" is not "not supported". `kg_ground_item` labels
 every passage with its source and adds `support_context`, the usable sections sharing the claim's words. A
-non-default policy joins the source signature, so a change offers the waiting items again; verdicts already given
-keep their state, and `kg_source_list` names those whose support is no longer usable.
+non-default policy joins the source signature; verdicts already given keep their state, and `kg_source_list`
+names those whose support is no longer usable. Since 0.22.1 a waiting item wakes only when a file usable now was
+not usable when it was recorded (the record keeps the usable files' sha256), and when no source at all is usable
+`kg_ground_plan` leaves the hypotheses and the hub attacks out as `blocked`, keeping the extracted claims.
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged
