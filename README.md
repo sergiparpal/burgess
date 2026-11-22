@@ -93,7 +93,7 @@ This workflow does not consume the configured source, but the current plugin ins
 
 ## Other advanced workflows
 
-- `/burgess:kg-sources add <url or path>` registers an outside text as evidence: the engine copies it into `evidence/` and records a level you confirm (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a role and marks. Grounders can then support your unverified items, or the adversarial grounder refute claims, with verbatim spans from it; ideas waiting for new sources come back to the next `/burgess:kg-ground`. The level measures the filter the text passed, never the truth of a claim: level 5, retracted and superseded sources support and refute nothing, and a lower level never fails a higher one, so such a clash stays a visible dispute. Your notes have a level too (4 unless you set another), and `/burgess:kg-sources policy required=1` makes a project verify only on peer-reviewed passages: your notes then propose claims and reviewed sources verify them. A registered source is evidence, not content, unless you add it with `build`; with `policy build_from_notes=no` a graph is built from such sources alone.
+- `/burgess:kg-sources add <url or path>` registers an outside text as evidence: the engine copies it into `evidence/` and records a level you confirm (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a role and marks. Grounders can then support your unverified items, or the adversarial grounder refute claims, with verbatim spans from it; ideas waiting for new sources come back to the next `/burgess:kg-ground` when the source's level is one the project accepts. The level measures the filter the text passed, never the truth of a claim: level 5, retracted and superseded sources support and refute nothing, and a lower level never fails a higher one, so such a clash stays a visible dispute. Your notes have a level too (4 unless you set another), and `/burgess:kg-sources policy required=1` makes a project verify only on peer-reviewed passages: your notes then propose claims and reviewed sources verify them. A registered source is evidence, not content, unless you add it with `build`; with `policy build_from_notes=no` a graph is built from such sources alone.
 - `/burgess:kg-perturb` builds or loads a second construction and cross-generates against it: the edges a second reading wrote that your graph lacks, each with the passage it was read from. Only a passage in your own sources can ground one.
 - `/burgess:kg-eval` measures extraction precision and grounding reliability.
 - `/burgess:kg-experiment` runs the built-in multi-arm ideation comparison.
@@ -256,7 +256,7 @@ In the spirit of both donors, honestly:
 ## Tests
 
 <!-- test-count:begin -->
-The suite currently reports: **2468 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
+The suite currently reports: **2474 passed, 3 skipped** (`uv run --extra dev pytest tests/`).
 <!-- test-count:end -->
 
 This line is generated from pytest output, never hand-written. Run it yourself:

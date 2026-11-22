@@ -494,10 +494,13 @@ the true total across both.
   **both** `betweenness` and the confound-corrected `spec_betweenness` so a reader sees the correction. Until
   the harness turns the gate on (`gate_on:1`), the trusted ranking stays the structural-bridge/degree advisory.
 - `advisory.reexaminable_verdicts` / `_total` — the failed/rejected items judged against a source set that has
-  since changed (R3-mirror). Since 0.22.2, while no source is usable under the project's policy (§1.30) the list
-  is held back: it comes back empty, and `advisory.reexaminable_held` — `{total, reason: "no-usable-source",
-  required_level, hint}` — says how many items it holds and why. No source could change one of those verdicts.
-  The flags stay stored, so they return as soon as a source counts again.
+  since changed (R3-mirror). Since 0.22.3 each flag names in `files` the changed files whose words it shares.
+  Flags are held back, with `advisory.reexaminable_held` — `{total, reason, required_level, hint}` — saying how
+  many and why: while no source is usable under the project's policy (§1.30; reason `no-usable-source`, 0.22.2),
+  and, for a flag with `files`, while every one of them is unusable (reason `raised-by-unusable-source`, 0.22.3),
+  such as an unfiltered page, a retracted source, or a preprint under a policy requiring level 1. A flag from
+  before 0.22.3 has no `files` and is held only when nothing is usable. Held flags stay stored and return as soon
+  as one of their sources counts. The read-only hook, which knows no policy, filters nothing.
 
 ---
 
@@ -1215,9 +1218,9 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   unreadable ledger only offers those pins to one more grounder.
 - `ok: false` for an unknown item or kind, an empty or overlong note, or an item that is not an unverified
   `[diverge]` pin; nothing is written then.
-- Registering an external source (§1.27) changes the source signature, so every waiting pin is offered again
-  to the next pass, which judges it against the new source too (0.21.0). So does a change of the policy (§1.30),
-  whose fingerprint joins the signature whenever it differs from the defaults (0.22.0).
+- Registering an external source (§1.27) changes the source signature. Through 0.22.0 that offered every waiting
+  pin again, and so did any change of the policy (§1.30), whose fingerprint joins the signature whenever it
+  differs from the defaults. Since 0.22.1 only a usable file the item was not judged against does, as below.
 - Since 0.22.0 two more kinds of item may be recorded, both ones the policy leaves without usable support, which
   a grounder leaves `unverified` rather than rejects: an edge whose span lies only in sources the project does
   not accept, and a hypothesis while the notes, at their default level, are below the required level. The plan
@@ -1360,8 +1363,9 @@ level-1 sources.
 ```
 
 - A change bears on verdicts from now on: verdicts already given keep their state, and `on_unusable_total` counts
-  the grounded claims that no longer rest on a usable source (`kg_source_list` names them). It offers again every
-  item waiting for sources. With the defaults the source signature is 0.21.0's.
+  the grounded claims that no longer rest on a usable source (`kg_source_list` names them). A looser policy that
+  makes usable a file the waiting items were not judged against offers them again; a stricter one never does
+  (0.22.1, §1.26). With the defaults the source signature is 0.21.0's.
 - `usable_sources` (0.22.1) — how many files may support or refute under the policy; when none may, `warning`
   says so and that `/burgess:kg-ground` leaves the items that need support out (§1.21's `blocked`) until a source
   at the required level is registered or the level is lowered.

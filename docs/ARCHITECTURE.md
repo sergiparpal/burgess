@@ -200,7 +200,7 @@ it (`evidence.failed_veto`): an unusable source refutes nothing, the configured 
 never fail each other (the clash stays a visible dispute), and a lower level never fails a higher one. A
 `support_note` is recorded as `citation (unchecked): …`. The copies are verification-only: `SourceSet(extra=…)`
 appends them for span checks, the R3 staleness scan, `kg_ground_item`'s evidence and the source digests (so a
-registered source wakes the pins waiting for one), while `concat`, which feeds extraction planning, coverage and
+registered source the policy accepts wakes the pins waiting for one), while `concat`, which feeds extraction planning, coverage and
 the specificity corpus, stays the configured sources alone. The directory is durable user data, not engine
 state.
 
@@ -221,7 +221,10 @@ every passage with its source and adds `support_context`, the usable sections sh
 non-default policy joins the source signature; verdicts already given keep their state, and `kg_source_list`
 names those whose support is no longer usable. Since 0.22.1 a waiting item wakes only when a file usable now was
 not usable when it was recorded (the record keeps the usable files' sha256), and when no source at all is usable
-`kg_ground_plan` leaves the hypotheses and the hub attacks out as `blocked`, keeping the extracted claims.
+`kg_ground_plan` leaves the hypotheses and the hub attacks out as `blocked`, keeping the extracted claims. Since
+0.22.3 a re-examination flag records the changed files that raised it (`files`), and `kg_context` holds back a flag
+while every one of them is unusable: the projector keeps the flags, and the facade, which knows the policy, passes
+the usable files to the reader.
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged

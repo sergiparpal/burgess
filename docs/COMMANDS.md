@@ -539,7 +539,7 @@ your configured sources, your own notes, so `grounded` means "my notes say it". 
 local file as an external source: the engine copies it into the project's `evidence/` folder with an
 **epistemic level** you confirm. From then on a grounder can support an unverified item, and the adversarial
 grounder can refute a claim, with a verbatim passage from that copy. The ideas that were waiting for new sources
-come back to the next `/burgess:kg-ground` on their own.
+come back to the next `/burgess:kg-ground` on their own, when the copy's level is one the project accepts.
 
 **The level measures the filter a text passed before it was published, never whether a claim is true.** The
 grounder still judges only whether a passage says what a claim says; the level only bounds what may be used.

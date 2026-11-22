@@ -61,7 +61,8 @@ def test_failed_span_less_node_flagged_on_source_change(vault, tmp_path):
     _rewrite(src, "New findings: photosynthesis converts light into chemical energy.\n")
     eng.projector.project()
     assert _reexaminable(eng) == [{"item_id": "photosynthesis", "kind": "node", "state": "failed",
-                                   "reason": "source-set-changed-since-judged"}]
+                                   "reason": "source-set-changed-since-judged",
+                                   "files": ["s.md"]}]   # 0.22.3: the changed file that raised the flag
 
 
 def test_rejected_span_less_edge_and_node_flagged_on_source_change(vault, tmp_path):
