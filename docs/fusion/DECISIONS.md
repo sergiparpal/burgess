@@ -2941,3 +2941,26 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Why owe a failed stance to the web:** the purpose of the three searches is that each item has a search for and
   against that actually ran. A failed catalogue search did not run.
 - **Pinned in:** `tests/test_fix_openalex_rate_limit.py`.
+
+## A new source wakes an item by three shared words (2026-11-23)
+
+- **Decision:**
+  - `KGEngine._new_source_wakes` passes `need=KGEngine.WAKE_WORDS` (3) to `Projector._bearing_files`, which now
+    takes it.
+  - `groundplan.rank_units(…, need=2)` gains the parameter, and its default keeps the 0.22.4 re-examination rule
+    as it was.
+  - An item with fewer words needs all of them.
+  - `found_for` still wakes an item whatever its words.
+- **What it answers:** the field's first full loop (2026-11-23, `prueba-burgess`, on 0.24.3).
+  - `/burgess:kg-sources find` found an English design-pattern page for the Spanish idea c1l. The user
+    registered it (`found_for: [c1l]`).
+  - The next `/burgess:kg-ground` queued 16 ideas. c1l woke by `found_for`; its own Spanish words share no
+    paragraph with the page. 15 others woke by the paragraph rule, each on exactly two words: cognates or generic
+    words (agentes/agents, planes/plan, tests, local, token, final, persona, detector).
+  - The grounders recorded all 15 as unsupported again. c1l was grounded on the page's passage.
+  - The user approved the fix («Sí, prepárala»).
+- **Why three, and why only here:** a paragraph that states an item's claim in its own language shares many of
+  its words, so three loses nothing measured. Two is met by chance across languages. The re-examination rule
+  keeps two for now: it was not what this run tripped on, and a change there would move flags the user has
+  already reviewed.
+- **Pinned in:** `tests/test_fix_wake_needs_three_words.py`.

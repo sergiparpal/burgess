@@ -97,7 +97,9 @@ def test_a_recorded_pin_waits_and_the_others_stay_queued(rig):
 def test_a_source_change_offers_the_pin_again(rig):
     engine, t, src = rig
     _record(t)
-    src.write_text(src.read_text(encoding="utf-8") + "A new paragraph about topic 0.\n", encoding="utf-8")
+    # 0.24.4: a new paragraph wakes the pin when it shares three of its words (about, concept, topic)
+    src.write_text(src.read_text(encoding="utf-8") + "A new paragraph about the concept of topic 0.\n",
+                   encoding="utf-8")
     plan = engine.kg_ground_plan()
     assert "idea-brief-c0" in _queued(plan) and plan["queue"]["unsupported_waiting"] == 0
 

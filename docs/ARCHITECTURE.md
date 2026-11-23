@@ -259,8 +259,8 @@ page was found for (`found_for`, from `for_items` and from the ledger by URL, DO
 proposal (`evidence.level_hint` from the catalogue's venue and type) and a stance the scout's reading of one
 passage: verdicts come only from `/burgess:kg-ground`. The same release narrows the wake rule: a usable file a
 waiting item was not judged against wakes it only when the file was found for it or bears on it
-(`KGEngine._new_source_wakes`, the paragraph rule above), where through 0.23.1 any such file woke every waiting
-item.
+(`KGEngine._new_source_wakes`, the paragraph rule above, with three shared words since 0.24.4), where through
+0.23.1 any such file woke every waiting item.
 
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged

@@ -233,17 +233,19 @@ def text_units(text: str, max_chars: int = EXCERPT_CHARS) -> "list[tuple[int, in
     return units
 
 
-def rank_units(unit_forms: "list[set[str]]", terms: "list[str]") -> "list[tuple[float, int, list[str]]]":
-    """`(score, index, matched terms)` for each unit that shares at least two of `terms` (one when the node has a
-    single term), best first, ties in source order. A term weighs log(units / units that use it), so a word that
-    nearly every paragraph uses weighs almost nothing and the words that name the node's mechanism decide."""
+def rank_units(unit_forms: "list[set[str]]", terms: "list[str]",
+               need: int = 2) -> "list[tuple[float, int, list[str]]]":
+    """`(score, index, matched terms)` for each unit that shares at least `need` of `terms` (two by default; all of
+    them when the node has fewer), best first, ties in source order. A term weighs log(units / units that use it),
+    so a word that nearly every paragraph uses weighs almost nothing and the words that name the node's mechanism
+    decide."""
     n = len(unit_forms)
     if not n or not terms:
         return []
     tforms = {t: _forms(t) for t in terms}
     df = {t: sum(1 for fs in unit_forms if tforms[t] & fs) for t in terms}
     idf = {t: (math.log(n / df[t]) if df[t] else 0.0) for t in terms}
-    need = min(2, len(terms))
+    need = min(need, len(terms))
     ranked = []
     for i, fs in enumerate(unit_forms):
         matched = [t for t in terms if tforms[t] & fs]

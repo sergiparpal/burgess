@@ -3378,12 +3378,18 @@ class KGEngine:
         return {"files": state.get("files") or {}, "texts": vs.texts, "found_for": found_for, "by_id": by_id,
                 "cache": {}}
 
+    # A paragraph must share this many of an item's words to wake it (0.24.4; all of them when it has fewer). Two
+    # (the re-examination rule) woke 15 of the field's Spanish pins for an English page found for one: each shared
+    # exactly two cognates or generic words with it (agentes/agents, planes/plan, tests, local, token, final…).
+    WAKE_WORDS = 3
+
     def _new_source_wakes(self, kind: str, item, new_hashes, ctx: dict) -> bool:
         """Whether a usable file an item was not judged against wakes it (0.24.0): one `find` looked for it for
-        (the record's `found_for`), or one with a paragraph that shares its words (the paragraph rule of the
-        0.22.4 re-examination, `Projector._bearing_files`). A file the context cannot name, or an item with no
-        words to test, wakes it, as every new usable file did through 0.23.1. A source in another language than
-        the item does not bear on it by words: a source registered by hand for it is reached with a focus."""
+        (the record's `found_for`), or one with a paragraph that shares at least `WAKE_WORDS` of its words (the
+        paragraph rule of the 0.22.4 re-examination, `Projector._bearing_files`, with a higher bar since 0.24.4).
+        A file the context cannot name, or an item with no words to test, wakes it, as every new usable file did
+        through 0.23.1. A source in another language than the item does not bear on it by words: a source
+        registered by hand for it is reached with a focus, or named for it with `for_items`."""
         names = [ctx["files"].get(h) for h in new_hashes]
         if not all(names):
             return True
@@ -3393,7 +3399,7 @@ class KGEngine:
         if not words:
             return True
         texts = {n: ctx["texts"][n] for n in names if n in ctx["texts"]}
-        return bool(Projector._bearing_files(words, texts, ctx["cache"]))
+        return bool(Projector._bearing_files(words, texts, ctx["cache"], need=self.WAKE_WORDS))
 
     def _source_searches(self) -> "list[dict]":
         """Every record of the source-search ledger (`canon.SOURCE_SEARCHES`), oldest first. Fail-open: a missing
