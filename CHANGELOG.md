@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.24.5 — 2026-11-23
+
+A fix for the field test of 0.24.4, the registration of Sentry for the idea c1j.
+
+### Fixed
+
+- **A new source no longer sends rejected claims back for review over two generic words.**
+  - Sentry brought back only c1j, as 0.24.4 meant. The same `/burgess:kg-ground` also judged again four
+    rejected edges that the abstract had flagged for review. Each shared only two words with it: «llm» with
+    «tests» or «reward». All four stayed rejected.
+  - On 2026-11-22 the copies of «Instant software factories» had flagged eight edges the same way, and all
+    eight stayed rejected too.
+  - Now a source flags a rejected claim for review only when one paragraph shares at least three of its words,
+    or all of them for a claim with fewer: the same bar a waiting idea is woken at. None of those 12 reviews
+    would have happened.
+  - The four verdicts that ever went from rejected to grounded in this project were each asked for by hand,
+    so the higher bar loses none of them.
+- **A word written two ways counts once.**
+  - An idea that wrote both «test» and «tests» counted a paragraph's «test» as two shared words. Under the
+    two-word rule, three of the seven ideas Sentry would have woken matched only that way: «demo/demos»,
+    «tests/test» and «versiones/version».
+  - Both bars now count words, not spellings.
+- **Registering a source says why each idea comes back.**
+  - When it registered Sentry, the agent told you c1j would come back because it shared words with the
+    source. It came back because the source had been found for it.
+  - The answer of `/burgess:kg-sources add` now lists the waiting ideas the source brings back, each with its
+    reason: found for it, or the three words a paragraph shares with it. It also says how many keep waiting.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- A claim already flagged for review stays flagged until the next `/burgess:kg-ground` judges it. Only new
+  flags meet the higher bar.
+
 ## 0.24.4 — 2026-11-23
 
 A fix for the first full round of `/burgess:kg-sources find`, registration and `/burgess:kg-ground` in the field.

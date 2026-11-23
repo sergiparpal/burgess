@@ -176,9 +176,9 @@ def test_r8_5_reexaminable_filter_counts_body_terms(vault):
     eng.projector.project()
     assert _reex_ids(eng) == set()
 
-    # body-only terms; since 0.22.4 a paragraph must share two of the claim's words
-    # (tests/test_fix_reexamination_answered.py), so it names two of the body's
-    _bump(src, "New study: the zebrafish genome of this vertebrate has been sequenced.\n")
+    # body-only terms; since 0.24.5 a paragraph must share three of the claim's words (two from 0.22.4,
+    # tests/test_fix_reexamine_needs_three_words.py), so it names three of the body's
+    _bump(src, "New study: the zebrafish genome of this widely studied vertebrate has been sequenced.\n")
     eng.projector.project()
     assert "n1" in _reex_ids(eng)  # <- empty pre-fix (shell had no body)
 

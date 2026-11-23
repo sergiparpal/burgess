@@ -515,8 +515,9 @@ Two advisories may surface, both strictly read-only — neither ever changes a v
   deliberate re-grounding can change them. A claim that quotes a span comes back only when the document
   its span comes from changes (0.14.4): adding a document, or editing another one, cannot change what that
   span states. Through 0.14.3 adding one document to the field corpus brought back all 62 negative verdicts.
-  Since 0.22.4 a claim comes back only when a paragraph of the new or edited document shares two of its
-  words, and the pass sends the rejected ones to the grounders, with those passages; the next verdict settles
+  Since 0.22.4 a claim comes back only when a paragraph of the new or edited document shares some of its
+  words (three since 0.24.5, two before; words, not spellings), and the pass sends the rejected ones to the
+  grounders, with those passages; the next verdict settles
   each one, even when it keeps the rejection. Until then a
   re-check that kept a rejection left the claim on the list for every later pass.
 
