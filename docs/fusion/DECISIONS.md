@@ -2730,3 +2730,83 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The project key changes if the folder is moved or renamed, which costs one rebuild.
 - **Pinned in:** `tests/test_fix_per_project_sources.py`. `test_fix_field_eval_experiment.py`,
   `test_fix_experiment_measurement.py` and `test_fix_eval_log_and_annotator.py` follow the `kg_engine.paths` lines.
+
+## Bot checks refused, the online date, a repeated edge keeps its passage, page furniture left out (2026-11-23)
+
+- **Decision:**
+  - `evidence.blocked_page` refuses an HTML copy as `fetch-blocked`, before the preview, when:
+    - its title is one of `_CHALLENGE_TITLES`; or
+    - it is under 2000 characters and holds one of `_CHALLENGE_PHRASES`.
+    - Its hint is the way around: save the page from a browser and register the file. Markdown and text files
+      are never checked.
+  - `_DATE_KEYS` puts `citation_online_date` first. `page_published` never returns a future date when the page
+    declares an earlier one.
+  - `KGEngine._keep_first_passages` runs in `kg_write` before the canon write. An incoming edge the canon holds
+    unverified, whose stored span still verifies, takes the stored span, file, confidence, authorship and notes.
+    - The incoming passage becomes an `also stated:` segment (`evidence.also_segment`, `ALSO_MAX` 8).
+    - `_span_groups`, and with it every coverage reading, counts those segments.
+    - `kg_write` reports the edges in `also_stated`.
+    - A passage is its words and its file: the same sentence quoted from another file is another passage, so
+      both files' sections count.
+    - The same passage written again updates the edge as through 0.23.0, its confidence and notes included, and
+      the kept segments are carried over. That is an extractor restating its own edge, not a second section.
+    - A stored span that no longer verifies is replaced, which re-anchors the edge, and the kept segments that
+      still verify are carried over. An incoming edge without a span never blanks a stored one.
+  - `HTML_EXTRACTOR` "html-text/3":
+    - a page with a `<main>` or `role="main"` gives only that element's text;
+    - `aside` joins `_SKIP`;
+    - an element whose role is navigation, complementary, contentinfo, search or banner is left out, and so is one
+      whose class or id matches `_FURNITURE_RE` (recommend…, related-articles/content/subjects…, share, social…,
+      breadcrumbs, cookies, adverts, sponsors, promos, newsletter, comments, subscribe).
+    - Layout words such as `sidebar` are excluded, because Springer's article container is `eds-l-with-sidebar`.
+  - `buildplan.skip_reason` marks a section `reference-list`, `back-matter` (which matches the Copilot article's
+    "Data Availibility Statement" too) or `empty` (no letter or digit below its heading). `kg_build_plan` leaves
+    such a section out of `sections_uncovered`, counts it in `sections_skipped`, and plans it anyway under `--all`
+    (`BuildArguments.every`).
+  - `adopt_shared_derived` opens the legacy index read-only and immutable, unless its write-ahead log holds data.
+  - `Projector._retest_before_0_22_4` also tests a file whose modification time falls in the verdict's own
+    second, since both clocks are to the second.
+    - Such a file can keep a flag, by bearing on its item, but never drops one. A flag is dropped only when
+      a file changed after the verdict for certain and none bears on it.
+    - `>` had left that file out, so with another file changed later, a flag from before 0.22.3 was tested
+      against that one alone and dropped.
+    - A plain `>=`, tried first, dropped instead the flag of `test_fix_reexaminable_own_file.py`'s upgrade
+      test, whose files share the verdict's second. A tie must not count as a change.
+- **What it answers:** phase 3 of the field test (2026-11-22, `prueba-burgess-n1`), and the follow-up check of
+  0.23.0.
+  - Springer served the Windows engine a 210-character "Client Challenge" for three articles, previewed as
+    `ok: true`. From WSL the same URLs gave the full article.
+  - The proposed date was the issue's, 2027-04.
+  - Copilot §35 lost its coverage to §53's re-write of the same edge. That was noted in the field since 2026-11-07.
+  - Of the build's 137 sections, 95 were recorded edgeless.
+  - 0.23.0's migration left `-shm`/`-wal` files in the shared folder.
+  - The CI run on `main` after the 0.23.0 merge failed on macOS in
+    `test_fix_reexamination_answered.py::test_a_0_22_3_flag_is_retested_against_the_files_it_names`. Locally
+    it failed 1 run in 20. A replay that logged each step showed the clock tie above. With the fix, both tests
+    pass 40 runs out of 40. A test with pinned clocks covers the tie both ways, and fails on `>` and on a
+    plain `>=`.
+  - The user approved the patch («Sí, prepárala»).
+- **Measured on the field's two articles:**
+  - `html-text/3` drops 20 sections (48 → 39, 89 → 78), among them the 13 000-character "Registered Reports".
+  - The skip rule leaves out 37 more, so 80 of the 137 sections get extracted.
+  - Applied to the copies already registered, the rule leaves out 43.
+  - None of the 41 sections that held edges matches.
+  - All 76 canon spans that quote the two copies are still in the `html-text/3` text.
+- **Why empty, not short:** the first draft also left out a section under 60 characters. The full suite then
+  failed on its notes fixtures: `## Argumento` holds one sentence of 49 characters, and an edge quotes it. On the
+  field's articles, the 16 sections between 1 and 59 characters were all page furniture: "Navigation", the
+  "Similar content" cards ("Article 21 August 2026"), "Associated Content". `html-text/3` no longer copies them,
+  so leaving out short sections bought nothing on new copies and risked a one-line note. The user's notes have no
+  section under 60 characters, so nothing measured changes there.
+- **Why the build plan, not the copy, for references and back matter:** a copy stays the page's own text, so a
+  passage in a bibliography can still be verified. Leaving those sections out of a build only spares the extractor
+  runs, and `--all` undoes it.
+- **Accepted trade-offs:**
+  - The furniture names are heuristics. A site that names its article body with one of them would lose text, and
+    `--all` cannot bring a left-out block back into a copy. The way back is a re-registration from a saved page.
+  - Springer puts the article header before `<main>`: the `<h1>`, "Published: 03 November 2026", the volume and
+    "Cite this article". `html-text/3` leaves it out. The record keeps the title and the date, the copy still
+    opens with the title, and none of the 76 spans was in it.
+  - Under `back-matter`, an article's Funding and competing-interest sections are no longer read by an extractor.
+    In phase 3 they told the agent that the interest mark was not needed; that check now rests on the preview.
+- **Pinned in:** `tests/test_fix_source_intake_and_build_noise.py`.

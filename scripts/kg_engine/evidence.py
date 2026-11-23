@@ -96,6 +96,10 @@ REFUTED_BY_MARK = "refuted by: "
 # ` | ` inside the span (a table row) cannot split it: the claim keeps the span it was extracted from, and the
 # support it was grounded on is recorded beside it.
 SUPPORT_MARK = "support: "
+# Another passage an extractor quoted for the same edge (0.23.1): the edge keeps the passage it was first written
+# with, and each later one is kept beside it, so every section that wrote the edge counts as covered.
+ALSO_MARK = "also stated: "
+ALSO_MAX = 8
 POLICY_FILE = "policy.json"
 DEFAULT_REQUIRED_LEVEL = 4     # the worst level that may support or refute: everything but unfiltered
 DEFAULT_NOTES_LEVEL = 4        # a configured file with no level of its own: a text by an author nobody reviewed
@@ -128,8 +132,9 @@ USER_AGENT = "Mozilla/5.0 (compatible; evidence-copy/1.0)"
 _ACCEPT = "text/html,application/xhtml+xml,text/plain;q=0.9,text/markdown;q=0.9,*/*;q=0.1"
 # The fixed HTML rule's version, recorded with each copy. 2 (0.22.1) drops MathML annotations and invisible
 # math operators: version 1 copied the LaTeX source beside each rendered formula (`15×\times`, field arXiv copy
-# of 2026-11-22). A copy keeps the version it was made with: its hash is its record's.
-HTML_EXTRACTOR = "html-text/2"
+# of 2026-11-22). 3 (0.23.1) keeps only a page's <main> when it has one and leaves out page furniture
+# (`_FURNITURE_RE`). A copy keeps the version it was made with: its hash is its record's.
+HTML_EXTRACTOR = "html-text/3"
 VERBATIM = "verbatim"
 PREVIEW_CHARS = 1500
 _DATE_RE = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$")
@@ -438,16 +443,30 @@ def support_segment(span: str, source_file: str) -> str:
 def supports_of(notes: "str | None") -> "list[tuple[str, str]]":
     """``(span, source_file)`` of every support segment in an edge's notes, in order. A segment that is not
     one the engine writes is skipped."""
+    return _segments(notes, SUPPORT_MARK)
+
+
+def also_segment(span: str, source_file: str) -> str:
+    """The notes segment that records another passage stating an edge (0.23.1)."""
+    return ALSO_MARK + json.dumps({"span": span, "source_file": source_file}, ensure_ascii=False)
+
+
+def also_passages(notes: "str | None") -> "list[tuple[str, str]]":
+    """``(span, source_file)`` of every `also stated:` segment in an edge's notes, in order (0.23.1)."""
+    return _segments(notes, ALSO_MARK)
+
+
+def _segments(notes: "str | None", mark: str) -> "list[tuple[str, str]]":
     text, out, pos = notes or "", [], 0
     decoder = json.JSONDecoder()
     while True:
-        at = text.find(SUPPORT_MARK + "{", pos)
+        at = text.find(mark + "{", pos)
         if at < 0:
             return out
         try:
-            value, end = decoder.raw_decode(text, at + len(SUPPORT_MARK))
+            value, end = decoder.raw_decode(text, at + len(mark))
         except ValueError:
-            pos = at + len(SUPPORT_MARK)
+            pos = at + len(mark)
             continue
         pos = end
         if isinstance(value, dict) and isinstance(value.get("span"), str) and value["span"].strip() \
@@ -737,7 +756,17 @@ def sniff_charset(data: bytes) -> str:
 # The tags whose content is never text of the page. `annotation` / `annotation-xml` (0.22.1) hold a formula's
 # source (LaTeX, content MathML) beside its rendering: copying both doubled every formula.
 _SKIP = frozenset({"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",
-                   "nav", "footer", "form", "button", "select", "head", "annotation", "annotation-xml"})
+                   "nav", "footer", "form", "button", "select", "head", "annotation", "annotation-xml", "aside"})
+# Page furniture inside a page's text (3, 0.23.1): an element whose role says it is navigation, a sidebar, a
+# banner or a search box, or whose class or id names a recommendation list, related content, sharing,
+# comments, cookies or an advert. Readability-style names, kept narrow: a "Related work" section is the
+# article's own, so only `related-articles`, `related-content`, `related-subjects`… count, and no layout word:
+# Springer's article container is `eds-l-with-sidebar`, and a sidebar itself is an <aside> or role=complementary.
+_FURNITURE_ROLES = frozenset({"navigation", "complementary", "contentinfo", "search", "banner"})
+_FURNITURE_RE = re.compile(
+    r"(?:^|[\s_-])(?:recommend\w*|related[-_](?:articles?|content|subjects?|posts?|links?|stories|items?|reading)"
+    r"|share|sharing|social\w*|breadcrumbs?|cookie\w*|advert\w*|sponsor\w*|promo\w*|newsletter|"
+    r"comments?|subscribe\w*)(?=$|[\s_-])")
 # Invisible math operators (function application, invisible times, separator, plus): rendering hints with no
 # text, dropped everywhere; a zero-width space is dropped inside a formula only (0.22.1).
 _MATH_INVISIBLE = {0x2061: None, 0x2062: None, 0x2063: None, 0x2064: None}
@@ -754,7 +783,9 @@ _META_KEYS = ("citation_title", "citation_journal_title", "citation_conference_t
               "citation_doi", "citation_publication_date", "citation_date", "citation_online_date",
               "citation_author", "dcterms.issued", "dc.date.issued", "dc.date", "article:published_time",
               "og:site_name", "og:type", "og:title", "author")
-_DATE_KEYS = ("citation_publication_date", "citation_date", "citation_online_date", "dcterms.issued",
+# The online date first (0.23.1): it is when the text became public. A journal's citation_publication_date is
+# its issue's, often months later; the field's Copilot paper went online on 2026-11-03 for an April 2027 issue.
+_DATE_KEYS = ("citation_online_date", "citation_publication_date", "citation_date", "dcterms.issued",
               "dc.date.issued", "dc.date", "article:published_time")
 
 
@@ -765,8 +796,16 @@ class _Extractor(HTMLParser):
     as a browser collapses it, except inside ``<pre>``. Scripts, styles, navigation, footers and forms are
     dropped. A pure function of the decoded text: the same bytes always give the same copy."""
 
-    def __init__(self):
+    def __init__(self, scoped: bool = False):
         super().__init__(convert_charrefs=True)
+        # `scoped` (3, 0.23.1): the page has a <main> (or role="main"), so only its text is the page's own;
+        # `self.main` counts how deep inside it the parser is, by the tag that opened it.
+        self.scoped = scoped
+        self.main_tag = ""
+        self.main = 0
+        # a furniture subtree being skipped (3): its tag and how many of that tag are open inside it
+        self.furniture_tag = ""
+        self.furniture = 0
         self.lines: "list[str]" = []
         self.parts: "list[str]" = []
         self.prefix = ""
@@ -803,12 +842,30 @@ class _Extractor(HTMLParser):
             return
         if tag == "math":
             self.math += 1
+        a = None
+        if self.scoped and not self.main_tag and tag not in _VOID:
+            a = {k.lower(): (v or "") for k, v in attrs if k}
+            if tag == "main" or a.get("role", "").strip().lower() == "main":
+                self.main_tag, self.main = tag, 1
+                return
+        elif self.main_tag == tag:
+            self.main += 1
+        if self.furniture_tag:
+            if tag == self.furniture_tag:
+                self.furniture += 1
+            return
         if tag in _SKIP:
             if tag not in _VOID:
                 self.skip += 1
             return
         if self.skip:
             return
+        if tag not in _VOID:
+            a = a if a is not None else {k.lower(): (v or "") for k, v in attrs if k}
+            names = f"{a.get('class', '')} {a.get('id', '')}".lower()
+            if a.get("role", "").strip().lower() in _FURNITURE_ROLES or (names.strip() and _FURNITURE_RE.search(names)):
+                self.furniture_tag, self.furniture = tag, 1
+                return
         if tag in _H2 or tag in _H3:
             self._flush()
             self.prefix = "## " if tag in _H2 else "### "
@@ -835,6 +892,24 @@ class _Extractor(HTMLParser):
             return
         if tag == "math" and self.math:
             self.math -= 1
+        # The main part's depth counts every tag of its name, inside furniture too, as `handle_starttag` does:
+        # a `<div role="main">` holding a furniture `<div>` must still close at its own `</div>`.
+        main_over = False
+        if self.main_tag and tag == self.main_tag:
+            self.main -= 1
+            main_over = self.main == 0
+        if self.furniture_tag:
+            if tag == self.furniture_tag:
+                self.furniture -= 1
+                if self.furniture == 0:
+                    self.furniture_tag = ""
+            if not main_over:
+                return
+            self.furniture_tag, self.furniture = "", 0   # a page that closes its main inside a furniture block
+        if main_over:
+            self._flush()
+            self.main_tag = "-"   # the main part is over; nothing after it is the page's own
+            return
         if tag in _SKIP:
             if self.skip and tag not in _VOID:
                 self.skip -= 1
@@ -852,14 +927,21 @@ class _Extractor(HTMLParser):
         if self.in_title:
             self.title.append(data)
             return
-        if self.skip:
+        if self.skip or self.furniture_tag or (self.scoped and self.main <= 0):
             return
         self.parts.append(data.translate(_IN_MATH_INVISIBLE if self.math else _MATH_INVISIBLE))
 
 
+_MAIN_RE = re.compile(r"<main[\s>]|\brole\s*=\s*[\"']?main\b", re.I)
+
+
 def html_text(markup: str) -> "tuple[str, str, dict]":
-    """``(title, text, meta)`` of an HTML document by the fixed rule (`_Extractor`)."""
-    parser = _Extractor()
+    """``(title, text, meta)`` of an HTML document by the fixed rule (`_Extractor`). Since version 3 (0.23.1) a
+    page with a ``<main>`` (or ``role="main"``) gives only that part's text, and sidebars, recommendation lists,
+    related-content and sharing blocks are left out wherever they sit (`_FURNITURE_RE`). In the field's two
+    Springer articles those made a third of the copy's sections, each one an extractor run that found nothing
+    (2026-11-22). The metadata and the title are read from the whole page as before."""
+    parser = _Extractor(scoped=bool(_MAIN_RE.search(markup)))
     parser.feed(markup)
     parser.close()
     parser._flush()
@@ -877,12 +959,15 @@ def html_text(markup: str) -> "tuple[str, str, dict]":
 
 
 def page_published(meta: dict) -> str:
-    """The publication date a page declares in its metadata, normalized, or ""."""
-    for key in _DATE_KEYS:
-        date = _loose_date(meta.get(key, ""))
-        if date:
-            return date
-    return ""
+    """The publication date a page declares in its metadata, normalized, or "": the first of `_DATE_KEYS` it
+    declares, the online date first, and never a date still to come when the page declares one already past
+    (an issue date ahead of its online date, 0.23.1)."""
+    dates = [d for d in (_loose_date(meta.get(key, "")) for key in _DATE_KEYS) if d]
+    if not dates:
+        return ""
+    today = utcnow()[:10]
+    past = [d for d in dates if d <= today]
+    return (past or dates)[0]
 
 
 @dataclass
@@ -942,6 +1027,38 @@ def copy_from_file(path: Path) -> Copy:
         raise EvidenceError("no-text", "the file is empty")
     return Copy(text=text, title="", meta={}, content_type="text/markdown" if ext != ".txt" else "text/plain",
                 extractor=VERBATIM, raw=data, raw_ext=ext)
+
+
+# A site's bot check served in place of the page (0.23.1). On 2026-11-22 Springer sent the engine on Windows a
+# 210-character "Client Challenge" for each of three articles, which the preview took for the page.
+_CHALLENGE_TITLES = frozenset({"client challenge", "just a moment...", "just a moment…", "just a moment",
+                               "attention required! | cloudflare", "attention required!", "access denied",
+                               "are you a robot?", "are you a human?", "checking your browser",
+                               "checking your browser before accessing", "security check", "robot check",
+                               "verifying you are human", "pardon our interruption", "human verification",
+                               "403 forbidden", "ddos-guard", "please wait while we verify your browser"})
+_CHALLENGE_PHRASES = ("a required part of this site couldn", "verify you are human", "verify that you are human",
+                      "checking your browser", "enable javascript and cookies", "are not a robot", "captcha",
+                      "unusual traffic", "press & hold", "access to this page has been denied",
+                      "please complete the security check")
+CHALLENGE_MAX_CHARS = 2000
+
+
+def blocked_page(copy: Copy) -> str:
+    """Why a copy is a site's bot check rather than the document, or "" (0.23.1): an HTML page titled like
+    one of `_CHALLENGE_TITLES`, or a short one (under `CHALLENGE_MAX_CHARS`) that says what such a page says.
+    Only HTML is checked: a Markdown or text file is the user's own."""
+    if not copy.extractor.startswith("html-text"):
+        return ""
+    title = (copy.title or "").strip().lower()
+    if title in _CHALLENGE_TITLES:
+        return f"the page is titled {copy.title.strip()!r}, a site's bot check"
+    if len(copy.text) < CHALLENGE_MAX_CHARS:
+        low = copy.text.lower()
+        hit = next((ph for ph in _CHALLENGE_PHRASES if ph in low), "")
+        if hit:
+            return f"the page holds {len(copy.text)} characters and says {hit!r}, as a site's bot check does"
+    return ""
 
 
 def preview(copy: Copy) -> dict:

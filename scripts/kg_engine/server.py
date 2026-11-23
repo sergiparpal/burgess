@@ -930,6 +930,70 @@ class KGEngine:
         except Exception:  # noqa: BLE001 — cache maintenance must never fail a write
             self._baseline_cache = None
 
+    def _keep_first_passages(self, nodes: dict, existing_edges) -> "list[str]":
+        """An edge written again keeps the passage it was first written with (0.23.1): the ids of the edges this
+        write added a passage to.
+
+        Through 0.23.0 a later section's write of an edge the canon already held, still unverified, replaced its
+        span, so the section that wrote it first lost its coverage, and re-extracting that section only moved the
+        loss to the other one (field build of 2026-11-22: Copilot §35, whose only edge §53 had re-written; noted in
+        the field since 2026-11-07). Now, when the stored span still verifies, the incoming edge takes the stored
+        span, file, confidence and notes, and its own passage is added as an `also stated:` segment
+        (`evidence.also_segment`, at most `ALSO_MAX`), which coverage counts. An incoming edge with no span never
+        blanks a stored one. Two cases keep the old update, carrying the passages already kept:
+        - the same passage written again (the same words, in the same file when both name one) updates the edge,
+          its confidence and notes included, as before: an extractor restating its own edge;
+        - a stored span that no longer verifies is replaced: the new passage re-anchors the edge, and the kept
+          passages that still verify stay beside it."""
+        from .evidence import ALSO_MAX, also_passages, also_segment
+
+        def key(span, source_file):
+            return normalize_text(span or ""), source_file or ""
+
+        def same(a, b):
+            return a[0] == b[0] and (not a[1] or not b[1] or a[1] == b[1])
+
+        def carry(e, passages) -> bool:
+            """Add to `e`'s notes the passages it does not hold yet, never its own span, at most ALSO_MAX."""
+            have = [key(e.span, e.source_file)] + [key(sp, f) for sp, f in also_passages(e.notes)]
+            grew = False
+            for span, source_file in passages:
+                k = key(span, source_file)
+                if len(have) > ALSO_MAX or any(same(k, h) for h in have):
+                    continue
+                e.notes = self._append_note(e.notes, also_segment(span, source_file or ""))
+                have.append(k)
+                grew = True
+            return grew
+
+        prev_by_id = {e.id: e for e in existing_edges}
+        vs = None
+        added: "list[str]" = []
+        for node in nodes.values():
+            for e in node.edges:
+                prev = prev_by_id.get(e.id)
+                if (prev is None or prev.epistemic_state != EpistemicState.UNVERIFIED
+                        or not (prev.span and prev.span.strip())):
+                    continue
+                kept = also_passages(prev.notes)
+                has_span = bool(e.span and e.span.strip())
+                if has_span and same(key(e.span, e.source_file), key(prev.span, prev.source_file)):
+                    carry(e, kept)   # the same passage again: the write updates the edge, as it always has
+                    continue
+                if vs is None:
+                    vs = self.verify_set()
+                if not vs.verifies(prev.span, prev.source_file):
+                    if has_span:     # the stored passage is gone from its file: the new one re-anchors the edge
+                        carry(e, [(sp, f) for sp, f in kept if vs.verifies(sp, f)])
+                    continue
+                incoming = [(e.span, e.source_file or "")] if has_span else []
+                for field_name in ("span", "source_file", "provenance", "confidence", "confidence_score",
+                                   "authored_by", "notes"):
+                    setattr(e, field_name, getattr(prev, field_name))
+                if carry(e, incoming):
+                    added.append(e.id)
+        return added
+
     @staticmethod
     def _append_note(existing: str, addition: str) -> str:
         """Append `addition` to a notes field with the load-bearing ` | ` separator (the field is later
@@ -1158,6 +1222,7 @@ class KGEngine:
                                    existing_node_ids={n.id for n in existing_nodes},
                                    restore=restore, max_edges_per_kb=self.max_edges_per_kb)
         nodes = merge_results_into_nodes(results)
+        also_stated = self._keep_first_passages(nodes, existing_edges)
         # The NEW notes this write creates untyped (0.6.1): a node an edge names that the payload does not
         # declare and the canon does not hold yet becomes a placeholder, with no node_type and no body. It
         # used to happen silently; in one field build (0.6.0) `camel` landed that way, and two later
@@ -1203,6 +1268,9 @@ class KGEngine:
         }
         if placeholders and not rolled_back:
             out["placeholders"] = placeholders
+        if also_stated and not rolled_back:
+            # edges already in the canon this write gave another passage, keeping the first (0.23.1)
+            out["also_stated"] = also_stated
         if refused:
             # the lane refusals lead the details, and count as REJECTED, exactly as kg_propose folds its own
             out["details"] = refused + out["details"]
@@ -2238,14 +2306,17 @@ class KGEngine:
         it. Pooling every edge's span across files let a short span of one document ("Sin grupo de
         control.") mark a section of ANOTHER document covered, so a resumed build would have skipped that
         section (field report on 0.4.5). Shared by kg_status's coverage and kg_build_plan's."""
+        from .evidence import also_passages
         named: dict[str, set[str]] = {}
         anywhere: set[str] = set()
         for e in edges:
-            sp = normalize_text(e.span) if e.span and e.span.strip() else ""
-            if not sp:
-                continue
-            key = SourceSet._key(e.source_file) if e.source_file else ""
-            (named.setdefault(key, set()) if key in texts else anywhere).add(sp)
+            # the edge's span, then (0.23.1) every other passage a later section quoted for it
+            for span, source_file in [(e.span, e.source_file)] + also_passages(getattr(e, "notes", "")):
+                sp = normalize_text(span) if span and span.strip() else ""
+                if not sp:
+                    continue
+                key = SourceSet._key(source_file) if source_file else ""
+                (named.setdefault(key, set()) if key in texts else anywhere).add(sp)
         return named, anywhere
 
     def _coverage(self, edges) -> dict:
@@ -2432,7 +2503,8 @@ class KGEngine:
             return self._scrub_egress(self._leads_plan(out, names, texts, wave))
         named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
         records, vocabulary = self._edgeless_sections(), vocabulary_digest(self.pack)
-        files, total, uncovered, edgeless = [], 0, 0, 0
+        from .buildplan import skip_reason
+        files, total, uncovered, edgeless, left_out = [], 0, 0, 0, 0
         for name in names:
             level, secs = plan_sections(texts[name])
             spans = named.get(name, set()) | anywhere
@@ -2444,10 +2516,16 @@ class KGEngine:
                 record = None if row["covered"] else records.get((name, section_digest(s.text), vocabulary))
                 if record:
                     row["edgeless"] = dict(record)
+                elif not row["covered"] and not args.every:
+                    # a reference list, a publisher's back matter or a section with no text below its heading (0.23.1)
+                    why = skip_reason(s.title, s.text)
+                    if why:
+                        row["skipped"] = why
                 rows.append(row)
             total += len(rows)
-            uncovered += sum(1 for r in rows if not r["covered"] and "edgeless" not in r)
+            uncovered += sum(1 for r in rows if not r["covered"] and "edgeless" not in r and "skipped" not in r)
             edgeless += sum(1 for r in rows if "edgeless" in r)
+            left_out += sum(1 for r in rows if "skipped" in r)
             entry = {"file": name, "heading_level": level, "sections": rows}
             if level == 3:
                 entry["note"] = "the sections are this file's ### subsections: its only ## heading is its title"
@@ -2455,7 +2533,9 @@ class KGEngine:
                 entry["note"] = "no heading to split at: the whole file is one section"
             files.append(entry)
         plan = {**out, "ok": True, "files": files, "sections_total": total,
-                "sections_uncovered": uncovered, "sections_edgeless": edgeless, "waves": -(-uncovered // wave)}
+                "sections_uncovered": uncovered, "sections_edgeless": edgeless,
+                # left out by `buildplan.skip_reason` (0.23.1); `--all` as the first word plans them too
+                "sections_skipped": left_out, "waves": -(-uncovered // wave)}
         if skipped:
             plan["skipped"] = skipped
             plan["note"] = "skipped files could not be read as UTF-8 text"
@@ -3203,6 +3283,15 @@ class KGEngine:
                 origin = "file"
         except ev.EvidenceError as e:
             return {"ok": False, "error": e.code, "detail": e.detail}
+        # A site's bot check is not the document (0.23.1): refused at the preview already, with the way around.
+        blocked = ev.blocked_page(copy)
+        if blocked:
+            return {"ok": False, "error": "fetch-blocked", "detail": blocked,
+                    "hint": ("the site sent a bot check instead of the page. Open the page in your browser, save "
+                             "it as an .html file (Ctrl+S, HTML only) and register that file by its path"
+                             if origin == "url" else
+                             "this file is a site's bot check, not the document: open the page in your "
+                             "browser, let it load, and save it again")}
         if preview:
             return {"ok": True, "preview": True, "url": url, "path": path, **ev.preview(copy)}
         try:
@@ -4946,8 +5035,12 @@ def adopt_shared_derived(root: "str | Path", project_data: "str | Path", project
         target.mkdir(parents=True, exist_ok=True)
         old_db, new_db = legacy / envconfig.INDEX_DB_NAME, target / envconfig.INDEX_DB_NAME
         if old_db.is_file() and not new_db.exists():
-            # a proper file URI (percent-encoded, `file:///C:/…` on Windows), read-only: the shared folder stays as it was
-            src = sqlite3.connect(old_db.resolve().as_uri() + "?mode=ro", uri=True)
+            # a proper file URI (percent-encoded, `file:///C:/…` on Windows), read-only and, unless a write-ahead
+            # log still holds data, immutable, so SQLite creates no -shm/-wal beside it (0.23.1): through 0.23.0
+            # the read left those two side files in the shared folder
+            wal = old_db.with_name(old_db.name + "-wal")
+            immutable = "" if (wal.is_file() and wal.stat().st_size > 0) else "&immutable=1"
+            src = sqlite3.connect(old_db.resolve().as_uri() + "?mode=ro" + immutable, uri=True)
             try:
                 row = src.execute("SELECT value FROM meta WHERE key='file_hashes'").fetchone()
                 notes = set(json.loads(row[0])) if row and row[0] else set()

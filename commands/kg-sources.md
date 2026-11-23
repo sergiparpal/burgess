@@ -67,7 +67,11 @@ Split it at the first space. The first word is the action, and the rest of the l
    `path=` (anything else; relative to the project), and `preview=true`. Nothing is written yet.
    - On an error, report it in one line and what to do. `fetch-failed` or `no-text`: the site refused the
      engine or the page needs JavaScript; the user can save the page's text as a `.md` file and run
-     `/burgess:kg-sources add <that path>`. `pdf-not-supported`: convert the PDF to Markdown and add that file.
+     `/burgess:kg-sources add <that path>`. `fetch-blocked` (0.23.1): the site sent the engine a bot check
+     instead of the page (`detail` says how the engine knows); tell the user to open the page in their browser,
+     save it as an `.html` file (Ctrl+S, HTML only) and run `/burgess:kg-sources add <that path>`. Some sites
+     answer the engine on one machine and challenge it on another. `pdf-not-supported`: convert the PDF to
+     Markdown and add that file.
 2. From the preview (`title`, `meta`: `citation_journal_title`, `citation_doi`, `og:site_name`, … ,
    `published`, the address and the `excerpt`), **propose** a level, a role and any marks, each with a
    one-line reason. Propose level 1 only when the preview shows peer review (a journal or conference in the

@@ -35,6 +35,8 @@ Do not split that line yourself: pass it to `kg_build_plan` exactly as it appear
 - **Quotes** around the subset are dropped. Quote a name that itself ends in a number (`"capítulo 3"`), or
   that number is read as the wave size. Two separately quoted paths are refused: one subset is one file,
   folder or glob.
+- **`--all` as the first word** (0.23.1) plans every section, the ones the plan otherwise leaves out included
+  (reference lists, publisher back matter, nearly empty sections): `/burgess:kg-build --all paper.md`.
 - **`--leads` as the first word** (0.9.0) writes the leads `/burgess:kg-ground` recorded instead of building: see
   **Leads mode**, below. The rest of the line still reads as a subset and a wave size: `/burgess:kg-build --leads 4`.
 
@@ -91,15 +93,16 @@ never fall back to the demo corpus:
 mode**, below.)
 
 - `files[]`, one per file to build, in source order. Each has its `sections[]` (`section` number, `title`,
-  `chars`, `covered`, and `edgeless` on a section recorded as holding no edge), its `heading_level` and any
-  `note`.
+  `chars`, `covered`, `edgeless` on a section recorded as holding no edge, and `skipped` on one the plan leaves
+  out), its `heading_level` and any `note`.
   - `heading_level` is 2 for `## ` sections. It is 3 when the file's only `## ` heading is its title and its
     `### ` subsections carry the content (FALLO 4).
   - A file with no heading at that level is one section holding the whole file.
   - The text before a file's first heading (usually a title and a byline) is not a section.
 - `wave_size`, and `wave_size_from`: `argument`, `option` or `default`.
 - `sections_total`; `sections_uncovered`, the sections to extract; `sections_edgeless`, the ones recorded as
-  holding no edge; and `waves`, the number of waves the sections to extract need.
+  holding no edge; `sections_skipped` (0.23.1), the ones the plan leaves out; and `waves`, the number of waves
+  the sections to extract need.
 - `skipped`, when a file of the folder could not be read as UTF-8 text.
 
 Tell the user in a line or two what you are about to build: the files, the number of sections, and the wave
@@ -107,8 +110,15 @@ size and where it came from. A section whose `covered` is `true` already has spa
 earlier or interrupted build: skip it. A section with `edgeless` (0.14.0) was extracted before, and its
 extractor wrote no edge from it and recorded that (`edgeless.note` says why). Its text and the pack's types
 are the ones that extraction read, so a new one would read the same text: skip it too, and say how many the
-plan holds. A section is to extract when it is neither covered nor edgeless. When no section is, say so,
-launch nothing, and go on to step 2.
+plan holds. A section with `skipped` (0.23.1) is one no extractor needs to read: a reference list
+(`reference-list`), a publisher's back matter such as Rights and permissions, Cite this article, Author
+information or Funding (`back-matter`), or a section with no text under its heading (`empty`), as a heading
+followed at once by its subheadings. A short section is not one of them: a one-line note can state a claim. On
+the field's two papers such sections were 37 of the 117 a new copy holds, every one read in an earlier build
+and recorded as holding no edge.
+Skip it, and say how many the plan leaves out; `--all` as the first word of the arguments plans them too. A
+section is to extract when it is neither covered, edgeless nor skipped. When no section is, say so, launch
+nothing, and go on to step 2.
 
 **Changing `source_path`.** It is one value for every project: Claude Code keeps a plugin's options per user
 and ignores a project's settings for them. When the user wants another folder for THIS project only, the fix is

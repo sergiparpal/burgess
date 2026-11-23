@@ -40,16 +40,59 @@ class BuildArguments:
     """What the typed line asks for. ``subset`` is ``""`` for the whole configured source; ``wave_size``
     is the typed wave size, ``""`` when none was typed. A non-empty ``problem`` means the line cannot be
     read as one subset, and the plan stops on it. ``leads`` is true for ``--leads``: write the leads
-    grounders recorded instead of extracting the uncovered sections (0.9.0)."""
+    grounders recorded instead of extracting the uncovered sections (0.9.0). ``every`` is true for ``--all``:
+    plan the sections `skip_reason` leaves out too (0.23.1)."""
     subset: str
     wave_size: str
     problem: str = ""
     leads: bool = False
+    every: bool = False
 
 
 # `--leads` first on the line: the /kg-build mode that writes the leads grounders recorded (0.9.0). Matched
 # case-insensitively and only as a whole first word, so a file named `leads.md` is still a subset.
 _LEADS_FLAG = re.compile(r"--leads(?:\s+|$)", re.IGNORECASE)
+
+
+_ALL_FLAG = re.compile(r"--all(?:\s+|$)", re.I)
+
+# Sections a build leaves out unless `--all` asks for them (0.23.1, `skip_reason`): a reference list, the back
+# matter a publisher's page carries, and a section with no text below its heading. In the field's two Springer
+# articles (2026-11-22) they made 42 of the 137 sections, every one read by an extractor and recorded as holding no
+# edge (the reference lists among the longest: 9 000 to 25 000 characters); none of the 41 that held edges matches.
+# A short section is not left out: the 16 between 1 and 59 characters there were all page furniture, which
+# html-text/3 no longer copies, while a one-line note can state an edge ("La fábrica funciona cuando verifica cada
+# cambio.", 49 characters, in the suite's notes).
+_REFERENCE_TITLES = re.compile(
+    r"^(?:\d+(?:\.\d+)*\.?\s+)?(?:references?|bibliography|bibliograf[ií]a|referencias(?: bibliogr[aá]ficas)?|"
+    r"refer[eê]ncias|works cited|literature cited|cited literature|literaturverzeichnis)\s*$", re.I)
+_BACK_MATTER_TITLES = re.compile(
+    r"^(?:rights and permissions|about this (?:article|chapter|paper)|cite this (?:article|chapter|paper)|"
+    r"share this (?:article|chapter|paper)|publisher[’'`]*s? note|additional information|author information|"
+    r"authors? and affiliations|corresponding authors?|profiles|ethics declarations|keywords|"
+    r"acknowledge?ments?|funding|competing interests|conflicts? of interest(?:s?/competing interests)?|"
+    r"ethical approval|informed consent|compliance with ethical standards|"
+    # `avail[ai]bility`: the field's Copilot article titles it "Data Availibility Statement"
+    r"data avail[ai]bility(?: statement)?|code avail[ai]bility)\s*$", re.I)
+_ANY_WORD = re.compile(r"\w")
+
+
+def skip_reason(title: "str | None", text: str) -> str:
+    """Why a build leaves a section out (0.23.1), or "": `reference-list` (titled References, Bibliography,
+    Referencias…), `back-matter` (a publisher's Rights and permissions, Cite this article, Author information,
+    Funding, Competing interests…) or `empty` (no letter or digit below its heading, as a heading followed at once
+    by its subheadings: nothing a verbatim span could quote). An extractor found no edge in any of them on the
+    field's papers; each cost a run. `--all` plans them anyway."""
+    head = (title or "").strip()
+    if _REFERENCE_TITLES.match(head):
+        return "reference-list"
+    if _BACK_MATTER_TITLES.match(head):
+        return "back-matter"
+    body = text or ""
+    first, _, rest = body.partition("\n")
+    if first.lstrip().startswith("#"):
+        body = rest
+    return "" if _ANY_WORD.search(body) else "empty"
 
 
 def parse_arguments(raw: "str | None") -> BuildArguments:
@@ -67,12 +110,17 @@ def parse_arguments(raw: "str | None") -> BuildArguments:
       configured path. Two separately quoted parts (``"a.md" "b.md"``) are refused: one subset is one
       file, folder or glob.
     - ``--leads`` as the first word asks for the leads mode (0.9.0); the rest of the line reads as above.
+    - ``--all`` as the first word (0.23.1) plans every section, the ones `skip_reason` leaves out included.
     """
     line = (raw or "").strip()
     m = _LEADS_FLAG.match(line)
     if m:
         rest = parse_arguments(line[m.end():])
-        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=True)
+        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=True, every=rest.every)
+    m = _ALL_FLAG.match(line)
+    if m:
+        rest = parse_arguments(line[m.end():])
+        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=rest.leads, every=True)
     if not line:
         return BuildArguments("", "")
     if line.isascii() and line.isdigit():
