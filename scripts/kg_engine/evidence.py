@@ -61,6 +61,8 @@ import codecs
 import hashlib
 import json
 import re
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1159,19 +1161,96 @@ def openalex_work(w: dict) -> dict:
             "level_hint": hint, "level_hint_reason": why}
 
 
-def openalex_search(query: str, results: int = SEARCH_RESULTS) -> list:
-    """OpenAlex's works for `query` (titles, abstracts and full texts, best matches first): one GET carrying the
-    query and the fields wanted, no key, the engine's generic User-Agent. EvidenceError `search-budget` when
-    OpenAlex refuses for want of budget, `search-failed` for anything else."""
+# OpenAlex answers a burst with HTTP 429 although its daily budget is far from spent (0.24.3). On the field run of
+# 2026-11-23 a scout's six searches, a second apart or in parallel, drew three 429s while the budget headers said
+# $0.084 of $0.10 was left; 0.24.2 read every 429 as a spent budget, so the scout dropped the catalogue and the
+# report said the daily limit had run out. Now the engine runs one catalogue request at a time, at least
+# `OPENALEX_SPACING_S` apart, waits and retries once on a 429, and calls the budget spent only when OpenAlex says
+# so: HTTP 402, or a 429 whose `X-RateLimit-Remaining-USD` is 0.
+OPENALEX_SPACING_S = 1.1
+OPENALEX_RETRY_WAIT_S = 2.0
+OPENALEX_RETRY_MAX_S = 10.0
+_openalex_lock = threading.Lock()
+_openalex_last = [0.0]
+_sleep = time.sleep
+
+
+def _number(value) -> "float | None":
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def openalex_budget(headers) -> dict:
+    """What OpenAlex's rate-limit headers say of the free daily budget: `remaining_usd`, `limit_usd` and `reset_s`
+    (seconds until it is renewed), each when the header is there, or `{}`."""
+    out: dict = {}
+    if headers is None:
+        return out
+    for header, key in (("X-RateLimit-Remaining-USD", "remaining_usd"), ("X-RateLimit-Limit-USD", "limit_usd"),
+                        ("X-RateLimit-Reset", "reset_s")):
+        value = _number(headers.get(header))
+        if value is not None:
+            out[key] = value
+    return out
+
+
+def _openalex_get(url: str) -> "tuple[Fetched, dict]":
+    """One catalogue request, the engine's only way to OpenAlex: one at a time, at least `OPENALEX_SPACING_S` after
+    the last one, retried once after a 429 that is not a spent budget (after `Retry-After`, or
+    `OPENALEX_RETRY_WAIT_S`, at most `OPENALEX_RETRY_MAX_S`). Returns the answer and `openalex_budget` of its
+    headers. EvidenceError `search-budget` (HTTP 402, or a 429 that says no budget remains), `search-rate-limited`
+    (a 429 again after the retry), or `search-failed`."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with _openalex_lock:
+        for attempt in (1, 2):
+            wait = _openalex_last[0] + OPENALEX_SPACING_S - time.monotonic()
+            if wait > 0:
+                _sleep(wait)
+            try:
+                with _urlopen(req, FETCH_TIMEOUT) as resp:
+                    ctype = (resp.headers.get_content_type() or "").lower()
+                    charset = resp.headers.get_content_charset() or ""
+                    data = resp.read(MAX_BYTES + 1)
+                    final = resp.geturl() or url
+                    budget = openalex_budget(resp.headers)
+            except urllib.error.HTTPError as e:
+                _openalex_last[0] = time.monotonic()
+                budget = openalex_budget(e.headers)
+                left = budget.get("remaining_usd")
+                if e.code == 402 or (e.code == 429 and left is not None and left <= 0):
+                    reset = budget.get("reset_s")
+                    raise EvidenceError("search-budget", "OpenAlex's free daily budget for this network is spent"
+                                        + (f"; it is renewed in about {round(reset / 3600, 1)} h" if reset else "")
+                                        ) from None
+                if e.code == 429 and attempt == 1:
+                    after = _number(e.headers.get("Retry-After") if e.headers is not None else None)
+                    _sleep(min(max(after if after is not None else OPENALEX_RETRY_WAIT_S, 0.5), OPENALEX_RETRY_MAX_S))
+                    continue
+                if e.code == 429:
+                    raise EvidenceError("search-rate-limited", "OpenAlex asked the engine to slow down (HTTP 429) "
+                                        "again after a pause" + (f"; ${left:.3f} of the daily budget is left"
+                                                                 if left is not None else "")) from None
+                raise EvidenceError("search-failed", f"HTTP {e.code}") from None
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                _openalex_last[0] = time.monotonic()
+                raise EvidenceError("search-failed", str(getattr(e, "reason", e))) from None
+            _openalex_last[0] = time.monotonic()
+            if len(data) > MAX_BYTES:
+                raise EvidenceError("search-failed", f"the answer is over {MAX_BYTES} bytes")
+            return Fetched(data, ctype, charset, final), budget
+    raise EvidenceError("search-failed", "no answer")   # not reached: the loop returns or raises
+
+
+def openalex_search(query: str, results: int = SEARCH_RESULTS) -> "tuple[list, dict]":
+    """OpenAlex's works for `query` (titles, abstracts and full texts, best matches first), and what the answer's
+    headers say of the free daily budget (`openalex_budget`): one GET carrying the query and the fields wanted, no
+    key, the engine's generic User-Agent, through `_openalex_get` (paced, retried once on a rate limit).
+    EvidenceError `search-budget`, `search-rate-limited` or `search-failed`."""
     n = max(1, min(int(results or SEARCH_RESULTS), SEARCH_RESULTS_MAX))
     url = OPENALEX_WORKS + "?" + urllib.parse.urlencode({"search": query, "per_page": n, "select": OPENALEX_SELECT})
-    try:
-        got = fetch(url)
-    except EvidenceError as e:
-        if e.code == "fetch-failed" and e.detail in ("HTTP 402", "HTTP 403", "HTTP 429"):
-            raise EvidenceError("search-budget", f"OpenAlex refused the search ({e.detail}): the free daily "
-                                "budget this network shares is probably spent") from None
-        raise EvidenceError("search-failed", e.detail or e.code) from None
+    got, budget = _openalex_get(url)
     try:
         data = json.loads(decode(got.data, got.charset or "utf-8"))
     except (EvidenceError, ValueError):
@@ -1179,7 +1258,7 @@ def openalex_search(query: str, results: int = SEARCH_RESULTS) -> list:
     rows = data.get("results") if isinstance(data, dict) else None
     if not isinstance(rows, list):
         raise EvidenceError("search-failed", "OpenAlex's answer holds no list of results")
-    return [openalex_work(w) for w in rows if isinstance(w, dict)]
+    return [openalex_work(w) for w in rows if isinstance(w, dict)], budget
 
 
 def best_passages(text: str, terms: "list[str]", k: int = PASSAGES, max_chars: int = PASSAGE_CHARS) -> "list[dict]":

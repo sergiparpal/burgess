@@ -91,6 +91,7 @@ def web(monkeypatch):
         raise urllib.error.URLError("no route in the test")
 
     monkeypatch.setattr(ev, "_urlopen", urlopen)
+    monkeypatch.setattr(ev, "_sleep", lambda s: None)          # 0.24.3 paces catalogue calls: no real waiting
     return pages, seen
 
 
@@ -148,7 +149,7 @@ def test_the_catalogue_fields():
 def test_the_search_sends_the_query_and_nothing_else(web):
     pages, seen = web
     pages["https://api.openalex.org/works"] = (json.dumps({"results": [WORK]}).encode(), "application/json")
-    found = ev.openalex_search("stigmergy software agents", 5)
+    found, _budget = ev.openalex_search("stigmergy software agents", 5)
     assert [w["title"] for w in found] == ["Stigmergy in software teams"]
     url = seen[-1]
     assert "search=stigmergy+software+agents" in url and "per_page=5" in url and "select=" in url
@@ -157,7 +158,9 @@ def test_the_search_sends_the_query_and_nothing_else(web):
 
 def test_a_spent_budget_and_a_bad_answer_are_named(web):
     pages, _ = web
-    pages["https://api.openalex.org/works"] = (urllib.error.HTTPError("u", 429, "Too Many", {}, None), "")
+    # 0.24.3: a spent budget is what OpenAlex says it is (a 429 with no budget left); a bare 429 is a rate limit
+    pages["https://api.openalex.org/works"] = (urllib.error.HTTPError("u", 429, "Too Many",
+                                                                      {"X-RateLimit-Remaining-USD": "0"}, None), "")
     with pytest.raises(ev.EvidenceError) as e:
         ev.openalex_search("stigmergy")
     assert e.value.code == "search-budget"

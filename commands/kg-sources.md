@@ -134,7 +134,10 @@ and left unverified because no usable source supports them. It proposes; the use
 
 What leaves the machine is the scouts' queries: topic words, sent to OpenAlex through the engine and to the web
 search, never the user's name, paths or project. Without a key OpenAlex lets one network run about 100 searches a
-day; a scout that meets `search-budget` keeps to the web for the rest of the run.
+day; a scout that meets `search-budget` keeps to the web for the rest of the run. The engine runs one catalogue
+search at a time and retries once when OpenAlex asks it to slow down; a search still refused that way is
+`search-rate-limited`, with budget left (0.24.3). Say the daily budget ran out only when a scout met
+`search-budget`, and report `openalex_budget_left_usd` when `kg_source_find` gives it.
 
 ## list
 
