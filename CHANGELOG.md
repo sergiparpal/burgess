@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.24.1 — 2026-11-23
+
+A fix for the first run of `/burgess:kg-sources find` in the field.
+
+### Fixed
+
+- **The focus of `find` reads what an idea says, not only its title.** `/burgess:kg-sources find compresión 3`
+  found nothing, though one waiting idea is about compression. The focus was compared with the idea's id and its
+  label only, and an idea fixed from `/burgess:kg-diverge` has an id that names its session
+  (`idea-atasco-fabrica-agentes-c1a`) and a label cut at 80 characters, here «…vigilar la ratio de compresió...».
+  Now every word of the focus is looked for in the idea's whole text and its id, accents ignored.
+  `/burgess:kg-ground`'s focus is unchanged.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+
 ## 0.24.0 — 2026-11-23
 
 Burgess now suggests sources. On 21 November you asked for a command that finds outside sources able to verify or

@@ -2875,3 +2875,19 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The OpenAlex budget is shared by the network. A spent budget (`search-budget`) leaves the web search.
   - WebSearch on the user's Windows install is not yet checked; the field test will show it.
 - **Pinned in:** `tests/test_feat_source_find.py`.
+
+## The find focus reads the item's text (2026-11-23)
+
+- **Decision:** `kg_source_find` matches its focus against what the item claims (`_claim_text`: a node's label
+  and body without lineage lines, an edge's ends, relation and span) and its id (an edge's: its two ends' ids),
+  with `groundplan.focus_matches`: every focus word, singular or plural, accents ignored. The grounding focus
+  (`kg_ground_plan`) keeps id and label.
+- **What it answers:** the first field run of `find` (2026-11-23, `prueba-burgess`, 119 waiting pins).
+  - `find compresión 3` returned nothing. Through 0.24.0 the focus read the id and the label only.
+  - A pin's id is `idea-<brief>-<candidate>`, and its label is its first 80 characters, cut. The one pin about
+    compression (`idea-atasco-fabrica-agentes-c1a`) had the label "…vigilar la ratio de compresió...".
+  - The agent fell back to no focus and offered three replies; no scout ran.
+  - The user approved the fix («Sí, prepárala»).
+- **Why not the ground focus too:** it names nodes, and a grounding pass takes every edge touching a named node.
+  A word in a node's body would widen it beyond what the user named.
+- **Pinned in:** `tests/test_fix_find_focus_reads_text.py`.

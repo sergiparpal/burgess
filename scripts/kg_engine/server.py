@@ -3477,8 +3477,10 @@ class KGEngine:
     def kg_source_find(self, focus: str = "", limit=None) -> dict:
         """The items waiting for a source, for `/burgess:kg-sources find` (0.24.0): every item a grounder recorded
         as unsupported (`kg_record_unsupported`) that still waits, because no usable source it was not judged
-        against was found for it or bears on it. `focus` keeps the items whose node, or whose edge's ends, it
-        names (the word rules of `kg_ground_plan`). At most `limit` (default 6, at most 20) are returned, the ones
+        against was found for it or bears on it. `focus` keeps the items where every word of it occurs in what the
+        item claims (its `text`, below) or in its id (an edge's: its two ends'), singular or plural, accents ignored
+        (the word rules of `kg_ground_plan`; through 0.24.0 only the id and the label, and a pin's label is cut at
+        80 characters). At most `limit` (default 6, at most 20) are returned, the ones
         never searched first, then the ones searched longest ago. Each comes with what it claims (`text`), its
         content words (`terms`), what its grounder looked for and did not find (`looked_for`), and the searches
         and proposals already logged for it. Read-only."""
@@ -3505,14 +3507,12 @@ class KGEngine:
                                      configured_sig=state.get("configured_sig"), configured=state.get("configured"),
                                      wakes=lambda new, k=kind, it=item: self._new_source_wakes(k, it, new, wake)):
                 continue
-            if focus:
-                if kind == "node":
-                    hit = focus_matches(focus, item.id, item.label or "")
-                else:
-                    ends = [nodes.get(slug(x)) for x in (item.source, item.target)]
-                    hit = any(focus_matches(focus, n.id, n.label or "") for n in ends if n is not None)
-                if not hit:
-                    continue
+            # The focus reads what the item claims, not only its id and label (0.24.1): a pin's id names its brief
+            # and candidate, and its label is its first 80 characters. In the field, `find compresión 3` found
+            # nothing because the one pin about compression has the label "…vigilar la ratio de compresió...".
+            ids = item.id if kind == "node" else f"{item.source} {item.target}"
+            if focus and not focus_matches(focus, ids, self._claim_text(kind, item, nodes)):
+                continue
             waiting.append((kind, item, rec))
         log = self._source_searches()
         by_item: "dict[str, list[dict]]" = {}
@@ -5791,9 +5791,9 @@ def _register(mcp, engine: KGEngine) -> None:
         """The graph items waiting for an outside source, for /burgess:kg-sources find: the ones a grounder judged
         and recorded as unsupported that no new usable source wakes. Each comes with what it claims (`text`), its
         content words (`terms`), what its grounder looked for and did not find (`looked_for`), and the searches and
-        proposals already logged for it, the never-searched first. `focus` keeps the items whose node (or edge
-        ends) it names; `limit` is 1-20 (default 6). Also `waiting_total`, `required_level` (the project's policy)
-        and `openalex_searches_today`. Read-only."""
+        proposals already logged for it, the never-searched first. `focus` keeps the items whose text or id holds
+        every one of its words (accents ignored); `limit` is 1-20 (default 6). Also `waiting_total`,
+        `required_level` (the project's policy) and `openalex_searches_today`. Read-only."""
         return engine.kg_source_find(focus=focus, limit=limit)
 
     @mcp.tool()
