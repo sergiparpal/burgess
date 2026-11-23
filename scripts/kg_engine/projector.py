@@ -1316,7 +1316,7 @@ class Projector:
         return [w for w in words if not w.isdigit()]
 
     @staticmethod
-    def _bearing_files(words, per_file: "dict[str, str]", cache: dict) -> "list[str]":
+    def _bearing_files(words, per_file: "dict[str, str]", cache: dict, need: int = 2) -> "list[str]":
         """The files of ``per_file`` (``{name: text}``) with a paragraph that shares at least two of ``words``
         (one for a one-word claim): `groundplan.rank_units` over `text_units`, the rule a grounder's
         `reexamine.context` is ranked by, so a flag stands only where its grounder will be shown such a
@@ -1327,7 +1327,7 @@ class Projector:
         for name, text in per_file.items():
             if name not in cache:
                 cache[name] = [text_forms(text[a:b]) for a, b in text_units(text or "")]
-            if rank_units(cache[name], words):
+            if rank_units(cache[name], words, need):
                 out.append(name)
         return out
 

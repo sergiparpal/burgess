@@ -93,7 +93,8 @@ Split it at the first space. The first word is the action, and the rest of the l
      whether the old copy should be marked `superseded` (`set <old name> marks=superseded`).
 5. Report in a few lines: the registered `name`, its level, role and marks, and what happens next. When the
    result's `source.usable` is true, the waiting items it was found for (`found_for`) and those whose words it
-   contains come back to the next `/burgess:kg-ground`, which judges them against it (0.24.0: through 0.23.1
+   contains (a paragraph sharing three of them, 0.24.4) come back to the next `/burgess:kg-ground`, which judges
+   them against it (0.24.0: through 0.23.1
    every waiting item came back); the other waiting items keep waiting. When it is false, they all keep waiting
    and the source changes nothing until the policy accepts its level. Nothing was added to the graph.
 

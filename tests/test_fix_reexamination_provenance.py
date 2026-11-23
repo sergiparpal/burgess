@@ -158,6 +158,6 @@ def test_the_policy_texts_say_what_wakes_a_waiting_item():
     assert "A change of policy brings back the items that were waiting for new sources." not in sources
     assert "Never tell the user that a policy change brings them back otherwise." in sources
     assert ("When the result's `source.usable` is true, the waiting items it was found for (`found_for`) and those "
-            "whose words it contains come back") in sources
+            "whose words it contains (a paragraph sharing three of them, 0.24.4) come back") in sources
     assert "It offers again every item waiting for sources." not in _flat(TOOLS)
     assert "every source that flagged an item is one the policy does not accept now" in _flat(GROUND_CMD)

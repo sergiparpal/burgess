@@ -1296,7 +1296,10 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   the configured sources as they are now, it stands for them; otherwise the signatures must match, as before.
 - **Since 0.24.0 such a file wakes only the items it bears on** (`KGEngine._new_source_wakes`): the items its
   record says `/burgess:kg-sources find` looked for it for (`found_for`, §1.27), and the items with a paragraph
-  in it that shares their words (the 0.22.4 paragraph rule, `Projector._bearing_files`). Through 0.23.1 any new
+  in it that shares their words (the 0.22.4 paragraph rule, `Projector._bearing_files`): a paragraph must share
+  three of its words (0.24.4, `KGEngine.WAKE_WORDS`; all of them for an item with fewer). Two, the
+  re-examination rule's bar, woke 15 of the field's Spanish pins for an English page found for one: each shared
+  exactly two cognates or generic words with it (agentes/agents, planes/plan, tests, local, token). Through 0.23.1 any new
   usable file woke every waiting item: in the field one source would have sent all 119 waiting pins of a project
   back to a grounder. A source in another language than an item shares no words with it, so one registered by
   hand for it is reached with a `focus`. The record now keeps the grounder's `note`, which §1.31 shows.
@@ -1371,8 +1374,8 @@ measures the filter the text passed before it was published, never whether a cla
   comma-separated. The engine adds the items its search ledger shows the page was read (§1.33) or proposed
   (§1.34) for, or found by a catalogue search (§1.32) for: by URL, by DOI, or for a proposal by its exact title,
   so a page saved from a browser still finds its item. The record keeps them in `found_for`, with the page's
-  `doi`, and the result names them in `found_for`: they, and the items whose words the source contains, wake
-  for the next `/burgess:kg-ground` (§1.26). `item-not-found` for an id the graph does not hold.
+  `doi`, and the result names them in `found_for`: they, and the items with a paragraph in the source that shares
+  three of their words, wake for the next `/burgess:kg-ground` (§1.26). `item-not-found` for an id the graph does not hold.
 - Refusals: `give-url-or-path`, `url-not-http`, `fetch-failed` (with the HTTP status or reason), `too-large`
   (over 5 MB), `undecodable`, `no-text` (the page needs JavaScript: save its text as `.md` and register the
   file), `pdf-not-supported`, `content-type-not-supported`, `file-type-not-supported`, `file-not-found`,

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.24.4 — 2026-11-23
+
+A fix for the first full round of `/burgess:kg-sources find`, registration and `/burgess:kg-ground` in the field.
+
+### Fixed
+
+- **A new source wakes only the ideas it concerns, even across languages.**
+  - You registered an English design-pattern page found for one idea (c1l). The next `/burgess:kg-ground` judged
+    16 ideas: c1l, which was grounded on that page, and 15 others, which went back to waiting.
+  - Each of those 15 shared exactly two words with some paragraph of the page. They were words that coincide
+    between Spanish and English or are very generic: «agentes»/agents, «planes»/plan, tests, local, token,
+    final, persona.
+  - Now an idea wakes by its words only when one paragraph shares at least three of them, or all of them for an
+    idea with fewer.
+  - An idea a source was found for still wakes whatever its words, as c1l did.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+
 ## 0.24.3 — 2026-11-23
 
 A fix for the latest run of `/burgess:kg-sources find` in the field.
