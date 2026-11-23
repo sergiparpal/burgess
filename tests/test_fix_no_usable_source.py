@@ -227,7 +227,8 @@ def test_a_formula_is_copied_once():
               '<math><mi>f</mi><mo>\u2061</mo><mo>\u200b</mo><mi>x</mi></math> and a\u200bspace.</p>')
     _title, text, _meta = evidence.html_text(markup)
     assert text == "Daily merges rose 15× during rollout (κ=0.91), with fx and a\u200bspace.\n"
-    assert evidence.HTML_EXTRACTOR == "html-text/2"
+    # the rule came in with html-text/2; 0.23.1 (html-text/3, page furniture left out) keeps it
+    assert evidence.HTML_EXTRACTOR.startswith("html-text/") and int(evidence.HTML_EXTRACTOR.rsplit("/", 1)[1]) >= 2
 
 
 def test_a_registered_page_records_the_new_rule(rig, monkeypatch):
@@ -254,7 +255,7 @@ def test_a_registered_page_records_the_new_rule(rig, monkeypatch):
     out = eng.kg_source_add(url="https://example.org/p", level=4, role="primary")
     assert out["ok"]
     rec = json.loads((eng.project_dir / "evidence" / (Path(out["name"]).stem + ".source.json")).read_text())
-    assert rec["extractor"] == "html-text/2"
+    assert rec["extractor"] == evidence.HTML_EXTRACTOR
     assert (eng.project_dir / "evidence" / out["name"]).read_text(encoding="utf-8") == "Merges rose 15× here.\n"
 
 

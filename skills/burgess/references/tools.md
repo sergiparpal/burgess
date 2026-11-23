@@ -109,6 +109,17 @@ node an edge named that the payload did not declare and the canon did not hold, 
 body. Declaring it in a later payload, with the same id, fills it in. Call it with the payload alone: `source` without `construction` raises a `ValueError` before anything is written,
 which the transport envelope returns as `{ok: false, error, error_kind: "ValueError"}`.
 
+`also_stated` (0.23.1, present only when non-empty) lists the edges the canon already held, unverified, that this
+write quoted another passage for. Such an edge keeps the span it was first written with, while its stored span
+still verifies, and the new passage is kept in its notes as an `also stated: {"span", "source_file"}` segment
+(at most 8). Coverage (`kg_status`, `kg_build_plan`) counts those passages too, so every section that wrote the
+edge stays covered. Through 0.23.0 the later passage replaced the span, and the section that wrote it first
+showed as not covered: re-extracting it only moved the loss (field build of 2026-11-22, Copilot §35). A passage
+is its words and its file, so the same sentence quoted from another file is another passage. Two writes still
+update the edge as before, carrying the kept passages: the same passage written again (an extractor restating
+its own edge, with a new confidence or notes), and any write once the stored span no longer verifies, whose
+new passage re-anchors the edge.
+
 `construction` (optional) routes this SAME key-free, span-verified write to a separately-named **second
 construction**'s alternate canon under `<project>/.kg/constructions/<slug>/` instead of the primary canon —
 the in-session second construction `/burgess:kg-perturb` cross-generates against (§9/§15, `kg_generate`'s
@@ -846,9 +857,18 @@ source and the edgeless-section ledger (§1.24) only.
   "sections_total": 16,
   "sections_uncovered": 15,
   "sections_edgeless": 1,
+  "sections_skipped": 0,
   "waves": 4
 }
 ```
+
+- `skipped` on a section (0.23.1, `buildplan.skip_reason`) — left out of `sections_uncovered`: `reference-list`
+  (titled References, Bibliography, Referencias…), `back-matter` (a publisher's Rights and permissions, Cite this
+  article, Author information, Funding, Competing interests…) or `empty` (no letter or digit below its heading,
+  as a heading followed at once by its subheadings; a short section is planned, since one line can state an
+  edge). On the field's two papers they were 37 of the 117 sections a new copy holds (43 of the 137 in the
+  copies registered before 0.23.1), each read by an extractor that found no edge; none of the 41 sections that
+  held edges matches. `--all` as the first word of `arguments` plans them too.
 
 - `files[].sections[]` — the sections ONE extractor each receives, numbered from 1 in file order; the same
   numbering `kg_section` serves (`sources.plan_sections`). `heading_level` is 2 for `## ` sections, or 3
@@ -1282,11 +1302,22 @@ measures the filter the text passed before it was published, never whether a cla
   bytes itself, with a generic User-Agent that says nothing about the user, and extracts the text by a fixed
   rule (stdlib `html.parser`: headings become `##`/`###` lines, list items `- ` lines, table rows `a | b`
   lines; scripts, styles, navigation, footers and forms are dropped; since 0.22.1, `html-text/2`, also a formula's
-  MathML annotations and invisible operators, so `15×` is copied once rather than as `15×\times`). A copy keeps the
+  MathML annotations and invisible operators, so `15×` is copied once rather than as `15×\times`; since 0.23.1,
+  `html-text/3`, a page with a `<main>` gives only that part, and sidebars (`<aside>`, `role=complementary`),
+  recommendation lists, related-content, sharing, cookie and comment blocks are left out, so a journal page's
+  "Similar content", "Explore related subjects" or "Share this article" never become sections). A copy keeps the
   rule it was made with in its record's `extractor`. **Never register WebFetch output**: it is
   a small model's answer about the page, not the page. A local `.md`/`.markdown`/`.txt` is copied verbatim;
   `.html`/`.htm` is extracted by the same rule. PDF is refused (`pdf-not-supported`): convert it to Markdown
   and register that file.
+- A site's bot check is refused (0.23.1, `fetch-blocked`, at the preview already): an HTML page titled like one
+  ("Client Challenge", "Just a moment…", "Attention Required! | Cloudflare"…) or a short one that says what such
+  a page says ("verify you are human", "captcha"…). `detail` says which, and `hint` the way around: save the page
+  from a browser as `.html` and register the file. On 2026-11-22 Springer served the engine on Windows such a page
+  for every article, which 0.23.0 previewed as `ok: true`.
+- `published` comes from the page when the caller gives none: the online date first (`citation_online_date`),
+  then the issue's (`citation_publication_date`) and the others, never a date still to come when an earlier one
+  is declared (0.23.1; the field's Copilot paper went online on 2026-11-03 for an April 2027 issue).
 - `preview=True` — fetch or read it and return `{title, chars, content_type, extractor, published, meta,
   final_url, excerpt}` (the first 1500 characters) without writing anything: what the command proposes a level
   and role from. `meta` holds the page's `citation_*`, `dc.*`, `og:*` and `article:published_time` values.

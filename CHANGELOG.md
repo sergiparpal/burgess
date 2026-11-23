@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.23.1 — 2026-11-23
+
+Fixes for what phase 3 of the field test ran into when it built a graph from two peer-reviewed articles, and for
+a clock tie behind a test that failed now and then.
+
+### Fixed
+
+- **A site's bot check is refused, not previewed as the page.** Springer sent the engine on Windows a
+  210-character "Client Challenge" for each of three articles, and the preview reported it as `ok: true`. Now
+  `/burgess:kg-sources add` stops at the preview with `fetch-blocked` and says what to do: save the page from your
+  browser as an `.html` file and add that file.
+- **The publication date is the online one.** A journal page's `citation_publication_date` is its issue's: the
+  Copilot article went online on 2026-11-03 for an April 2027 issue, and the engine proposed 2027. Now it takes the
+  online date first, and never a date still to come when an earlier one is declared.
+- **An edge written again keeps its first passage.** When a later section wrote an edge the graph already held,
+  its quoted passage replaced the first one, and the section that wrote it first showed as not extracted. That is
+  how the Copilot article's §35 stayed pending, and re-extracting it only moved the problem. Now the edge keeps its
+  first passage, the new one is kept beside it, and both sections count as extracted. An extractor that restates
+  an edge from the same passage still updates it, as before.
+- **Page furniture is no longer extracted.**
+  - A web page is now copied from its main part only, without sidebars, recommendation lists ("Similar content
+    being viewed by others"), related subjects or sharing blocks.
+  - A build leaves out reference lists, a publisher's back matter (rights, citation, author information,
+    funding, competing interests…) and sections with no text under their heading. A short section is still
+    extracted, since a one-line note can state a claim.
+  - On your two articles, a build of new copies would extract 80 sections instead of 137. Each of the 57 left out
+    was read in phase 3 by an extractor that found nothing.
+  - None of the 41 sections that held claims is left out, and the 76 quoted passages are all still in the text.
+  - `/burgess:kg-build --all` plans them anyway.
+- **Reading the old shared index leaves no files behind.** 0.23.0's migration left two small SQLite side files
+  in the old shared folder. Now it reads the index without creating them.
+- **A re-examination flag from before 0.22.3 is no longer dropped by a clock tie.** Such a flag names no file, so
+  0.22.4 tests it against the files changed after its item's verdict, both times to the second. A file written in
+  the verdict's own second was left out, and when another file had changed later the flag was tested against that
+  one alone and dropped. Now a file from that second is tested too: it can keep the flag, never drop it. This made
+  a 0.22.4 test fail 1 run in 20, and once on macOS CI after the 0.23.0 merge.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- The two articles already registered in `prueba-burgess-n1` keep their copies. The new web extraction applies
+  to sources registered from now on. The build plan already leaves out their bibliography and back matter.
+- The views carry the 0.23.0 mark, so the first read that projects re-renders them, with the same look.
+
 ## 0.23.0 — 2026-11-22
 
 Each project now has its own notes and its own engine data. You asked why `source_path` is global when each

@@ -1337,7 +1337,16 @@ class Projector:
         before 0.22.3 names none, and is tested against the files changed after its item's last verdict (the
         file's time against the audit log's). Kept, naming the files that bear on it, when one does; dropped when
         none does. A flag no file can be found for (its files gone, or no file changed since the verdict, or no
-        verdict on record) is kept as it was: nothing says what raised it. A span-file flag keeps its own rule."""
+        verdict on record) is kept as it was: nothing says what raised it. A span-file flag keeps its own rule.
+
+        Both clocks are to the second, so a file written in the verdict's own second may have changed before
+        the verdict or after it (0.23.1). Such a file is tested, and keeps the flag when it bears on the item, but
+        it never drops one: a flag is dropped only when a file changed after the verdict for certain, and no file
+        bears on it. Through 0.23.0 such a file was left out. When another file had changed later, the flag was
+        then tested against that one alone and dropped: 1 run in 20 of
+        test_a_0_22_3_flag_is_retested_against_the_files_it_names, and once on macOS CI after the 0.23.0 merge.
+        Counting it as a later change instead dropped a flag that only such files could have raised
+        (test_the_upgrade_drops_the_old_rules_flags_on_span_backed_edges, whose files share the verdict's second)."""
         if entry.get("reason") == REEX_SPAN_FILE:
             return True, entry.get("files")
         try:
@@ -1346,10 +1355,10 @@ class Projector:
             return True, entry.get("files")
         named = [f for f in (entry.get("files") or []) if f in texts]
         if entry.get("files"):
-            candidates = named
+            candidates, certain = named, bool(named)
         else:
             judged = audit.last_at.get(audit_key(kind, entry.get("item_id")), "")
-            candidates = []
+            candidates, certain = [], False
             if judged:
                 from datetime import datetime, timezone
                 for name, mtime in (sources.file_times() if hasattr(sources, "file_times") else {}).items():
@@ -1357,12 +1366,15 @@ class Projector:
                         when = datetime.fromtimestamp(mtime, timezone.utc).isoformat(timespec="seconds")
                     except (OverflowError, OSError, ValueError):
                         continue
-                    if name in texts and when > judged:
+                    if name in texts and when >= judged:
                         candidates.append(name)
+                        certain = certain or when > judged   # the verdict's own second is a tie, not a change
         if not candidates:
             return True, entry.get("files")
         bearing = self._bearing_files(self._claim_words(item, kind, by_id), {c: texts[c] for c in candidates}, cache)
-        return (True, bearing) if bearing else (False, None)
+        if bearing:
+            return True, bearing
+        return (False, None) if certain else (True, entry.get("files"))
 
     @staticmethod
     def _reexaminable_entry(item_id, kind, state, reason=None, files=None, mark=None) -> dict:

@@ -196,7 +196,9 @@ ledger `<project>/.kg-ground-audit.jsonl` (with a `.ckpt` sidecar for O(1) recov
 sources, the user's own notes, so `grounded` meant "my notes say it", and the only outside support was a
 `support_note` the engine could not check. `kg_source_add` registers an outside text: the engine fetches the
 bytes itself (stdlib urllib, a generic User-Agent; never WebFetch, whose answer is a model's paraphrase of the
-page) or reads a local `.md`/`.txt`/`.html` file, extracts the text by a fixed stdlib rule, and writes the copy
+page) or reads a local `.md`/`.txt`/`.html` file, extracts the text by a fixed stdlib rule (since 0.23.1 only a
+page's `<main>`, without sidebars, recommendation lists or sharing blocks, and a bot check is refused as
+`fetch-blocked`), and writes the copy
 `ext-<slug>-<hash>.md`, a record `<stem>.source.json` and the raw bytes under `raw/` into
 `<project>/evidence/`. PDF is refused, as for the configured sources. The record carries a **level** (1 reviewed,
 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a **role** (primary, secondary, tertiary),
@@ -414,9 +416,11 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
 - **Read/query (16):** `kg_ping`, `kg_scrub`, `kg_metrics`, `kg_status` (projection-free
   status + section coverage, where a span counts toward the file its edge's `source_file` names, as
-  span verification does, + the engine-resolved `source`), `kg_build_plan` (the `/burgess:kg-build` plan:
+  span verification does, and so does each `also stated:` passage an edge written again keeps beside its
+  first one (0.23.1), + the engine-resolved `source`), `kg_build_plan` (the `/burgess:kg-build` plan:
   files, sections at each file's heading level, per-section coverage, the sections an extraction
-  recorded as holding no edge while their text and the pack's types are unchanged, the wave size; it
+  recorded as holding no edge while their text and the pack's types are unchanged, the sections it leaves
+  out (0.23.1: a reference list, a publisher's back matter, an empty section; `--all` plans them), the wave size; it
   reads the typed arguments and the option text it is handed, so the command needs no shell; with
   `--leads`, the sections holding the leads rejected claims carry), `kg_section`
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
