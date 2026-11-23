@@ -16,7 +16,7 @@ For a narrative first session in plain language, read [`../TUTORIAL.md`](../TUTO
 | [`/burgess:kg-diverge`](#burgesskg-diverge) | Diverge from a creative brief into a non-cliché idea slate | No — stands alone |
 | [`/burgess:kg-build`](#burgesskg-build) | Extract a span-anchored graph from your source document(s) | No — it creates one |
 | [`/burgess:kg-ground`](#burgesskg-ground) | Verdict the graph against the source — the **only** verdict path | Yes |
-| [`/burgess:kg-sources`](#burgesskg-sources) | Give every source an epistemic level, register outside texts, set the level a project requires | No — but it serves grounding |
+| [`/burgess:kg-sources`](#burgesskg-sources) | Give every source an epistemic level, register outside texts, find candidate sources for the ideas waiting for one, set the level a project requires | No — but it serves grounding |
 | [`/burgess:kg-generate`](#burgesskg-generate) | Propose new hypotheses from the graph's own structure | Yes |
 | [`/burgess:kg-perturb`](#burgesskg-perturb) | Build a second construction and cross-generate against it | Yes |
 | [`/burgess:kg-query`](#burgesskg-query) | Answer a question with provenance and falsification attached | Yes |
@@ -535,15 +535,22 @@ question (`Merge A and B? [y/N]`). The default is **N** — the pass proceeds wi
 ## `/burgess:kg-sources`
 
 ```
-/burgess:kg-sources [add <url-or-path> | list | set <name> key=value ... | policy [key=value ...]]
+/burgess:kg-sources [add <url-or-path> | find [focus] [n] | list | set <name> key=value ... | policy [key=value ...]]
 ```
 
 **What it does.** Brings **outside evidence** into grounding (0.21.0). Every verdict is otherwise judged against
 your configured sources, your own notes, so `grounded` means "my notes say it". `add` registers a web page or a
 local file as an external source: the engine copies it into the project's `evidence/` folder with an
 **epistemic level** you confirm. From then on a grounder can support an unverified item, and the adversarial
-grounder can refute a claim, with a verbatim passage from that copy. The ideas that were waiting for new sources
-come back to the next `/burgess:kg-ground` on their own, when the copy's level is one the project accepts.
+grounder can refute a claim, with a verbatim passage from that copy. The ideas waiting for new sources come back
+to the next `/burgess:kg-ground` on their own when the copy's level is one the project accepts and the copy was
+found for them or shares their words (0.24.0).
+
+`find` (0.24.0) suggests the sources: for the ideas a grounder found no support for, scout subagents search the
+scholarly catalogue OpenAlex and the web, the engine reads each candidate page itself, and you get up to three
+candidates per idea, each with a proposed level, whether its passage supports or contradicts the idea, and the
+passage verbatim. You pick the ones to register, and each goes through `add` as usual. Only the search words leave
+your machine; OpenAlex without a key allows about 100 searches a day per network.
 
 **The level measures the filter a text passed before it was published, never whether a claim is true.** The
 grounder still judges only whether a passage says what a claim says; the level only bounds what may be used.
@@ -582,8 +589,9 @@ Each source also has a **role** (`primary`: the origin of the fact; `secondary`:
 
 | Argument | Required | Accepted values | Default |
 | --- | --- | --- | --- |
-| action | No | `add` · `list` · `set` | `list` |
+| action | No | `add` · `find` · `list` · `set` · `policy` | `list` |
 | `add` target | With `add` | one `http(s)://` URL, or one path to a `.md`, `.txt` or `.html` file | — |
+| `find` focus and number | No | words naming the ideas to look for, then how many this run (1–20) | every waiting idea, 6 per run |
 | `set` fields | With `set` | a source's name (`ext-….md`) or one of your notes' file names, then `level=`, `role=`, `marks=`, `note=`, and for a registered source `published=`, `derives_from=`, `title=`, `build=` | — |
 | `policy` fields | No | `required=` (1–4), `notes=` (1–5), `build_from_notes=` (yes/no), `notes_path=` (a path inside the project, `none` or `default`); nothing shows the policy | — |
 
@@ -601,6 +609,14 @@ Register a PDF you converted to Markdown (PDF itself is refused, because a lossy
 
 ```text
 /burgess:kg-sources add C:/Users/me/Downloads/survey.md
+```
+
+Look for sources for six of the ideas waiting for one, or only for those about a topic. Claude shows the
+candidates and asks which numbers to register:
+
+```text
+/burgess:kg-sources find
+/burgess:kg-sources find compresión 3
 ```
 
 See every source, and what your grounded claims rest on (your notes, external sources by level, or citations

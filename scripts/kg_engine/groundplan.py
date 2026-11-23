@@ -295,9 +295,10 @@ def unsupported_record(kind: str, item_id: str, at: str, source_sig: str, item_s
 
 
 def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
-    """(kind, item id) -> its latest record's `{"at", "source_sig", "item_sig"}`, from the ledger's lines. A
-    line that is not such a record (a torn last line, a hand edit, another shape) is skipped, never an
-    error."""
+    """(kind, item id) -> its latest record's `{"at", "source_sig", "item_sig"}` (with its `evidence`, `usable`
+    and, since 0.24.0, its `note`: what the grounder looked for, which `/burgess:kg-sources find` shows), from
+    the ledger's lines. A line that is not such a record (a torn last line, a hand edit, another shape) is
+    skipped, never an error."""
     out: "dict[tuple[str, str], dict[str, str]]" = {}
     for line in lines:
         try:
@@ -318,13 +319,15 @@ def unsupported_records(lines) -> "dict[tuple[str, str], dict[str, str]]":
             usable = rec.get("usable")
             if isinstance(usable, list) and all(isinstance(h, str) for h in usable):
                 entry["usable"] = list(usable)
+            if isinstance(rec.get("note"), str):
+                entry["note"] = rec["note"]
             out[(kind, item)] = entry
     return out
 
 
 def waits_for_sources(record: "dict | None", source_sig: str, item_sig: str, *,
                       usable: "list[str] | None" = None, configured_sig: "str | None" = None,
-                      configured: "list[str] | None" = None) -> bool:
+                      configured: "list[str] | None" = None, wakes=None) -> bool:
     """True when an item was judged unsupported against this very item, with the evidence a grounder gets now
     (`UNSUPPORTED_EVIDENCE`), and no usable source has appeared since, so judging it again would only repeat
     the verdict-less outcome.
@@ -339,14 +342,22 @@ def waits_for_sources(record: "dict | None", source_sig: str, item_sig: str, *,
     A record made before 0.22.1 carries no `usable` list. When its `source_sig` is the signature of the
     configured sources as they are now (`configured_sig`), it was judged against exactly these notes, all usable
     under the default policy of the time, so `configured` (their hashes) stands for its list. Otherwise the
-    signatures must match, as through 0.22.0."""
+    signatures must match, as through 0.22.0.
+
+    `wakes` (0.24.0) narrows the set test: called with the hashes of the usable files the item was not judged
+    against, it says whether one of them was found for the item or bears on it, and the item waits when none
+    does. Through 0.23.1 any new usable file woke every waiting item: in the field, one registered source sent
+    all 119 waiting pins back to a grounder. Without `wakes` the set test stands alone, as before."""
     if not record or record.get("evidence", 1) < UNSUPPORTED_EVIDENCE or record["item_sig"] != item_sig:
         return False
     recorded = record.get("usable")
     if recorded is None and configured_sig and record["source_sig"] == configured_sig:
         recorded = configured
     if recorded is not None and usable is not None:
-        return set(usable) <= set(recorded)
+        new = set(usable) - set(recorded)
+        if not new:
+            return True
+        return wakes is not None and not wakes(new)
     return record["source_sig"] == source_sig
 
 

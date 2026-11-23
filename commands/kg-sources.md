@@ -1,10 +1,10 @@
 ---
-description: Register external sources (a URL or a local file) with an epistemic level, so grounders can support or refute graph items with verbatim spans from them; give your notes a level too; set the level a project requires to verify, or build a graph from registered sources alone; list what the grounded claims rest on.
-argument-hint: "[add <url-or-path> | list | set <name> key=value ... | policy [key=value ...]]"
-allowed-tools: mcp__plugin_burgess_burgess__kg_source_add, mcp__plugin_burgess_burgess__kg_source_list, mcp__plugin_burgess_burgess__kg_source_set, mcp__plugin_burgess_burgess__kg_source_policy
+description: Register external sources (a URL or a local file) with an epistemic level, so grounders can support or refute graph items with verbatim spans from them; find candidate sources for the items waiting for one; give your notes a level too; set the level a project requires to verify, or build a graph from registered sources alone; list what the grounded claims rest on.
+argument-hint: "[add <url-or-path> | find [focus] [n] | list | set <name> key=value ... | policy [key=value ...]]"
+allowed-tools: Task, mcp__plugin_burgess_burgess__kg_source_add, mcp__plugin_burgess_burgess__kg_source_find, mcp__plugin_burgess_burgess__kg_source_list, mcp__plugin_burgess_burgess__kg_source_set, mcp__plugin_burgess_burgess__kg_source_policy
 ---
 
-# /burgess:kg-sources — sources with an epistemic level (0.21.0, 0.22.0)
+# /burgess:kg-sources — sources with an epistemic level (0.21.0, 0.22.0, 0.24.0)
 
 Every verdict so far was judged against the configured sources: the user's own notes. So `grounded` means
 "my notes say it". This command brings in **outside evidence**: a page or a file the engine copies into the
@@ -41,16 +41,19 @@ grounder still judges only whether a passage says what a claim says. The level d
 A registered source is **evidence, not content**: `/burgess:kg-build` does not extract it, unless the user
 registers it with `build` (0.22.0), which is how a graph is built from level-1 sources alone (see `policy`).
 
-**This command needs no shell, no file access and no web tool.** Do not run Bash, do not `Read` files, and
-**never use WebFetch or WebSearch for this**: WebFetch returns a small model's answer about a page, not the page,
-so a "verbatim" span from it would be verbatim of a paraphrase. The engine fetches and copies the page itself
-(`kg_source_add`). This version does not search for sources: the user names them.
+**This command needs no shell, no file access and no web tool of its own.** Do not run Bash, do not `Read`
+files, and **never use WebFetch or WebSearch yourself**: WebFetch returns a small model's answer about a page, not
+the page, so a "verbatim" span from it would be verbatim of a paraphrase. The engine fetches and copies the page
+itself (`kg_source_add`). The user names a source (`add`), or `find` (0.24.0) suggests candidates: its
+`kg-scout` subagents search and read pages through the engine, and the user picks what to register.
 
 **Arguments, as typed:** `$ARGUMENTS`
 
 Split it at the first space. The first word is the action, and the rest of the line is its argument:
 - `add` — the rest of the line is ONE URL or ONE path, taken whole (a path may contain spaces; drop surrounding
   quotes if the user typed them).
+- `find` — the rest of the line is optional: focus words (only the waiting items whose node, or whose edge's
+  ends, they name) and, as its last word, a number (how many items to look for this run, 1-20; default 6).
 - `list`, or nothing at all — list the registered sources.
 - `set` — the next word is a registered source's name (`ext-….md`) or one of the user's notes (its file
   name), then `key=value` pairs: `level`, `role`, `marks` (comma-separated, or empty to clear them), `note`, and
@@ -82,14 +85,53 @@ Split it at the first space. The first word is the action, and the rest of the l
 4. On the user's answer, call `kg_source_add` again with the same `url`/`path` and the confirmed `level`,
    `role`, `marks`, plus `published` when the user gave a date (otherwise the engine keeps the date the page
    declares) and a `note` saying why this level. Pass `build=true` only when the user asked to build the graph
-   from this source (when the project builds from registered sources, `build_from_notes` false, ask).
+   from this source (when the project builds from registered sources, `build_from_notes` false, ask). Under
+   `find`, pass `for_items=<the item ids it was found for>`.
    - `already-registered`: the same text is already a source (`name`). Report it and stop.
    - `same_url_as` in the result: the URL had been registered before with other text. Tell the user, and ask
      whether the old copy should be marked `superseded` (`set <old name> marks=superseded`).
 5. Report in a few lines: the registered `name`, its level, role and marks, and what happens next. When the
-   result's `source.usable` is true, the pins waiting for new sources come back to the next
-   `/burgess:kg-ground`, which judges them against this source too; when it is false, they keep waiting and the
-   source changes nothing until the policy accepts its level. Nothing was added to the graph.
+   result's `source.usable` is true, the waiting items it was found for (`found_for`) and those whose words it
+   contains come back to the next `/burgess:kg-ground`, which judges them against it (0.24.0: through 0.23.1
+   every waiting item came back); the other waiting items keep waiting. When it is false, they all keep waiting
+   and the source changes nothing until the policy accepts its level. Nothing was added to the graph.
+
+## find
+
+Suggests outside sources for the items waiting for one (0.24.0): the claims a `/burgess:kg-ground` grounder judged
+and left unverified because no usable source supports them. It proposes; the user picks; each pick goes through
+`add` like any source. Nothing is registered or judged here.
+
+1. Call `mcp__plugin_burgess_burgess__kg_source_find` with `focus` (the focus words) and `limit` (the number, or
+   nothing for the default). Report in a line `waiting_total`, `never_searched`, how many items this run looks
+   for, and `openalex_searches_today`. With no `items`, say the result's `note` and stop.
+2. Launch `burgess:kg-scout` subagents with the Task tool, **in one message** so they run in parallel, three items
+   per scout. Give each scout its items as JSON exactly as `kg_source_find` returned them, and `required_level`.
+   Tell it nothing else about the project: not its folder, not its name. Wait for every scout.
+3. Show the candidates, numbered across the whole run, item by item:
+   - the item: its id and the first line of its `text`;
+   - each candidate: its number, title, venue and year, the proposed level and role with the reason, the stance
+     (supports, refutes, related), the verbatim passage (shortened only with "…"), the address, and "the engine
+     cannot read this page: save it from your browser" when `readable` is false;
+   - the queries the scout ran, for and against, and its note when it found nothing.
+   Then the totals: items searched, candidates, searches. Say once that a level is a proposal from the catalogue's
+   facts and the page's metadata, and a stance is the scout's reading of one passage, never a verdict:
+   `/burgess:kg-ground` judges after a source is registered.
+4. **Stop and ask which numbers to register**, with the exact reply to type, for example «Registra 1 y 4».
+   Several at once is fine. Register nothing before the user answers.
+5. For the numbers the user picks, run `add` with each candidate's address: the previews, then the proposals
+   together (start from the scout's level, role and reason, corrected by what each preview shows), then one
+   confirmation for all of them, with the exact reply to type («Confirmo todas», or the corrections). Then call
+   `kg_source_add` for each with `for_items=<its item id>`. For a candidate the engine cannot read, give the
+   command to run once the user has saved the page: `/burgess:kg-sources add <path of the saved .html>`. The
+   engine matches it to its item by DOI or title.
+6. When something was registered, say which items wake for the next `/burgess:kg-ground` (each result's
+   `found_for`, and any waiting item whose words the source contains) and that the other waiting items keep
+   waiting.
+
+What leaves the machine is the scouts' queries: topic words, sent to OpenAlex through the engine and to the web
+search, never the user's name, paths or project. Without a key OpenAlex lets one network run about 100 searches a
+day; a scout that meets `search-budget` keeps to the web for the rest of the run.
 
 ## list
 
@@ -137,13 +179,13 @@ uses:
   The notes are what a build extracts and what claims are verified against, so a change takes effect at once:
   the next `/burgess:kg-build` reads the new notes, and verdicts already given keep their state.
 A looser policy brings back the items waiting for new sources only when it makes usable a source they were not
-judged against; a stricter one leaves them waiting. Never tell the user that a policy change brings them back
-otherwise.
+judged against and that bears on them (their words, or a `find` for them); a stricter one leaves them waiting.
+Never tell the user that a policy change brings them back otherwise.
 
 ## Rules
 
 - Never invent a source, a title, a date or a level the preview does not support. Never register a source the
-  user did not name.
+  user did not name or pick from `find`.
 - Never paraphrase a source into the evidence directory, and never write files: only `kg_source_add` writes a
   copy.
 - The level is a property of the source, not of a claim, and never a verdict. Never say a claim "is true"

@@ -48,10 +48,11 @@ def test_both_grounders_start_without_instructions_or_memory():
 
 
 def test_only_the_measurement_agents_the_grounders_and_the_extractor_carry_the_key():
-    # the extractor took the key in 0.14.2 (tests/test_fix_extractor_without_memory.py); the generator keeps
-    # the project's instructions
+    # the extractor took the key in 0.14.2 (tests/test_fix_extractor_without_memory.py), and the scout in 0.24.0
+    # (its queries leave the machine: tests/test_feat_source_find.py); the generator keeps the project's
+    # instructions
     carriers = {name for name, (head, _) in _agents().items() if head.get("omitClaudeMd") is True}
-    assert carriers == MEASUREMENT | GROUNDERS | {"kg-extractor"}
+    assert carriers == MEASUREMENT | GROUNDERS | {"kg-extractor", "kg-scout"}
     assert "kg-generator" in set(_agents()) - carriers
 
 

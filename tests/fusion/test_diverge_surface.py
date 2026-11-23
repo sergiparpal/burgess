@@ -133,9 +133,10 @@ def test_mcp_surface_is_forty_tools(engine):
     assert {"kg_build_plan", "kg_section", "kg_ground_plan", "kg_ground_item",
             "kg_record_attack", "kg_record_edgeless_section", "kg_record_generation",
             "kg_record_unsupported", "kg_source_add", "kg_source_list", "kg_source_set",
-            "kg_source_policy"} <= set(mcp.tools), \
+            "kg_source_policy", "kg_source_find", "kg_source_search", "kg_source_probe",
+            "kg_source_record_search"} <= set(mcp.tools), \
         sorted(mcp.tools)
-    assert len(mcp.tools) == 40, sorted(mcp.tools)
+    assert len(mcp.tools) == 44, sorted(mcp.tools)
 
 
 def test_resolve_axes_source_paths(tmp_path, monkeypatch):

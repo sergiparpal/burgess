@@ -16,11 +16,11 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (40 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (44 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
-2. **Language layer** — 10 slash commands (`commands/kg-*.md`), 7 subagents (`agents/`), the
+2. **Language layer** — 10 slash commands (`commands/kg-*.md`), 8 subagents (`agents/`), the
    operating-guide skill (`skills/burgess/SKILL.md` + on-demand `references/`). All LLM work
    happens here; agents hand structured JSON back across the MCP boundary. The engine stays
    rule-bound: it validates, projects, measures and orders — it never invents content and never
@@ -245,6 +245,23 @@ flagged only where a paragraph of the changed text shares two of the words of wh
 (`Projector._bearing_files`, `groundplan.rank_units`: the rule its grounder's context is ranked by), so a flag
 stands only where its grounder will be shown such a passage.
 
+**Finding sources (0.24.0).** `/burgess:kg-sources find` suggests outside sources for the items waiting for one,
+the claims a grounder recorded as unsupported (`kg_record_unsupported`). `kg_source_find` lists them with what
+they claim, their words, what their grounder looked for, and the searches already logged. `kg-scout` subagents
+(language layer) write the queries, for and against, and search two places: OpenAlex, the scholarly catalogue,
+through the engine (`kg_source_search`, `evidence.openalex_search`: one GET with the query, no key, no contact
+address, a query the §1.9 scrub would change refused before anything leaves), and the web (WebSearch). The
+engine reads each candidate page itself (`kg_source_probe`: fetch, bot check, the paragraphs that share the most
+of the search words, verbatim), so a scout never quotes a WebFetch paraphrase. Every search, read and proposal
+goes to the search ledger beside the canon (`.kg-source-searches.jsonl`; the scouts log their web searches with
+`kg_source_record_search`). The user picks; each pick goes through `kg_source_add`, which records the items the
+page was found for (`found_for`, from `for_items` and from the ledger by URL, DOI or title). A level stays a
+proposal (`evidence.level_hint` from the catalogue's venue and type) and a stance the scout's reading of one
+passage: verdicts come only from `/burgess:kg-ground`. The same release narrows the wake rule: a usable file a
+waiting item was not judged against wakes it only when the file was found for it or bears on it
+(`KGEngine._new_source_wakes`, the paragraph rule above), where through 0.23.1 any such file woke every waiting
+item.
+
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged
 verdict**, and its fields are cleared and re-quarantined. The state it is reset *to* is the
@@ -410,7 +427,7 @@ live compression node was already proposed over (at least half of the other memb
 already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
 2026-11-15 all four compression candidates were of these kinds.
 
-## 5. The MCP tool surface (40 tools)
+## 5. The MCP tool surface (44 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -478,6 +495,10 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   unchecked citations), `kg_source_set` (change a source's or a note's record, or `build`; a copy is never
   rewritten), `kg_source_policy` (the required level, the notes' default level, whether the notes are built).
   They write only the evidence directory and set no state (§3.4).
+- **Finding sources (4, 0.24.0):** `kg_source_find` (the items waiting for a source, read-only),
+  `kg_source_search` (OpenAlex searched through the engine, logged), `kg_source_probe` (a candidate page read by
+  the engine, verbatim passages, logged), `kg_source_record_search` (a scout's web searches and proposals). They
+  write only the source-search ledger and set no state.
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
 - **Divergence surface (8):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
@@ -646,7 +667,7 @@ divergence templates ship as pack fragments under `pack/domains/`.
 - **Commands** (9): `/burgess:kg-build` (wave-parallel extraction), `/burgess:kg-ground` (the grounding loop),
   `/burgess:kg-generate`, `/burgess:kg-perturb`, `/burgess:kg-query`, `/burgess:kg-eval`, `/burgess:kg-experiment`, `/burgess:kg-view`,
   `/burgess:kg-diverge`. Each reads its arguments from `$ARGUMENTS` (see *Environment contract*).
-- **Subagents** (7): `kg-extractor` (one per planned section, whose text it fetches with
+- **Subagents** (8): `kg-extractor` (one per planned section, whose text it fetches with
   `kg_section`; emits `kg_write` payloads, and records a section it wrote no edge from with
   `kg_record_edgeless_section`),
   `kg-grounder` (verdicts on the merits), `kg-adversarial-grounder` (tries to falsify survivors;
@@ -654,7 +675,9 @@ divergence templates ship as pack fragments under `pack/domains/`.
   `kg-generator` (phrases structural candidates — language only, never structure),
   `kg-annotator` (label passes for precision/agreement),
   `kg-evaluator` (the blind multi-arm ideation experiment), `kg-judge` (one blind verdict per
-  prompt for `/burgess:kg-experiment --judge`).
+  prompt for `/burgess:kg-experiment --judge`), `kg-scout` (0.24.0, `/burgess:kg-sources find`: searches
+  OpenAlex through the engine and the web, reads candidates through the engine, proposes, never registers or
+  judges).
   - The three measurement subagents (`kg-annotator`, `kg-evaluator` and `kg-judge`) declare
     `omitClaudeMd: true` (0.13.2). Claude Code starts them without the user, project and local
     CLAUDE.md files and without its auto-memory index, which it hands a subagent by default. A session
@@ -666,6 +689,8 @@ divergence templates ship as pack fragments under `pack/domains/`.
     and skipped by later builds, so a note that talks an extractor out of a relation keeps that relation
     out of the graph for good, where no grounder can catch it. The generator still gets the project's
     instructions: what it writes is a hypothesis the grounders filter.
+  - So does `kg-scout` (0.24.0): its queries leave the machine, and the user's instructions and memory hold
+    names, paths and project names a query must never carry.
 - **Skill**: `skills/burgess/SKILL.md` is the operating guide; `references/` holds the
   load-on-demand contracts (write contract, tool shapes, pack schema, divergence operators, judge
   rubric, axis inference).
@@ -804,6 +829,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-hub-attacks.jsonl         attacks that wrote no counter-edge (gitignored engine state, 0.10.0)
   .kg-edgeless-sections.jsonl   build sections an extraction wrote no edge from (gitignored engine state, 0.14.0)
   .kg-unsupported-pins.jsonl    [diverge] pins judged unsupported (gitignored engine state, 0.20.1)
+  .kg-source-searches.jsonl     /burgess:kg-sources find searches, reads, proposals (gitignored engine state, 0.24.0)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
   .kg/constructions/<slug>/     /burgess:kg-perturb second construction (alt canon/ + derived/; ephemeral)
 <data dir>/                     $KG_DATA (or <project>/.kg-data, already one per project)
