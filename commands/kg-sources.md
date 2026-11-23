@@ -52,8 +52,9 @@ itself (`kg_source_add`). The user names a source (`add`), or `find` (0.24.0) su
 Split it at the first space. The first word is the action, and the rest of the line is its argument:
 - `add` — the rest of the line is ONE URL or ONE path, taken whole (a path may contain spaces; drop surrounding
   quotes if the user typed them).
-- `find` — the rest of the line is optional: focus words (only the waiting items whose node, or whose edge's
-  ends, they name) and, as its last word, a number (how many items to look for this run, 1-20; default 6).
+- `find` — the rest of the line is optional: focus words (only the waiting items whose text or id holds every one
+  of these words: what the idea says, not only its title, accents ignored) and, as its last word, a number (how
+  many items to look for this run, 1-20; default 6).
 - `list`, or nothing at all — list the registered sources.
 - `set` — the next word is a registered source's name (`ext-….md`) or one of the user's notes (its file
   name), then `key=value` pairs: `level`, `role`, `marks` (comma-separated, or empty to clear them), `note`, and

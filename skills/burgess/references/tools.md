@@ -1488,7 +1488,11 @@ graph cannot; 0.21.0–0.23.1 built the registry, the levels and the policy, and
             "searched": [], "proposed": []}]}
 ```
 
-- `focus` keeps the items whose node, or whose edge's ends, it names (the word rules of §1.21). `limit` is 1–20.
+- `focus` keeps the items where every word of it occurs in what the item claims (`text`) or in its id (an edge's:
+  its two ends'), singular or plural, accents ignored (the word rules of §1.21). Through 0.24.0 it read only the
+  id and the label, and a pin's label is cut at 80 characters: in the field `find compresión 3` found nothing,
+  because the one pin about compression had the label "…vigilar la ratio de compresió...". The grounding focus
+  (§1.21) still names nodes by id and label. `limit` is 1–20.
 - The order: the items never searched first, then the ones searched longest ago (the search ledger, §1.32).
 - `text` is what the item claims (a node's label and body without its lineage lines and verdict paragraphs; an
   edge's ends, relation and span), `terms` its content words, `looked_for` its grounder's note, `searched` the
