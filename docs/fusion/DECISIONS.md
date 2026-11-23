@@ -2915,3 +2915,29 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   scouts skipped it when they had more items. The ledger knows what was searched, so the answer to the record is a
   check the scout cannot overlook. The window keeps a search run earlier the same day valid.
 - **Pinned in:** `tests/test_fix_scout_runs_every_search.py`.
+
+## A rate limit is not a spent budget (2026-11-23)
+
+- **Decision:** every catalogue request goes through `evidence._openalex_get`.
+  - It sends one request at a time (a module lock), at least `OPENALEX_SPACING_S` (1.1 s) after the last one.
+  - After an HTTP 429 it waits `Retry-After` (or 2 s, at most 10 s) and retries once.
+  - It raises `search-budget` only on HTTP 402, or on a 429 whose `X-RateLimit-Remaining-USD` is 0.
+  - A 429 again after the pause is `search-rate-limited`, with the budget left in its detail.
+  - `openalex_search` returns the works and `openalex_budget(headers)` (`remaining_usd`, `limit_usd`, `reset_s`).
+    `kg_source_search` reports it as `budget`, its ledger record keeps `budget_left_usd`, and `kg_source_find`
+    reports the last of the day as `openalex_budget_left_usd`.
+  - `_missing_searches` owes a failed catalogue stance to the web with the same stance. Through 0.24.2 a failed
+    search counted as tried.
+  - The scout's prompt and the command say the daily budget ran out only on `search-budget`.
+- **What it answers:**
+  - The field run of 2026-11-23 15:01 CET (`find 3`, `prueba-burgess`, on 0.24.2). Three of six catalogue
+    searches drew HTTP 429 while others succeeded around them. 0.24.2 mapped 402, 403 and 429 to `search-budget`.
+    The scout dropped the catalogue, and the report told the user the daily limit had run out.
+  - A diagnostic request from the same network at 15:05 read `X-RateLimit-Remaining-USD: 0.084` of `0.1` (10
+    credits a search, 1000 a day, 840 left).
+  - The user approved the fix («Sí, prepárala»).
+- **Why serialize in the engine:** the scouts call the tool in parallel, and one engine serves the whole session.
+  A lock in the engine is the only place that sees every catalogue request.
+- **Why owe a failed stance to the web:** the purpose of the three searches is that each item has a search for and
+  against that actually ran. A failed catalogue search did not run.
+- **Pinned in:** `tests/test_fix_openalex_rate_limit.py`.

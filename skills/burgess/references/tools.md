@@ -1488,6 +1488,8 @@ graph cannot; 0.21.0–0.23.1 built the registry, the levels and the policy, and
             "searched": [], "proposed": []}]}
 ```
 
+- `openalex_budget_left_usd` (0.24.3) — what OpenAlex said was left of the network's free daily budget at the
+  last catalogue search today, or `null`.
 - `focus` keeps the items where every word of it occurs in what the item claims (`text`) or in its id (an edge's:
   its two ends'), singular or plural, accents ignored (the word rules of §1.21). Through 0.24.0 it read only the
   id and the label, and a pin's label is cut at 80 characters: in the field `find compresión 3` found nothing,
@@ -1525,8 +1527,18 @@ engine never does.) Without a key every request from one network shares a free d
 - Every search is logged in `<project>/.kg-source-searches.jsonl` (engine state, git-excluded, read fail-open)
   with its item, stance, count and the results' titles, DOIs and URLs.
 - `query-refused`: an empty or overlong query (over 200 characters), or one holding what the §1.9 scrub would
-  redact (a secret, a personal detail, a ⟦CAT:N⟧ placeholder): nothing is sent. `search-budget`: OpenAlex refused
-  for want of budget (HTTP 402, 403 or 429). `search-failed`: anything else. `item-not-found` for an unknown item.
+  redact (a secret, a personal detail, a ⟦CAT:N⟧ placeholder): nothing is sent. `item-not-found` for an unknown
+  item. `search-failed`: anything else.
+- **Pacing (0.24.3, `evidence._openalex_get`):** the engine runs one catalogue request at a time, at least 1.1 s
+  after the last one, and after an HTTP 429 waits (`Retry-After`, or 2 s, at most 10 s) and retries once.
+  - `budget` is what the answer's headers say of the network's free daily budget: `remaining_usd`, `limit_usd`,
+    `reset_s`. The search's ledger record keeps `budget_left_usd`, and §1.31 reports the last one of the day.
+  - `search-budget` only when OpenAlex says the budget is spent: HTTP 402, or a 429 whose
+    `X-RateLimit-Remaining-USD` is 0.
+  - `search-rate-limited`: a 429 again after the pause, with budget left.
+  - Through 0.24.2 every 429 was read as a spent budget. On the field run of 2026-11-23 three of a scout's six
+    catalogue searches drew one while the headers said 0.084 USD of 0.10 USD was left, the scout dropped the catalogue,
+    and the report said the daily limit had run out.
 
 ---
 
@@ -1574,8 +1586,9 @@ Log for an item what the engine did not see (0.24.0): the scout's web searches a
 
 - `missing` (0.24.2) — the required searches the log does not hold for this item in the last two hours, as
   `"<backend> <stance>"`: the catalogue for and against, and the web for (`KGEngine.REQUIRED_SEARCHES`). A logged
-  search counts whatever it found, and a failed catalogue search counts as tried. When OpenAlex refused for want
-  of budget in that window, the two catalogue searches are owed to the web instead (`web for`, `web against`).
+  search counts whatever it found. A catalogue search that failed is owed to the web with the same stance (0.24.3;
+  through 0.24.2 it counted as tried, so an item whose catalogue search against was refused got none). When
+  OpenAlex refused for want of budget in that window, both catalogue searches are owed to the web.
   The scout runs what is missing and records it before it reports the item. On the field run of 2026-11-23 two
   scouts with three items each ran no against search for any of the six, and the web search for two.
 - `item-not-found`, or a refusal naming the malformed search or candidate; nothing is written then.

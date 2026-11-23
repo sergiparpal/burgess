@@ -64,6 +64,7 @@ def eng(tmp_path, monkeypatch):
         return _Resp(body[0], body[1], req.full_url)
 
     monkeypatch.setattr(ev, "_urlopen", urlopen)
+    monkeypatch.setattr(ev, "_sleep", lambda s: None)          # 0.24.3 paces catalogue calls: no real waiting
     project = tmp_path / "proj"
     project.mkdir()
     subprocess.run(["git", "-C", str(project), "init", "-q"], check=True)
@@ -94,17 +95,19 @@ def test_a_record_names_the_searches_still_owed(eng):
     assert out["missing"] == [] and "hint" not in out
 
 
-def test_a_failed_catalogue_search_counts_as_tried(eng):
+def test_a_failed_catalogue_search_is_owed_to_the_web(eng):
+    # 0.24.3: through 0.24.2 a failed catalogue search counted as tried, so an item whose search against was
+    # refused got no search against at all; now the web owes that stance
     e, state = eng
     state["answer"] = urllib.error.URLError("offline")
     for stance in ("for", "against"):
         assert e.kg_source_search("stigmergy agents", item_id=PIN, stance=stance)["error"] == "search-failed"
-    assert _record(e, searches=[{"query": "stigmergy", "stance": "for", "results": 0}])["missing"] == []
+    assert _record(e, searches=[{"query": "stigmergy", "stance": "for", "results": 0}])["missing"] == ["web against"]
 
 
 def test_a_spent_budget_moves_the_catalogue_searches_to_the_web(eng):
     e, state = eng
-    state["answer"] = urllib.error.HTTPError("u", 429, "Too Many", {}, None)
+    state["answer"] = urllib.error.HTTPError("u", 429, "Too Many", {"X-RateLimit-Remaining-USD": "0"}, None)
     assert e.kg_source_search("stigmergy agents", item_id=PIN)["error"] == "search-budget"
     out = _record(e, searches=[{"query": "stigmergy agents", "stance": "for", "results": 4}])
     assert out["missing"] == ["web against"]

@@ -3544,6 +3544,10 @@ class KGEngine:
                "openalex_searches_today": sum(1 for r in log if r.get("type") == "search"
                                               and r.get("backend") == "openalex"
                                               and str(r.get("at", "")).startswith(today)),
+               # what OpenAlex said was left of the network's free daily budget at the last search today (0.24.3)
+               "openalex_budget_left_usd": next((r["budget_left_usd"] for r in reversed(log)
+                                                 if r.get("type") == "search" and "budget_left_usd" in r
+                                                 and str(r.get("at", "")).startswith(today)), None),
                "query_max_chars": QUERY_MAX_CHARS}
         if not unsupported:
             out["note"] = ("nothing waits for a source: an item waits once a /burgess:kg-ground grounder judged it "
@@ -3559,7 +3563,10 @@ class KGEngine:
         it was run for (`item_id`, with its `stance`: for | against). Each result carries its title, DOI, landing
         page, open-access copy, date, type, venue and venue type, whether it was retracted, its citations, the
         abstract, and a level hint from the catalogue's facts that the user confirms or corrects. A query holding
-        a secret or a personal detail is refused before anything is sent."""
+        a secret or a personal detail is refused before anything is sent. Since 0.24.3 the engine paces its
+        catalogue requests and retries once on a rate limit (`evidence._openalex_get`); `budget` is what OpenAlex
+        says is left of the network's free daily budget, `search-budget` means it is spent, and
+        `search-rate-limited` that OpenAlex still asked to slow down after a pause, with budget left."""
         from . import evidence as ev
         problem = self._query_problem(query)
         if problem:
@@ -3576,21 +3583,29 @@ class KGEngine:
         except (TypeError, ValueError):
             n = ev.SEARCH_RESULTS
         try:
-            found = ev.openalex_search(query, n)
+            found, budget = ev.openalex_search(query, n)
         except ev.EvidenceError as e:
             self._log_source_search([{"type": "search", "backend": "openalex", "item": item.id if item else "",
                                       "kind": kind or "", "query": query, "stance": stance, "results": 0,
                                       "error": e.code}])
             out = {"ok": False, "error": e.code, "detail": e.detail, "query": query}
             if e.code == "search-budget":
-                out["hint"] = "search the web instead, or come back tomorrow"
+                out["hint"] = ("the network's free daily budget is spent: search the web for the rest of the run, "
+                               "or come back after it is renewed")
+            elif e.code == "search-rate-limited":
+                out["hint"] = ("OpenAlex asked to slow down even after a pause: the budget is not spent; search this "
+                               "stance on the web and go on with the next search")
             return out
-        logged = self._log_source_search([{
-            "type": "search", "backend": "openalex", "item": item.id if item else "", "kind": kind or "",
-            "query": query, "stance": stance, "results": len(found),
-            "found": [{"title": w["title"][:200], "doi": w["doi"], "url": w["url"]} for w in found]}])
+        record = {"type": "search", "backend": "openalex", "item": item.id if item else "", "kind": kind or "",
+                  "query": query, "stance": stance, "results": len(found),
+                  "found": [{"title": w["title"][:200], "doi": w["doi"], "url": w["url"]} for w in found]}
+        if "remaining_usd" in budget:
+            record["budget_left_usd"] = budget["remaining_usd"]
+        logged = self._log_source_search([record])
         out = {"ok": True, "backend": "openalex", "query": query, "stance": stance, "results": found,
                "count": len(found)}
+        if budget:
+            out["budget"] = budget
         if logged:
             out["log_problem"] = logged
         return self._scrub_egress(out, self._FIND_EGRESS_KEYS)
@@ -3718,18 +3733,26 @@ class KGEngine:
 
     def _missing_searches(self, item_id: str) -> "list[str]":
         """The required searches (`REQUIRED_SEARCHES`) the ledger holds for no item `item_id` in the last
-        `FIND_RUN_WINDOW_S` seconds, as `"<backend> <stance>"`. A logged search counts whatever it found, and a
-        catalogue search that failed counts as tried. When OpenAlex refused for want of budget in that window, the
-        catalogue is out for the run, and its two searches are owed to the web instead (`web for`, `web against`)."""
+        `FIND_RUN_WINDOW_S` seconds, as `"<backend> <stance>"`. A logged search counts whatever it found. A catalogue
+        search that failed (0.24.3) is owed to the web with the same stance, so an item whose catalogue search
+        against was refused still gets a search against; through 0.24.2 the failed search counted as tried. When
+        OpenAlex refused for want of budget in that window, both catalogue searches are owed to the web."""
         from datetime import datetime, timedelta, timezone
         since = (datetime.now(timezone.utc) - timedelta(seconds=self.FIND_RUN_WINDOW_S)).isoformat(timespec="seconds")
         recent = [r for r in self._source_searches()
                   if r.get("type") == "search" and str(r.get("at", "")) >= since]
-        done = {(r.get("backend"), r.get("stance")) for r in recent if r.get("item") == item_id}
-        required = list(self.REQUIRED_SEARCHES)
-        if any(r.get("backend") == "openalex" and r.get("error") == "search-budget" for r in recent):
-            required = [("web", "for"), ("web", "against")]
-        return [f"{b} {st}" for b, st in required if (b, st) not in done]
+        mine = [r for r in recent if r.get("item") == item_id]
+        done = {(r.get("backend"), r.get("stance")) for r in mine if not r.get("error")}
+        failed = {(r.get("backend"), r.get("stance")) for r in mine if r.get("error")}
+        spent = any(r.get("backend") == "openalex" and r.get("error") == "search-budget" for r in recent)
+        out: "list[str]" = []
+        for backend, stance in self.REQUIRED_SEARCHES:
+            if backend == "openalex" and (backend, stance) not in done and (spent or (backend, stance) in failed):
+                backend = "web"   # the catalogue could not be searched for this stance: the web owes it
+            need = f"{backend} {stance}"
+            if (backend, stance) not in done and need not in out:
+                out.append(need)
+        return out
 
     def _found_for(self, url: str, final_url: str, doi: str, title: str, raw_sha: str) -> "list[str]":
         """The items the search ledger says a page was looked at or proposed for (0.24.0): a probe or a proposal
@@ -5831,8 +5854,11 @@ def _register(mcp, engine: KGEngine) -> None:
         no contact address; a query holding a secret or a personal detail is refused). Pass the `item_id` it is
         for and its `stance` (for | against): every search is logged. Each result has title, doi, url (landing
         page), oa_url (an open-access copy), published, type, venue, venue_type, retracted, cited_by, abstract
-        and a `level_hint` with its reason, from the catalogue's facts: propose it, the user confirms. Without a
-        key, OpenAlex shares a free budget of about 100 searches a day per network (`search-budget` when spent)."""
+        and a `level_hint` with its reason, from the catalogue's facts: propose it, the user confirms. `budget` is
+        what OpenAlex says is left of the free daily budget a network shares without a key (about 100 searches).
+        The engine runs one catalogue search at a time and retries once when OpenAlex asks it to slow down.
+        `search-budget`: the budget is spent, search the web for the rest of the run. `search-rate-limited`: it
+        still asked to slow down after a pause, with budget left: search that stance on the web and go on."""
         return engine.kg_source_search(query=query, item_id=item_id, stance=stance, results=results)
 
     @mcp.tool()

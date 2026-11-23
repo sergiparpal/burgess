@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.24.3 — 2026-11-23
+
+A fix for the latest run of `/burgess:kg-sources find` in the field.
+
+### Fixed
+
+- **A rate limit from the scholarly catalogue is no longer read as a spent budget.**
+  - In the run, three of the scout's six catalogue searches were refused with an HTTP 429. The engine took every
+    such refusal for a spent daily budget, so the scout stopped using the catalogue and the report told you the
+    daily limit had run out.
+  - A check minutes later showed 0.084 USD of the 0.10 USD still left, about 84 searches. The scout had simply sent
+    its searches too close together.
+  - Now the engine sends one catalogue search at a time, a second apart, and after such a refusal waits and tries
+    once more.
+  - It calls the budget spent only when the catalogue says so, and tells you how much is left.
+  - A search still refused after the pause is reported as a rate limit, with budget left.
+- **A catalogue search that fails is owed to the web.** When a search for or against an idea cannot run in the
+  catalogue, the scout now runs that same search on the web. Before, a failed search counted as done, so an idea
+  could end up with no search against at all.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+
 ## 0.24.2 — 2026-11-23
 
 Fixes for the six-idea run of `/burgess:kg-sources find` in the field.

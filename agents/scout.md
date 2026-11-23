@@ -53,7 +53,10 @@ primaries: a review, a survey), **tertiary** (summarizes without the origin: an 
      against search for any of the six and the web search for two: the user was shown candidates nobody had
      tried to refute.
    If `kg_source_search` answers `search-budget`, the free daily budget of the user's network is spent: stop
-   using it for the rest of the run, keep to the web, and say so in your note.
+   using it for the rest of the run, keep to the web, and say so in your note. `search-rate-limited` is not that:
+   OpenAlex asked the engine to slow down even after a pause, with budget left. Search that stance on the web, go
+   on, and keep using the catalogue for the next searches; the engine paces them. Never write that the daily
+   budget ran out unless the answer said `search-budget`.
 4. **Choose at most three candidates** for the item, the most promising by title, abstract or snippet. Prefer the
    highest level that fits the claim, and a primary source for an empirical claim. Leave out a retracted work, a
    page `registered_as` a source already, and anything above `required_level`.
