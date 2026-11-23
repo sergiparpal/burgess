@@ -254,7 +254,9 @@ def test_the_scout_logs_its_web_searches(eng):
     out = eng.kg_source_record_search(PIN, searches=[{"query": "stigmergy agents", "stance": "for", "results": 0}],
                                       proposed=[{"url": "https://example.org/stig", "title": "Stigmergy",
                                                  "level": 1, "stance": "supports"}], note="one candidate")
-    assert out == {"ok": True, "item": PIN, "searches": 1, "proposed": 1}
+    assert {k: out[k] for k in ("ok", "item", "searches", "proposed")} == \
+        {"ok": True, "item": PIN, "searches": 1, "proposed": 1}
+    assert out["missing"] == ["openalex for", "openalex against"]          # 0.24.2: the catalogue was not searched
     kinds = [(r["type"], r.get("backend")) for r in _ledger(eng)]
     assert kinds == [("search", "web"), ("proposed", None)]
     assert not eng.kg_source_record_search("no-such-item")["ok"]

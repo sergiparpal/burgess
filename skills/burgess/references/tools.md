@@ -1567,9 +1567,17 @@ Log for an item what the engine did not see (0.24.0): the scout's web searches a
 - `note` — what the scout found, or why nothing.
 
 ```json
-{"ok": true, "item": "idea-atasco-fabrica-agentes-c1a", "searches": 2, "proposed": 1}
+{"ok": true, "item": "idea-atasco-fabrica-agentes-c1a", "searches": 1, "proposed": 1,
+ "missing": ["openalex against"],
+ "hint": "run the missing searches for this item, then record them (searches only: the proposals are logged already)"}
 ```
 
+- `missing` (0.24.2) — the required searches the log does not hold for this item in the last two hours, as
+  `"<backend> <stance>"`: the catalogue for and against, and the web for (`KGEngine.REQUIRED_SEARCHES`). A logged
+  search counts whatever it found, and a failed catalogue search counts as tried. When OpenAlex refused for want
+  of budget in that window, the two catalogue searches are owed to the web instead (`web for`, `web against`).
+  The scout runs what is missing and records it before it reports the item. On the field run of 2026-11-23 two
+  scouts with three items each ran no against search for any of the six, and the web search for two.
 - `item-not-found`, or a refusal naming the malformed search or candidate; nothing is written then.
 
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools

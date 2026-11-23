@@ -3656,7 +3656,9 @@ class KGEngine:
         """Log what a scout did for an item that the engine did not see (0.24.0): its web searches (`searches`:
         `[{query, stance, results}]`, `results` the number of hits it looked at, 0 for an empty search) and the
         candidates it proposes (`proposed`: `[{url, title, doi, level, stance}]`), with a `note`. Empty searches
-        are logged too: what was searched and found nothing is part of the record. Writes only the ledger."""
+        are logged too: what was searched and found nothing is part of the record. Since 0.24.2 the answer names
+        the required searches still `missing` for the item (`_missing_searches`), so a scout that skipped one
+        learns it before it reports. Writes only the ledger."""
         kind, item, _nodes = self._canon_item(item_id)
         if item is None:
             return {"ok": False, "error": "item-not-found", "item": item_id}
@@ -3701,7 +3703,33 @@ class KGEngine:
         problem = self._log_source_search(records)
         if problem:
             return {"ok": False, "error": problem, "item": item.id}
-        return {"ok": True, "item": item.id, "searches": len(searches), "proposed": len(keep)}
+        out = {"ok": True, "item": item.id, "searches": len(searches), "proposed": len(keep),
+               "missing": self._missing_searches(item.id)}
+        if out["missing"]:
+            out["hint"] = ("run the missing searches for this item, then record them (searches only: the proposals "
+                           "are logged already)")
+        return out
+
+    # The three searches a scout owes every item (0.24.2): the catalogue for and against, and the web for. On the
+    # field run of 2026-11-23 two scouts with three items each ran no `against` search for any of the six and the
+    # web search for two, where the scout given one item had run all three.
+    REQUIRED_SEARCHES = (("openalex", "for"), ("openalex", "against"), ("web", "for"))
+    FIND_RUN_WINDOW_S = 2 * 3600
+
+    def _missing_searches(self, item_id: str) -> "list[str]":
+        """The required searches (`REQUIRED_SEARCHES`) the ledger holds for no item `item_id` in the last
+        `FIND_RUN_WINDOW_S` seconds, as `"<backend> <stance>"`. A logged search counts whatever it found, and a
+        catalogue search that failed counts as tried. When OpenAlex refused for want of budget in that window, the
+        catalogue is out for the run, and its two searches are owed to the web instead (`web for`, `web against`)."""
+        from datetime import datetime, timedelta, timezone
+        since = (datetime.now(timezone.utc) - timedelta(seconds=self.FIND_RUN_WINDOW_S)).isoformat(timespec="seconds")
+        recent = [r for r in self._source_searches()
+                  if r.get("type") == "search" and str(r.get("at", "")) >= since]
+        done = {(r.get("backend"), r.get("stance")) for r in recent if r.get("item") == item_id}
+        required = list(self.REQUIRED_SEARCHES)
+        if any(r.get("backend") == "openalex" and r.get("error") == "search-budget" for r in recent):
+            required = [("web", "for"), ("web", "against")]
+        return [f"{b} {st}" for b, st in required if (b, st) not in done]
 
     def _found_for(self, url: str, final_url: str, doi: str, title: str, raw_sha: str) -> "list[str]":
         """The items the search ledger says a page was looked at or proposed for (0.24.0): a probe or a proposal
@@ -5825,7 +5853,9 @@ def _register(mcp, engine: KGEngine) -> None:
         """Log for an item what the engine did not see: your web searches (`searches`: [{query, stance: for |
         against, results: how many hits you looked at, 0 when none}]) and the candidates you propose
         (`proposed`: [{url, title, doi, level, stance}]), with a `note`. Log every web search, the empty ones
-        too. Writes only the search log."""
+        too. `missing` lists the required searches the log does not hold for this item yet (catalogue for,
+        catalogue against, web for): run them and record them before you report the item. Writes only the search
+        log."""
         return engine.kg_source_record_search(item_id, searches=searches, proposed=proposed, note=note)
 
     @mcp.tool()
