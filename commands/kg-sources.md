@@ -114,7 +114,9 @@ and left unverified because no usable source supports them. It proposes; the use
    - each candidate: its number, title, venue and year, the proposed level and role with the reason, the stance
      (supports, refutes, related), the verbatim passage (shortened only with "…"), the address, and "the engine
      cannot read this page: save it from your browser" when `readable` is false;
-   - the queries the scout ran, for and against, and its note when it found nothing.
+   - the queries the scout ran, for and against, and its note when it found nothing. Each item is owed three
+     searches: the catalogue for and against, and the web for (0.24.2). When a scout's queries lack one, say so
+     for that item: nothing was looked for that could refute it, or the web was not searched.
    Then the totals: items searched, candidates, searches. Say once that a level is a proposal from the catalogue's
    facts and the page's metadata, and a stance is the scout's reading of one passage, never a verdict:
    `/burgess:kg-ground` judges after a source is registered.

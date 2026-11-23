@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.24.2 — 2026-11-23
+
+Fixes for the six-idea run of `/burgess:kg-sources find` in the field.
+
+### Fixed
+
+- **Each scout runs all three searches for every idea: the scholarly catalogue for and against, and the web
+  for.**
+  - In the run, two scouts with three ideas each ran no search against any of the six ideas, and searched the
+    web for only two, so you were shown candidates nobody had tried to refute. The scout given one idea earlier
+    had run all three.
+  - Now, when a scout logs an idea, the engine answers which of the three searches are still missing, and the
+    scout runs them before it reports.
+  - When OpenAlex's free daily budget is spent, the web takes both of the catalogue's searches.
+- **A scout reads a work's own page.** In the first run a promising paper (DeLoop, on agents stuck in loops) was
+  seen only through a summary and left unread. Now the scout looks for the work's own page, its arXiv or DOI page,
+  and reads that.
+- When a scout still skips a search, the report says so for that idea.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+
 ## 0.24.1 — 2026-11-23
 
 A fix for the first run of `/burgess:kg-sources find` in the field.

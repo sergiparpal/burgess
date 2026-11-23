@@ -2891,3 +2891,27 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Why not the ground focus too:** it names nodes, and a grounding pass takes every edge touching a named node.
   A word in a node's body would widen it beyond what the user named.
 - **Pinned in:** `tests/test_fix_find_focus_reads_text.py`.
+
+## A scout owes every item three searches (2026-11-23)
+
+- **Decision:**
+  - `kg_source_record_search` answers `missing`: the required searches (`KGEngine.REQUIRED_SEARCHES`: OpenAlex
+    for, OpenAlex against, web for) the ledger does not hold for the item in the last two hours
+    (`FIND_RUN_WINDOW_S`).
+    - A logged search counts whatever it found, and a failed catalogue search counts as tried.
+    - A `search-budget` refusal in the window moves the two catalogue searches to the web.
+  - The scout runs what is missing and records it before it reports.
+  - The scout's prompt makes the three searches unconditional, per item, and tells it to read a work's own page
+    (arXiv or DOI) when it saw the work only through another page.
+  - The command reports an item whose scout still lacks a search.
+- **What it answers:**
+  - The field run of 2026-11-23 (`find`, six waiting ideas of `prueba-burgess`, on 0.24.1). Two scouts with three
+    items each ran 9 searches: no `against` search for any item, and a web search for two. The scout given one item
+    an hour earlier had run all three.
+  - The first run left DeLoop, a paper on agents stuck in loops, unread: the scout had seen it only through a
+    summary.
+  - The user approved the fix («Sí, prepárala»).
+- **Why the engine checks and not only the prompt:** the prompt already asked for the against search, and the
+  scouts skipped it when they had more items. The ledger knows what was searched, so the answer to the record is a
+  check the scout cannot overlook. The window keeps a search run earlier the same day valid.
+- **Pinned in:** `tests/test_fix_scout_runs_every_search.py`.
