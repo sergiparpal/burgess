@@ -123,7 +123,9 @@ def test_the_engine_paces_its_requests(net, monkeypatch):
     answers.append((OK, BUDGET))
     monkeypatch.setattr(ev, "_openalex_last", [ev.time.monotonic()])    # a request has just gone out
     ev.openalex_search("stigmergy")
-    assert slept and 0 < slept[0] <= ev.OPENALEX_SPACING_S
+    # a hair of float slack: on Windows `time.monotonic()` ticks coarsely, the two readings can be equal, and
+    # `last + 1.1 - now` then comes out as 1.1000000000000227 (the Windows CI leg of PR #148)
+    assert slept and 0 < slept[0] <= ev.OPENALEX_SPACING_S + 1e-6
 
 
 @pytest.fixture
