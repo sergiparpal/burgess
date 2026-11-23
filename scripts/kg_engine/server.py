@@ -47,7 +47,7 @@ from .model import (
     slug,
     utcnow,
 )
-from .projector import Projector
+from .projector import BEARING_WORDS, Projector
 from .reconciler import GROUND_AUDIT, Reconciler
 from .buildplan import (edgeless_records, parse_arguments, related_nodes, resolve_subset, section_digest,
                         vocabulary_digest)
@@ -3263,6 +3263,9 @@ class KGEngine:
         comma- or space-separated) names the waiting items it was found for; the items the search ledger shows it
         was read or proposed for are added on their own (by URL, DOI or title). They are recorded in `found_for`,
         and only they, with the items whose words the source contains, wake for the next /burgess:kg-ground.
+        `comes_back` (0.24.5) lists the waiting items the copy wakes, each with `why`: `found_for`, or `words`
+        (a paragraph shares three of its words, listed), or `no-words` (it has none to test, so any new usable
+        source wakes it); `still_waiting` counts the others.
         Writes only the evidence directory: no node, edge or verdict changes."""
         from . import evidence as ev
 
@@ -3345,6 +3348,12 @@ class KGEngine:
                           if url and (r.url == url or (copy.final_url and r.final_url == copy.final_url)))
         # A fetched page, or a local HTML file, keeps its raw bytes: the extraction can be redone from them.
         keep_raw = origin == "url" or copy.extractor != ev.VERBATIM
+        # What the copy brings back (0.24.5): the items waiting before it is written and not after. Fail-open:
+        # the registration never depends on its report.
+        try:
+            waiting_before = self._waiting_items()
+        except Exception:  # noqa: BLE001 — a ledger or canon hiccup costs the report, never the registration
+            waiting_before = None
         try:
             ev.store(edir, rec, copy.text, copy.raw if keep_raw else None, copy.raw_ext)
         except OSError as e:
@@ -3360,7 +3369,71 @@ class KGEngine:
         if found_for:
             # the waiting items it was found for (0.24.0): they wake for the next /burgess:kg-ground
             out["found_for"] = found_for
+        if waiting_before is not None:
+            try:
+                out.update(self._comes_back(rec, copy.text, waiting_before))
+            except Exception:  # noqa: BLE001 — the report is advisory; the source is registered
+                pass
         return out
+
+    COMES_BACK_MAX = 30
+
+    def _waiting_items(self) -> "set[tuple[str, str]]":
+        """`(kind, id)` of every item the plan leaves waiting for a source now: an unverified edge or unverified
+        hypothesized node whose unsupported record still holds (`groundplan.waits_for_sources`, with the wake
+        test of `_new_source_wakes`), as `kg_ground_plan` decides it with no focus. Read-only."""
+        from .groundplan import item_signature, waits_for_sources
+        unsupported = self._unsupported_pins()
+        if not unsupported:
+            return set()
+        nodes = self._canon_baseline()
+        current_sig = self._source_signature()
+        state = self._usable_state()
+        wake = self._wake_context(state, nodes)
+        out: "set[tuple[str, str]]" = set()
+        for n in nodes.values():
+            items = [("edge", e) for e in n.edges if e.epistemic_state == EpistemicState.UNVERIFIED]
+            if n.epistemic_state == EpistemicState.UNVERIFIED and n.provenance == Provenance.HYPOTHESIZED:
+                items.append(("node", n))
+            for kind, item in items:
+                rec = unsupported.get((kind, item.id))
+                if rec and waits_for_sources(rec, current_sig, item_signature(kind, item),
+                                             usable=state.get("usable"), configured_sig=state.get("configured_sig"),
+                                             configured=state.get("configured"),
+                                             wakes=lambda new, k=kind, it=item: self._new_source_wakes(k, it, new,
+                                                                                                       wake)):
+                    out.add((kind, item.id))
+        return out
+
+    def _comes_back(self, rec, text: str, before: "set[tuple[str, str]]") -> dict:
+        """What a copy just registered brings back to the next /burgess:kg-ground (0.24.5): `comes_back`, the items
+        that waited for a source before it and wait no more, each with `why` (`found_for`: it was found for them;
+        `words`: a paragraph of it shares `WAKE_WORDS` of their words, listed once each; `no-words`: an item with no
+        words to test, which any new usable source wakes; `other` should nothing here explain it), at most
+        `COMES_BACK_MAX` of them; `comes_back_total`; and `still_waiting`. Through 0.24.4 the report gave
+        `found_for` alone, and on the field the agent told the user that an item found for the copy came back
+        because it shared words with it."""
+        from .groundplan import distinct_words, rank_units, text_forms, text_units
+        after = self._waiting_items()
+        nodes = self._canon_baseline()
+        edges = {e.id: e for n in nodes.values() for e in n.edges}
+        forms = [text_forms(text[a:b]) for a, b in text_units(text or "")]
+        found = set(rec.found_for or ())
+        items = []
+        for kind, iid in sorted(before - after, key=lambda ki: (ki[1] not in found, ki[1])):
+            if iid in found:
+                items.append({"id": iid, "kind": kind, "why": "found_for"})
+                continue
+            item = nodes.get(iid) if kind == "node" else edges.get(iid)
+            words = Projector._claim_words(item, kind, nodes) if item is not None else []
+            best = rank_units(forms, words, need=self.WAKE_WORDS) if words else []
+            if best:
+                items.append({"id": iid, "kind": kind, "why": "words", "words": distinct_words(best[0][2])})
+            else:
+                items.append({"id": iid, "kind": kind, "why": "no-words" if item is not None and not words
+                              else "other"})
+        return {"comes_back": items[:self.COMES_BACK_MAX], "comes_back_total": len(items),
+                "still_waiting": len(after)}
 
     # ---- finding sources (0.24.0) -----------------------------------------------------------------------
 
@@ -3379,9 +3452,11 @@ class KGEngine:
                 "cache": {}}
 
     # A paragraph must share this many of an item's words to wake it (0.24.4; all of them when it has fewer). Two
-    # (the re-examination rule) woke 15 of the field's Spanish pins for an English page found for one: each shared
-    # exactly two cognates or generic words with it (agentes/agents, planes/plan, tests, local, token, final…).
-    WAKE_WORDS = 3
+    # (the re-examination rule of the time) woke 15 of the field's Spanish pins for an English page found for one:
+    # each shared exactly two cognates or generic words with it (agentes/agents, planes/plan, tests, local, token,
+    # final…). Since 0.24.5 the re-examination rule asks for as many (`projector.BEARING_WORDS`), and both count
+    # words, not spellings.
+    WAKE_WORDS = BEARING_WORDS
 
     def _new_source_wakes(self, kind: str, item, new_hashes, ctx: dict) -> bool:
         """Whether a usable file an item was not judged against wakes it (0.24.0): one `find` looked for it for
@@ -5836,8 +5911,11 @@ def _register(mcp, engine: KGEngine) -> None:
         built from such sources; /burgess:kg-build plans it), `for_items` (the ids of the waiting items
         /burgess:kg-sources find found it for, comma-separated; the ones the search log shows are added on their
         own). The level measures the filter the text passed, never whether a claim is true. Registering a source
-        the policy accepts wakes the waiting items it was found for and those whose words it contains (0.24.0);
-        one it does not accept leaves them waiting. Writes only the evidence directory."""
+        the policy accepts wakes the waiting items it was found for and those with a paragraph of it that shares
+        three of their words (0.24.0, 0.24.4); one it does not accept leaves them waiting. The answer's
+        `comes_back` lists the items that come back and why (`found_for`, `words` with the shared words,
+        `no-words`), and `still_waiting` how many keep waiting: report those, never guess. Writes only the
+        evidence directory."""
         return engine.kg_source_add(url=url, path=path, level=level, role=role, title=title,
                                     published=published, marks=marks, derives_from=derives_from, note=note,
                                     preview=bool(preview), build=bool(build), for_items=for_items)

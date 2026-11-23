@@ -2964,3 +2964,38 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   keeps two for now: it was not what this run tripped on, and a change there would move flags the user has
   already reviewed.
 - **Pinned in:** `tests/test_fix_wake_needs_three_words.py`.
+
+## A source flags a rejection for review by three shared words (2026-11-23)
+
+- **Decision:**
+  - `Projector._reexaminable_verdicts` passes `need=projector.BEARING_WORDS` (3) to `_bearing_files` for a node and
+    a span-less edge. `KGEngine.WAKE_WORDS` is now `BEARING_WORDS`, so one constant holds both bars.
+  - `groundplan.rank_units` counts words, not spellings. `word_groups` makes terms that share a form
+    (`buildplan._forms`) one word, and the bar is that many words (`need = min(need, words)`). The score is
+    unchanged, so passages rank as before.
+  - `kg_source_add` diffs `_waiting_items()` before and after it writes a copy. It reports `comes_back` (each
+    item's `why`: `found_for`, `words` with the shared words, `no-words`, `other`; at most 30), `comes_back_total`
+    and `still_waiting`. The command names each item with that reason and no other.
+  - `PROJECTION_RULES` stays "5". A flag stored before 0.24.5 stays until a verdict answers it, and only new flags
+    meet the new bar. The legacy re-test of pre-0.22.4 flags keeps the default of two.
+- **What it answers:** the field test of 0.24.4 (2026-11-23, `prueba-burgess`).
+  - The user registered the arXiv abstract of Sentry, found for c1j by the fourth `find` run (the ledger match
+    gave `found_for`).
+  - The plan queued c1j alone, then 4 rejected edges flagged on two generic words each (llm with tests or
+    reward). The grounder rejected all four again.
+  - The engine's own `_reexaminable_verdicts` on a copy reproduces exactly those 4. For the two «Instant software
+    factories» copies it gives the 8 that were re-stamped rejected on 2026-11-22. At three words: 0 and 0.
+  - Counting spellings: under the two-word rule, 3 of the 7 extra pins Sentry would have woken shared one word
+    in two spellings (demo/demos, tests/test, versiones/version).
+  - The registering agent said c1j came back "because it shares words with the source". `found_for` had
+    brought it back.
+  - The user approved the fix («Sí, prepárala»).
+- **Why three for the review too:** the grounding audit log (581 records) holds 4 verdicts that went from
+  rejected to grounded, and each one was asked for by hand: the 2026-11-09 re-judge and the `--reexamine cliche`
+  of 2026-11-21. No automatic flag ever turned one around, while 28 re-checks confirmed a rejection. A paragraph
+  that supports a rejected claim in its own language shares many of its words.
+- **What is not explained:** on the same copy, the current code raises 9 flags when the H3 page is registered (8
+  on two words, 1 on three), and four replays agree: fresh engines, one engine, parallel reads, the real
+  `kg_source_add`. On the field the plan after that registration showed `reexaminable: 0`. Under the new bar it
+  would raise 1.
+- **Pinned in:** `tests/test_fix_reexamine_needs_three_words.py`.

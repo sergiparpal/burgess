@@ -92,11 +92,16 @@ Split it at the first space. The first word is the action, and the rest of the l
    - `same_url_as` in the result: the URL had been registered before with other text. Tell the user, and ask
      whether the old copy should be marked `superseded` (`set <old name> marks=superseded`).
 5. Report in a few lines: the registered `name`, its level, role and marks, and what happens next. When the
-   result's `source.usable` is true, the waiting items it was found for (`found_for`) and those whose words it
-   contains (a paragraph sharing three of them, 0.24.4) come back to the next `/burgess:kg-ground`, which judges
-   them against it (0.24.0: through 0.23.1
-   every waiting item came back); the other waiting items keep waiting. When it is false, they all keep waiting
-   and the source changes nothing until the policy accepts its level. Nothing was added to the graph.
+   result's `source.usable` is true, the waiting items in its `comes_back` (0.24.5) come back to the next
+   `/burgess:kg-ground`, which judges them against it; the other waiting items (`still_waiting`) keep waiting.
+   Name each item with the reason its `why` gives, never another:
+   - `found_for`: the source was found for it;
+   - `words`: a paragraph of the source shares three of its words, the ones in `words`;
+   - `no-words`: it has no words to test, so any new usable source brings it back.
+   An empty `comes_back` means no waiting item comes back. When `source.usable` is false, they all keep waiting
+   and the source changes nothing until the policy accepts its level. Nothing was added to the graph. (Through
+   0.24.4 the report had only `found_for`, and an item found for the source was reported as coming back for
+   sharing words with it; through 0.23.1 every waiting item came back.)
 
 ## find
 

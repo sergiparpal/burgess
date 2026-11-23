@@ -233,23 +233,65 @@ def text_units(text: str, max_chars: int = EXCERPT_CHARS) -> "list[tuple[int, in
     return units
 
 
+def word_groups(terms: "list[str]") -> "dict[str, int]":
+    """Which word each term spells (0.24.5): terms that share a form (`buildplan._forms`, the word and the
+    singulars it may be the plural of) are one word, so `test` and `tests`, `demo` and `demos`, `version` and
+    `versiones` count once. A number per term, the same for the spellings of one word."""
+    parent = list(range(len(terms)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    owner: "dict[str, int]" = {}
+    for i, t in enumerate(terms):
+        for f in _forms(t):
+            if f in owner:
+                a, b = root(i), root(owner[f])
+                if a != b:
+                    parent[a] = b
+            else:
+                owner[f] = i
+    return {t: root(i) for i, t in enumerate(terms)}
+
+
+def distinct_words(terms: "list[str]") -> "list[str]":
+    """`terms` with one spelling per word (`word_groups`), the first one kept: what a report lists."""
+    group = word_groups(terms)
+    seen: "set[int]" = set()
+    out: "list[str]" = []
+    for t in terms:
+        if group[t] not in seen:
+            seen.add(group[t])
+            out.append(t)
+    return out
+
+
 def rank_units(unit_forms: "list[set[str]]", terms: "list[str]",
                need: int = 2) -> "list[tuple[float, int, list[str]]]":
-    """`(score, index, matched terms)` for each unit that shares at least `need` of `terms` (two by default; all of
-    them when the node has fewer), best first, ties in source order. A term weighs log(units / units that use it),
-    so a word that nearly every paragraph uses weighs almost nothing and the words that name the node's mechanism
-    decide."""
+    """`(score, index, matched terms)` for each unit that shares at least `need` of the words of `terms` (two by
+    default; all of them when the node has fewer), best first, ties in source order. A term weighs log(units /
+    units that use it), so a word that nearly every paragraph uses weighs almost nothing and the words that name
+    the node's mechanism decide.
+
+    Words, not spellings (0.24.5, `word_groups`): through 0.24.4 a claim that wrote both `test` and `tests` met a
+    two-word bar with a paragraph that said only `test`. On the field graph three of the seven Spanish pins an
+    English abstract would have woken under the two-word rule shared one word with it in two spellings
+    (demo/demos, tests/test, versiones/version)."""
     n = len(unit_forms)
     if not n or not terms:
         return []
     tforms = {t: _forms(t) for t in terms}
     df = {t: sum(1 for fs in unit_forms if tforms[t] & fs) for t in terms}
     idf = {t: (math.log(n / df[t]) if df[t] else 0.0) for t in terms}
-    need = min(need, len(terms))
+    group = word_groups(terms)
+    need = min(need, len(set(group.values())))
     ranked = []
     for i, fs in enumerate(unit_forms):
         matched = [t for t in terms if tforms[t] & fs]
-        if len(matched) >= need:
+        if len({group[t] for t in matched}) >= need:
             ranked.append((round(sum(idf[t] for t in matched), 6), i, matched))
     ranked.sort(key=lambda row: (-row[0], row[1]))
     return ranked

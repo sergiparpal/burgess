@@ -147,9 +147,9 @@ verdicted items on its own: these flags are how they come back up, and since 0.2
    - `span-file-changed-since-judged` — an edge that quotes a span from a source file: the file its span
      comes from changed. Such an edge was judged on its own span, so another file changing never flags it.
    - `source-set-changed-since-judged` — a node, or an edge with no span in a configured file: the source
-     set changed, and a paragraph of the changed text shares two of the words of what the item claims (0.22.4;
-     through 0.22.3 any word of it, its verdict notes included, anywhere in that text). `files` (0.22.3) names
-     the sources with such a paragraph.
+     set changed, and a paragraph of the changed text shares three of the words of what the item claims (0.24.5;
+     two from 0.22.4 to 0.24.4; through 0.22.3 any word of it, its verdict notes included, anywhere in that
+     text). `files` (0.22.3) names the sources with such a paragraph.
 2. **Do not re-check them yourself.** The plan already holds the rejected ones, every one rather than the 50
    the list shows, as items marked `re-examine` (`queue.reexaminable`, 0.22.4), and the Stage 1 grounders judge
    them with the sections of the source that flagged them (`kg_ground_item`'s `reexamine`). This command never

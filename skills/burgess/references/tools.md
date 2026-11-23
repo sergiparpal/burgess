@@ -520,9 +520,12 @@ the true total across both.
   Since 0.22.4 a flag lasts until its item is judged again, whatever the verdict: a verdict recorded in the
   grounding audit log after the flag was raised answers it, and a later change that bears on the item flags it
   anew. A fresh flag for an item already flagged adds the files that raised it. A node or span-less edge is
-  flagged only when a paragraph of the changed text shares two of the words of what it claims (its label and
-  body, or its two ends and span; one for a one-word claim; numbers left out), the rule its grounder's context
-  is ranked by. Through 0.22.3 any word of its label, body or notes anywhere in that text did: on the field
+  flagged only when a paragraph of the changed text shares three of the words of what it claims (0.24.5; its
+  label and body, or its two ends and span; all of them for a claim with fewer; numbers left out), the bar a
+  waiting item is woken at. Words, not spellings: `test` and `tests` are one word. From 0.22.4 to 0.24.4 two
+  words did, and on the field graph two English pages flagged 12 rejected edges on two generic words each
+  (llm, tests, reward, meta, harness), all rejected again; a flag raised then stays until a verdict answers it.
+  Through 0.22.3 any word of its label, body or notes anywhere in that text did: on the field
   graph an English preprint flagged 113 Spanish items, mostly through English words of the grounders' verdict
   notes, and it has a passage about 8 of them. The first read after the upgrade rebuilds the index
   (`PROJECTION_RULES` "5") and re-tests the flags stored before: a 0.22.3 flag against the files it names, an
@@ -1298,8 +1301,9 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   record says `/burgess:kg-sources find` looked for it for (`found_for`, §1.27), and the items with a paragraph
   in it that shares their words (the 0.22.4 paragraph rule, `Projector._bearing_files`): a paragraph must share
   three of its words (0.24.4, `KGEngine.WAKE_WORDS`; all of them for an item with fewer). Two, the
-  re-examination rule's bar, woke 15 of the field's Spanish pins for an English page found for one: each shared
-  exactly two cognates or generic words with it (agentes/agents, planes/plan, tests, local, token). Through 0.23.1 any new
+  re-examination rule's bar until 0.24.5, woke 15 of the field's Spanish pins for an English page found for one:
+  each shared exactly two cognates or generic words with it (agentes/agents, planes/plan, tests, local, token).
+  Words, not spellings (0.24.5, `groundplan.word_groups`): `test` and `tests` are one word. Through 0.23.1 any new
   usable file woke every waiting item: in the field one source would have sent all 119 waiting pins of a project
   back to a grounder. A source in another language than an item shares no words with it, so one registered by
   hand for it is reached with a `focus`. The record now keeps the grounder's `note`, which §1.31 shows.
@@ -1376,6 +1380,13 @@ measures the filter the text passed before it was published, never whether a cla
   so a page saved from a browser still finds its item. The record keeps them in `found_for`, with the page's
   `doi`, and the result names them in `found_for`: they, and the items with a paragraph in the source that shares
   three of their words, wake for the next `/burgess:kg-ground` (§1.26). `item-not-found` for an id the graph does not hold.
+- `comes_back` (0.24.5) — the waiting items the registration wakes: those waiting for a source before the copy
+  was written and not after (`KGEngine._waiting_items`), each with `id`, `kind` and `why`: `found_for` (the copy
+  was found for it), `words` (a paragraph of the copy shares three of its words, listed once each in `words`),
+  `no-words` (it has no words to test, so any new usable source wakes it), or `other`. At most 30, with
+  `comes_back_total`; `still_waiting` counts the items that keep waiting. Empty when the copy is not usable. The
+  command reports these reasons and no others: through 0.24.4 the result had only `found_for`, and on the field
+  an agent told the user that an item found for the copy came back because it shared words with it.
 - Refusals: `give-url-or-path`, `url-not-http`, `fetch-failed` (with the HTTP status or reason), `too-large`
   (over 5 MB), `undecodable`, `no-text` (the page needs JavaScript: save its text as `.md` and register the
   file), `pdf-not-supported`, `content-type-not-supported`, `file-type-not-supported`, `file-not-found`,

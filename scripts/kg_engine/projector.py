@@ -152,6 +152,13 @@ REEX_SPAN_FILE = "span-file-changed-since-judged"
 # beyond it, whatever its state, is the item judged again, and answers the flag (`_refilter_reexaminable`).
 # Kept in the stored flag and never shown: the advisory's entries keep their shape.
 REEX_MARK = "audit_mark"
+# How many of the words of what an item claims a paragraph of a changed source must share (all of them when it
+# claims fewer) to flag the item for re-examination (0.24.5, `_reexaminable_verdicts`), as it must to wake an
+# item waiting for a source (0.24.4, `KGEngine.WAKE_WORDS`). Through 0.24.4 two did: on the field's Spanish
+# graph two English pages flagged 12 rejected edges, each on two generic words (llm, tests, reward, meta,
+# harness), and a grounder rejected all 12 again. Words, not spellings (`groundplan.rank_units`). A flag stored
+# before 0.24.5 stays until a verdict answers it: PROJECTION_RULES is not bumped, so no index re-tests it.
+BEARING_WORDS = 3
 # Term-overlap noise filter (§Stage 6): tokens for the relevance test that decides whether the CHANGED
 # source text actually bears on a failed/rejected item. Applied AFTER normalize_text (which casefolds),
 # so the class is lowercase-only; it deliberately splits on '-'/'_' (unlike harness._WORD, which keeps
@@ -1317,10 +1324,12 @@ class Projector:
 
     @staticmethod
     def _bearing_files(words, per_file: "dict[str, str]", cache: dict, need: int = 2) -> "list[str]":
-        """The files of ``per_file`` (``{name: text}``) with a paragraph that shares at least two of ``words``
-        (one for a one-word claim): `groundplan.rank_units` over `text_units`, the rule a grounder's
-        `reexamine.context` is ranked by, so a flag stands only where its grounder will be shown such a
-        passage (0.22.4). ``cache`` keeps each file's paragraph forms for one pass."""
+        """The files of ``per_file`` (``{name: text}``) with a paragraph that shares at least ``need`` of the words
+        of ``words`` (all of them for a claim with fewer; words, not spellings): `groundplan.rank_units` over
+        `text_units`, the rule a grounder's `reexamine.context` is ranked by, so a flag stands only where its
+        grounder will be shown such a passage (0.22.4). Two by default, the bar a stored flag from before 0.24.5
+        is re-tested at; a new flag and a wake ask for `BEARING_WORDS`. ``cache`` keeps each file's paragraph
+        forms for one pass."""
         if not words:
             return []
         out = []
@@ -1449,11 +1458,13 @@ class Projector:
             if not node_is_candidate and not edge_candidate:
                 continue  # most nodes: skip the canon re-read entirely
             full = self._full_note_for_terms(n)  # recover body + edge notes from canon (shell has neither)
-            # A node or span-less edge is flagged where a paragraph of a changed file shares two of the words of
-            # what it claims (0.22.4, `_bearing_files`); through 0.22.3 any one word of its label, body or notes
-            # anywhere in the changed text did, the grounders' English verdict notes included.
+            # A node or span-less edge is flagged where a paragraph of a changed file shares `BEARING_WORDS` (3) of
+            # the words of what it claims (0.24.5, `_bearing_files`); from 0.22.4 to 0.24.4 two did, and through
+            # 0.22.3 any one word of its label, body or notes anywhere in the changed text, the grounders' English
+            # verdict notes included.
             if node_is_candidate:
-                files = self._bearing_files(self._claim_words(full, "node", by_id), per_file, forms_cache)
+                files = self._bearing_files(self._claim_words(full, "node", by_id), per_file, forms_cache,
+                                            need=BEARING_WORDS)
                 if files:
                     out.append(self._reexaminable_entry(n.id, "node", n.epistemic_state, files=files, mark=mark))
             for e in full.edges:
@@ -1461,7 +1472,8 @@ class Projector:
                     continue
                 own = self._span_file(e, configured)
                 if own is None:
-                    files = self._bearing_files(self._claim_words(e, "edge", by_id), per_file, forms_cache)
+                    files = self._bearing_files(self._claim_words(e, "edge", by_id), per_file, forms_cache,
+                                                need=BEARING_WORDS)
                     if files:
                         out.append(self._reexaminable_entry(e.id, "edge", e.epistemic_state, files=files,
                                                             mark=mark))

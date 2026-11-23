@@ -241,9 +241,10 @@ the usable files to the reader. Since 0.22.4 a flag is answered by the item's ne
 stores the grounding audit log's size when it was raised (`audit_mark`), and a record for the item beyond it drops
 the flag at the next projection. `kg_ground_plan` queues the open flags on rejected items for grounders, marked
 `reexamine`, and `kg_ground_item` gives each the sections of the files that raised it. A node or span-less edge is
-flagged only where a paragraph of the changed text shares two of the words of what it claims
-(`Projector._bearing_files`, `groundplan.rank_units`: the rule its grounder's context is ranked by), so a flag
-stands only where its grounder will be shown such a passage.
+flagged only where a paragraph of the changed text shares `projector.BEARING_WORDS` (3, since 0.24.5; 2 from 0.22.4)
+of the words of what it claims (`Projector._bearing_files`, `groundplan.rank_units`: the rule its grounder's context
+is ranked by), so a flag stands only where its grounder will be shown such a passage. The same bar wakes an item
+waiting for a source (`KGEngine.WAKE_WORDS`), and both count words, not spellings (`groundplan.word_groups`).
 
 **Finding sources (0.24.0).** `/burgess:kg-sources find` suggests outside sources for the items waiting for one,
 the claims a grounder recorded as unsupported (`kg_record_unsupported`). `kg_source_find` lists them with what
@@ -303,7 +304,7 @@ rejected items for a second look:
   tracks the per-file baseline). Since 0.14.4 an edge that quotes a span from a configured file is flagged
   only when that file changes (`span-file-changed-since-judged`): it was judged on its own span. Nodes and
   span-less items keep the source-set rule (`source-set-changed-since-judged`), since 0.22.4 by paragraph: a
-  paragraph of a changed file must share two of the words of what the item claims, never its verdict notes. Self-clearing on the item's
+  paragraph of a changed file must share three of the words of what the item claims (two through 0.24.4), never its verdict notes. Self-clearing on the item's
   next verdict, whatever it is (0.22.4: a record in the grounding audit log beyond the flag's `audit_mark`;
   through 0.22.3 only when the item left the negative states); surfaced in `kg_context.advisory` and the
   `GRAPH_REPORT`, and queued for grounders by `kg_ground_plan`. The divergence side mirrors it: `failed`-fated brief discards are surfaced as
