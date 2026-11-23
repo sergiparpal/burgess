@@ -26,7 +26,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__, envconfig
-from .canon import EDGELESS_SECTIONS, HUB_ATTACKS, UNSUPPORTED_PINS, Canon
+from .canon import EDGELESS_SECTIONS, HUB_ATTACKS, SOURCE_SEARCHES, UNSUPPORTED_PINS, Canon
 from .groundaudit import GroundAuditLog
 from .model import (
     AuthoredBy,
@@ -2810,11 +2810,13 @@ class KGEngine:
         current_sig = self._source_signature() if unsupported else ""
         state = self._usable_state() if unsupported else {}
         unsupported_waiting = 0
+        wake = self._wake_context(state, nodes) if unsupported else None
 
         def waits(kind: str, item) -> bool:
             return waits_for_sources(unsupported.get((kind, item.id)), current_sig, item_signature(kind, item),
                                      usable=state.get("usable"), configured_sig=state.get("configured_sig"),
-                                     configured=state.get("configured"))
+                                     configured=state.get("configured"),
+                                     wakes=lambda new: self._new_source_wakes(kind, item, new, wake))
 
         for n in nodes:
             for e in n.edges:
@@ -3060,9 +3062,12 @@ class KGEngine:
         digest = lambda s: hashlib.sha256(s.encode()).hexdigest()  # noqa: E731
         configured = [n for n in texts if not vs.is_extra(n)]
         joined = "\n".join(texts[n] for n in configured)
-        return {"usable": [digest(texts[n]) for n in self._usable_files(vs)],
+        usable = self._usable_files(vs)
+        return {"usable": [digest(texts[n]) for n in usable],
                 "configured": [digest(texts[n]) for n in configured],
-                "configured_sig": digest(joined) if joined else ""}
+                "configured_sig": digest(joined) if joined else "",
+                # which file each usable hash is (0.24.0): a new usable file wakes only the items it bears on
+                "files": {digest(texts[n]): n for n in usable}}
 
     def _evidence_info(self) -> dict:
         """`{path, files, notes, required_level}` for the adversarial grounder (0.21.0): `files` are the usable
@@ -3237,7 +3242,7 @@ class KGEngine:
 
     def kg_source_add(self, url: str = "", path: str = "", level="", role: str = "", title: str = "",
                       published: str = "", marks="", derives_from: str = "", note: str = "",
-                      preview: bool = False, build=False) -> dict:
+                      preview: bool = False, build=False, for_items="") -> dict:
         """Register an external source (0.21.0): the engine copies it into `<project>/evidence/` and records
         its level, so a grounder may cite a verbatim span from it.
 
@@ -3254,8 +3259,11 @@ class KGEngine:
         registered with other text is accepted and named in `same_url_as`, so one of the two can be marked
         superseded. The level is recorded as set by the agent (`level_by`); only a hand edit of the sidecar
         says "human". `build=true` (0.22.0) also extracts the source into the graph like a configured source,
-        so `/burgess:kg-build` plans its sections and its claims carry its level. Writes only the evidence
-        directory: no node, edge or verdict changes."""
+        so `/burgess:kg-build` plans its sections and its claims carry its level. `for_items` (0.24.0, item ids,
+        comma- or space-separated) names the waiting items it was found for; the items the search ledger shows it
+        was read or proposed for are added on their own (by URL, DOI or title). They are recorded in `found_for`,
+        and only they, with the items whose words the source contains, wake for the next /burgess:kg-ground.
+        Writes only the evidence directory: no node, edge or verdict changes."""
         from . import evidence as ev
 
         url, path = (url or "").strip(), (path or "").strip()
@@ -3302,6 +3310,15 @@ class KGEngine:
             bld = ev.parse_bool(build, "bad-build")
         except ev.EvidenceError as e:
             return {"ok": False, "error": e.code, "detail": e.detail}
+        named = [x for x in re.split(r"[,\s]+", for_items if isinstance(for_items, str) else
+                                     " ".join(str(v) for v in (for_items or []))) if x]
+        wanted = []
+        for iid in named:
+            _kind, item, _nodes = self._canon_item(iid)
+            if item is None:
+                return {"ok": False, "error": "item-not-found", "item": iid,
+                        "hint": "for_items names node or edge ids of the graph"}
+            wanted.append(item.id)
         reg = self.evidence_registry()
         derives_from = (derives_from or "").strip()
         if derives_from and reg.get(derives_from) is None:
@@ -3313,13 +3330,17 @@ class KGEngine:
             return {"ok": False, "error": "already-registered", "name": dup.name}
         detected = ev.page_published(copy.meta)
         name_title = (title or copy.title or "").strip()
+        doi = ev.page_doi(copy.meta)
+        raw_sha = hashlib.sha256(copy.raw).hexdigest()
+        found_for = sorted(set(wanted) | set(self._found_for(url, copy.final_url if url else "", doi,
+                                                             copy.title, raw_sha)))
         rec = ev.EvidenceRecord(
             name=ev.make_name(name_title, url, Path(path).stem if path else "", text_sha), title=name_title,
             url=url, final_url=copy.final_url if url else "", origin=origin, retrieved_at=utcnow(),
             published=pub or detected, published_from="caller" if pub else ("page" if detected else ""),
             level=lvl, level_by="agent", role=rl, marks=mk, derives_from=derives_from,
             note=(note or "").strip(), content_type=copy.content_type, extractor=copy.extractor,
-            sha256_raw=hashlib.sha256(copy.raw).hexdigest(), build=bld)
+            sha256_raw=raw_sha, build=bld, doi=doi, found_for=found_for)
         same_url = sorted(r.name for r in reg.records.values()
                           if url and (r.url == url or (copy.final_url and r.final_url == copy.final_url)))
         # A fetched page, or a local HTML file, keeps its raw bytes: the extraction can be redone from them.
@@ -3336,7 +3357,378 @@ class KGEngine:
             out["same_url_as"] = same_url
             out["hint"] = ("this URL was registered before with other text; if this copy replaces that one, "
                            "mark the old one superseded with kg_source_set")
+        if found_for:
+            # the waiting items it was found for (0.24.0): they wake for the next /burgess:kg-ground
+            out["found_for"] = found_for
         return out
+
+    # ---- finding sources (0.24.0) -----------------------------------------------------------------------
+
+    _search_lock = threading.Lock()   # one engine per session; its scouts log from parallel tool calls
+    FIND_LIMIT = 6
+    FIND_LIMIT_MAX = 20
+    _FIND_EGRESS_KEYS = frozenset({"text", "abstract", "looked_for", "query"})
+
+    def _wake_context(self, state: dict, nodes) -> dict:
+        """What `_new_source_wakes` needs for one plan: the usable files by hash with their texts, the items each
+        registered source was found for, the canon by id, and a cache of paragraph forms."""
+        vs = self.verify_set()
+        found_for = {r.name: set(r.found_for) for r in self.evidence_registry().records.values() if r.found_for}
+        by_id = nodes if isinstance(nodes, dict) else {n.id: n for n in nodes}
+        return {"files": state.get("files") or {}, "texts": vs.texts, "found_for": found_for, "by_id": by_id,
+                "cache": {}}
+
+    def _new_source_wakes(self, kind: str, item, new_hashes, ctx: dict) -> bool:
+        """Whether a usable file an item was not judged against wakes it (0.24.0): one `find` looked for it for
+        (the record's `found_for`), or one with a paragraph that shares its words (the paragraph rule of the
+        0.22.4 re-examination, `Projector._bearing_files`). A file the context cannot name, or an item with no
+        words to test, wakes it, as every new usable file did through 0.23.1. A source in another language than
+        the item does not bear on it by words: a source registered by hand for it is reached with a focus."""
+        names = [ctx["files"].get(h) for h in new_hashes]
+        if not all(names):
+            return True
+        if any(item.id in ctx["found_for"].get(n, ()) for n in names):
+            return True
+        words = Projector._claim_words(item, kind, ctx["by_id"])
+        if not words:
+            return True
+        texts = {n: ctx["texts"][n] for n in names if n in ctx["texts"]}
+        return bool(Projector._bearing_files(words, texts, ctx["cache"]))
+
+    def _source_searches(self) -> "list[dict]":
+        """Every record of the source-search ledger (`canon.SOURCE_SEARCHES`), oldest first. Fail-open: a missing
+        or unreadable ledger is no record and a bad line is skipped. Never creates the ledger."""
+        out: "list[dict]" = []
+        try:
+            with open(self.canon.root / SOURCE_SEARCHES, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(rec, dict) and isinstance(rec.get("type"), str):
+                        out.append(rec)
+        except OSError:
+            return []
+        return out
+
+    def _log_source_search(self, records: "list[dict]") -> "str | None":
+        """Append `records` to the search ledger, each stamped `at`. Returns why it could not be written, or None:
+        the search itself stands, since the ledger is a log and a lost line only means searching once more."""
+        if not records:
+            return None
+        at = utcnow()
+        lines = "".join(json.dumps({"at": at, **r}, ensure_ascii=False) + "\n" for r in records)
+        path = self.canon.root / SOURCE_SEARCHES
+        try:
+            with self._search_lock:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(lines)
+                    f.flush()
+        except OSError as e:
+            return self._scrub_error(f"not logged: {e}")
+        return None
+
+    def _canon_item(self, item_id: str) -> "tuple[str | None, object, dict]":
+        """`(kind, item, nodes)` for a node id (or a label that slugs to one) or an edge id, or `(None, None,
+        nodes)` when the canon holds neither."""
+        nodes = self._canon_baseline()
+        iid = (item_id or "").strip()
+        if iid:
+            for key in (iid, slug(iid)):
+                if key in nodes:
+                    return "node", nodes[key], nodes
+            for n in nodes.values():
+                for e in n.edges:
+                    if e.id == iid:
+                        return "edge", e, nodes
+        return None, None, nodes
+
+    @staticmethod
+    def _claim_text(kind: str, item, nodes: dict) -> str:
+        """What an item claims, as a scout reads it: a node's label and body without its lineage lines and verdict
+        paragraphs; an edge's two ends with its relation, and its span."""
+        if kind == "node":
+            body = "\n".join(line for line in (item.body or "").splitlines()
+                             if not line.strip().startswith(("[", "verdict ("))).strip()
+            label = item.label or item.id
+            if body and body.startswith(label.rstrip(".… ")):
+                return body   # a pin's label is its body's first words, cut
+            return label + ("\n" + body if body else "")
+        src, tgt = nodes.get(slug(item.source)), nodes.get(slug(item.target))
+        text = f"{src.label if src else item.source} —{item.relation}→ {tgt.label if tgt else item.target}"
+        return text + (f"\nspan: {item.span}" if item.span else "")
+
+    def _query_problem(self, query: str) -> str:
+        """Why `query` may not leave the machine, or "": empty, over `QUERY_MAX_CHARS`, or holding what the §1.9
+        scrub would redact (a secret, a personal detail, or a ⟦CAT:N⟧ placeholder standing for one)."""
+        from .evidence import QUERY_MAX_CHARS
+        q = " ".join((query or "").split())
+        if len(q) < 2:
+            return "write a query of at least two characters"
+        if len(q) > QUERY_MAX_CHARS:
+            return f"a query is at most {QUERY_MAX_CHARS} characters"
+        if placeholders_in(q) or Scrubber(self.sensitivity).scrub(q)[0] != q:
+            return ("the query holds what the engine keeps private (a secret, a personal detail or a ⟦…⟧ "
+                    "placeholder): search with topic words only")
+        return ""
+
+    def kg_source_find(self, focus: str = "", limit=None) -> dict:
+        """The items waiting for a source, for `/burgess:kg-sources find` (0.24.0): every item a grounder recorded
+        as unsupported (`kg_record_unsupported`) that still waits, because no usable source it was not judged
+        against was found for it or bears on it. `focus` keeps the items whose node, or whose edge's ends, it
+        names (the word rules of `kg_ground_plan`). At most `limit` (default 6, at most 20) are returned, the ones
+        never searched first, then the ones searched longest ago. Each comes with what it claims (`text`), its
+        content words (`terms`), what its grounder looked for and did not find (`looked_for`), and the searches
+        and proposals already logged for it. Read-only."""
+        from .evidence import QUERY_MAX_CHARS
+        from .groundplan import focus_matches, item_signature, node_terms, waits_for_sources
+        try:
+            limit = int(limit) if limit not in (None, "") else self.FIND_LIMIT
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "limit is a number from 1 to 20"}
+        limit = max(1, min(limit, self.FIND_LIMIT_MAX))
+        focus = " ".join((focus or "").split())
+        unsupported = self._unsupported_pins()
+        nodes = self._canon_baseline()
+        state = self._usable_state() if unsupported else {}
+        current_sig = self._source_signature() if unsupported else ""
+        wake = self._wake_context(state, nodes) if unsupported else None
+        edges = {e.id: e for n in nodes.values() for e in n.edges}
+        waiting = []
+        for (kind, iid), rec in unsupported.items():
+            item = nodes.get(iid) if kind == "node" else edges.get(iid)
+            if item is None or item.epistemic_state != EpistemicState.UNVERIFIED:
+                continue
+            if not waits_for_sources(rec, current_sig, item_signature(kind, item), usable=state.get("usable"),
+                                     configured_sig=state.get("configured_sig"), configured=state.get("configured"),
+                                     wakes=lambda new, k=kind, it=item: self._new_source_wakes(k, it, new, wake)):
+                continue
+            if focus:
+                if kind == "node":
+                    hit = focus_matches(focus, item.id, item.label or "")
+                else:
+                    ends = [nodes.get(slug(x)) for x in (item.source, item.target)]
+                    hit = any(focus_matches(focus, n.id, n.label or "") for n in ends if n is not None)
+                if not hit:
+                    continue
+            waiting.append((kind, item, rec))
+        log = self._source_searches()
+        by_item: "dict[str, list[dict]]" = {}
+        for r in log:
+            if isinstance(r.get("item"), str):
+                by_item.setdefault(r["item"], []).append(r)
+        last = lambda iid: max((r.get("at", "") for r in by_item.get(iid, ()) if r.get("type") == "search"),  # noqa: E731
+                               default="")
+        waiting.sort(key=lambda w: (last(w[1].id) != "", last(w[1].id), w[1].id))
+        items = []
+        for kind, item, rec in waiting[:limit]:
+            if kind == "node":
+                terms = node_terms(item.label, item.body)
+            else:
+                terms = Projector._claim_words(item, kind, nodes)
+            history = by_item.get(item.id, [])
+            items.append({
+                "id": item.id, "kind": kind, "text": self._claim_text(kind, item, nodes),
+                "terms": [t for t in terms if not t.isdigit()][:16],
+                "looked_for": rec.get("note", ""), "waiting_since": rec.get("at", ""),
+                "searched": [{k: r.get(k) for k in ("at", "backend", "query", "stance", "results")}
+                             for r in history if r.get("type") == "search"][-8:],
+                "proposed": [c for r in history if r.get("type") == "proposed"
+                             for c in (r.get("candidates") or [])][-6:]})
+        today = utcnow()[:10]
+        out = {"ok": True, "focus": focus, "items": items, "waiting_total": len(waiting),
+               "never_searched": sum(1 for w in waiting if not last(w[1].id)), "limit": limit,
+               "required_level": self.evidence_policy().required_level,
+               "openalex_searches_today": sum(1 for r in log if r.get("type") == "search"
+                                              and r.get("backend") == "openalex"
+                                              and str(r.get("at", "")).startswith(today)),
+               "query_max_chars": QUERY_MAX_CHARS}
+        if not unsupported:
+            out["note"] = ("nothing waits for a source: an item waits once a /burgess:kg-ground grounder judged it "
+                           "and recorded that no usable source supports it")
+        elif not waiting:
+            out["note"] = ("no waiting item matches" if focus else
+                           "every recorded item has a new usable source to be judged against: run /burgess:kg-ground")
+        return self._scrub_egress(out, self._FIND_EGRESS_KEYS)
+
+    def kg_source_search(self, query: str, item_id: str = "", stance: str = "for", results=None) -> dict:
+        """Search OpenAlex, the open catalogue of scholarly works, for `query` (0.24.0): through the engine, so the
+        query is the only thing that leaves (no key, no contact address) and every search is logged for the item
+        it was run for (`item_id`, with its `stance`: for | against). Each result carries its title, DOI, landing
+        page, open-access copy, date, type, venue and venue type, whether it was retracted, its citations, the
+        abstract, and a level hint from the catalogue's facts that the user confirms or corrects. A query holding
+        a secret or a personal detail is refused before anything is sent."""
+        from . import evidence as ev
+        problem = self._query_problem(query)
+        if problem:
+            return {"ok": False, "error": "query-refused", "detail": problem}
+        query = " ".join(query.split())
+        stance = (stance or "for").strip().lower()
+        if stance not in ("for", "against"):
+            return {"ok": False, "error": "stance is for or against"}
+        kind, item, _nodes = self._canon_item(item_id) if item_id else (None, None, None)
+        if item_id and item is None:
+            return {"ok": False, "error": "item-not-found", "item": item_id}
+        try:
+            n = int(results) if results not in (None, "") else ev.SEARCH_RESULTS
+        except (TypeError, ValueError):
+            n = ev.SEARCH_RESULTS
+        try:
+            found = ev.openalex_search(query, n)
+        except ev.EvidenceError as e:
+            self._log_source_search([{"type": "search", "backend": "openalex", "item": item.id if item else "",
+                                      "kind": kind or "", "query": query, "stance": stance, "results": 0,
+                                      "error": e.code}])
+            out = {"ok": False, "error": e.code, "detail": e.detail, "query": query}
+            if e.code == "search-budget":
+                out["hint"] = "search the web instead, or come back tomorrow"
+            return out
+        logged = self._log_source_search([{
+            "type": "search", "backend": "openalex", "item": item.id if item else "", "kind": kind or "",
+            "query": query, "stance": stance, "results": len(found),
+            "found": [{"title": w["title"][:200], "doi": w["doi"], "url": w["url"]} for w in found]}])
+        out = {"ok": True, "backend": "openalex", "query": query, "stance": stance, "results": found,
+               "count": len(found)}
+        if logged:
+            out["log_problem"] = logged
+        return self._scrub_egress(out, self._FIND_EGRESS_KEYS)
+
+    def kg_source_probe(self, url: str, item_id: str = "", terms: str = "") -> dict:
+        """Read a candidate page for an item, writing nothing to the evidence (0.24.0): the ENGINE fetches it (never
+        WebFetch, whose answer is a model's paraphrase), refuses a site's bot check (`fetch-blocked`), and returns
+        its title, the date and DOI it declares, its journal, the level hint its metadata gives, and the paragraphs
+        that share the most of `terms` (the scout's search words, in the page's language) and of the item's own
+        words, cut from the page as the engine would copy it. `registered_as` names a registered copy of the same
+        page. The read is logged for the item, so registering the page later wakes it."""
+        from . import evidence as ev
+        from .groundplan import node_terms
+        url = (url or "").strip()
+        kind, item, nodes = self._canon_item(item_id) if item_id else (None, None, {})
+        if item_id and item is None:
+            return {"ok": False, "error": "item-not-found", "item": item_id}
+        record = {"type": "probe", "item": item.id if item else "", "kind": kind or "", "url": url}
+        try:
+            got = ev.fetch(url)
+            copy = ev.copy_from_bytes(got.data, got.content_type, got.charset, final_url=got.final_url)
+        except ev.EvidenceError as e:
+            self._log_source_search([{**record, "ok": False, "error": e.code}])
+            out = {"ok": False, "error": e.code, "detail": e.detail, "url": url}
+            if e.code == "pdf-not-supported":
+                out["hint"] = "look for the article's HTML page (its DOI's landing page or an open-access copy)"
+            return out
+        blocked = ev.blocked_page(copy)
+        doi = ev.page_doi(copy.meta)
+        if blocked:
+            self._log_source_search([{**record, "final_url": copy.final_url, "ok": False, "error": "fetch-blocked"}])
+            return {"ok": False, "error": "fetch-blocked", "detail": blocked, "url": url,
+                    "hint": ("the site sent the engine a bot check: the user can open the page in a browser, save "
+                             "it as an .html file and add that file")}
+        words = node_terms(terms or "", "")
+        if item is not None:
+            own = node_terms(item.label, item.body) if kind == "node" else Projector._claim_words(item, kind, nodes)
+            words += [w for w in own if w not in words and not w.isdigit()]
+        passages = ev.best_passages(copy.text, words)
+        venue = copy.meta.get("citation_journal_title") or copy.meta.get("citation_conference_title") or ""
+        hint, why = (1, f"declares a journal or conference ({venue}): level 1 when it is peer-reviewed") if venue \
+            else (None, "the page's metadata names no journal or conference")
+        raw_sha = hashlib.sha256(copy.raw).hexdigest()
+        reg = self.evidence_registry()
+        registered = sorted(r.name for r in reg.records.values()
+                            if r.sha256_raw == raw_sha or (doi and r.doi == doi)
+                            or (r.url and r.url in (url, copy.final_url))
+                            or (r.final_url and r.final_url in (url, copy.final_url)))
+        logged = self._log_source_search([{**record, "final_url": copy.final_url, "doi": doi,
+                                           "title": copy.title[:200], "ok": True, "passages": len(passages)}])
+        out = {"ok": True, "url": url, "final_url": copy.final_url, "title": copy.title, "doi": doi,
+               "published": ev.page_published(copy.meta), "venue": venue,
+               "publisher": copy.meta.get("citation_publisher", ""), "site": copy.meta.get("og:site_name", ""),
+               "chars": len(copy.text), "extractor": copy.extractor, "level_hint": hint, "level_hint_reason": why,
+               "passages": passages, "terms": words}
+        if registered:
+            out["registered_as"] = registered
+        if logged:
+            out["log_problem"] = logged
+        return self._scrub_egress(out, self._FIND_EGRESS_KEYS)
+
+    def kg_source_record_search(self, item_id: str, searches=None, proposed=None, note: str = "") -> dict:
+        """Log what a scout did for an item that the engine did not see (0.24.0): its web searches (`searches`:
+        `[{query, stance, results}]`, `results` the number of hits it looked at, 0 for an empty search) and the
+        candidates it proposes (`proposed`: `[{url, title, doi, level, stance}]`), with a `note`. Empty searches
+        are logged too: what was searched and found nothing is part of the record. Writes only the ledger."""
+        kind, item, _nodes = self._canon_item(item_id)
+        if item is None:
+            return {"ok": False, "error": "item-not-found", "item": item_id}
+
+        def as_list(value):
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value) if value.strip() else []
+                except ValueError:
+                    return None
+            return value if isinstance(value, list) else None
+
+        searches, proposed = as_list(searches or []), as_list(proposed or [])
+        if searches is None or proposed is None:
+            return {"ok": False, "error": "searches and proposed are lists of objects"}
+        records = []
+        for s_ in searches:
+            if not isinstance(s_, dict):
+                return {"ok": False, "error": "each search is {query, stance, results}"}
+            query = " ".join(str(s_.get("query") or "").split())
+            stance = str(s_.get("stance") or "for").lower()
+            if not query or stance not in ("for", "against"):
+                return {"ok": False, "error": "each search names its query and a stance of for or against"}
+            try:
+                hits = max(0, int(s_.get("results") or 0))
+            except (TypeError, ValueError):
+                hits = 0
+            records.append({"type": "search", "backend": "web", "item": item.id, "kind": kind,
+                            "query": query[:300], "stance": stance, "results": hits})
+        keep = []
+        for c in proposed:
+            if not isinstance(c, dict) or not str(c.get("url") or c.get("doi") or "").strip():
+                return {"ok": False, "error": "each proposed candidate names its url (or doi)"}
+            from .evidence import bare_doi
+            keep.append({"url": str(c.get("url") or "")[:500], "title": str(c.get("title") or "")[:200],
+                         "doi": bare_doi(c.get("doi") or c.get("url") or ""),
+                         "level": c.get("level") if c.get("level") in (1, 2, 3, 4, 5) else None,
+                         "stance": str(c.get("stance") or "")[:20]})
+        if keep or note:
+            records.append({"type": "proposed", "item": item.id, "kind": kind, "candidates": keep,
+                            "note": " ".join((note or "").split())[:1000]})
+        problem = self._log_source_search(records)
+        if problem:
+            return {"ok": False, "error": problem, "item": item.id}
+        return {"ok": True, "item": item.id, "searches": len(searches), "proposed": len(keep)}
+
+    def _found_for(self, url: str, final_url: str, doi: str, title: str, raw_sha: str) -> "list[str]":
+        """The items the search ledger says a page was looked at or proposed for (0.24.0): a probe or a proposal
+        with its URL, final URL or DOI, or a search result with its DOI or its exact title. What a page saved from a
+        browser keeps of its address is its DOI and title, so those are matched too."""
+        def norm(u: str) -> str:
+            return (u or "").strip().rstrip("/").lower()
+
+        urls = {norm(u) for u in (url, final_url) if u}
+        tnorm = " ".join((title or "").lower().split())
+        out: "set[str]" = set()
+        for r in self._source_searches():
+            iid = r.get("item")
+            if not isinstance(iid, str) or not iid:
+                continue
+            kind = r.get("type")
+            if kind == "probe" and r.get("ok"):
+                if norm(r.get("url", "")) in urls or norm(r.get("final_url", "")) in urls or (doi and r.get("doi") == doi):
+                    out.add(iid)
+            elif kind in ("proposed", "search"):
+                for c in (r.get("candidates") if kind == "proposed" else r.get("found")) or []:
+                    if not isinstance(c, dict):
+                        continue
+                    if (doi and c.get("doi") == doi) or (norm(c.get("url", "")) in urls) or \
+                            (tnorm and " ".join(str(c.get("title") or "").lower().split()) == tnorm and kind == "proposed"):
+                        out.add(iid)
+        return sorted(out)
 
     def kg_source_set(self, name: str, level=None, role: "str | None" = None, marks=None,
                       published: "str | None" = None, derives_from: "str | None" = None,
@@ -4535,18 +4927,20 @@ class KGEngine:
     _EGRESS_TEXT_KEYS = frozenset({"span", "notes", "note", "body", "support_note",
                                    "label", "question", "rationale", "title"})
 
-    def _scrub_egress(self, obj):
+    def _scrub_egress(self, obj, keys: "frozenset[str] | None" = None):
         """Re-run the §1.9 egress scrub over the free-text fields of a read result before it returns to
         the session, so a secret restored into a canon span can't round-trip to the model on a read. Uses
         a THROWAWAY Scrubber at the engine's configured sensitivity (never pollutes the session's
         write-restore map `_scrub_map`); a no-op on ordinary conceptual text (nothing matches). Recurses
-        through nested dicts/lists (items[]/hypotheses[]/edges[]/…)."""
+        through nested dicts/lists (items[]/hypotheses[]/edges[]/…). `keys` widens the fields scrubbed for
+        one result (0.24.0: the source-finding tools also scrub `text`, `abstract` and `looked_for`)."""
         scrubber = Scrubber(self.sensitivity)
+        keys = self._EGRESS_TEXT_KEYS | (keys or frozenset())
 
         def _walk(x):
             if isinstance(x, dict):
                 return {k: (scrubber.scrub(v)[0]
-                            if (k in self._EGRESS_TEXT_KEYS and isinstance(v, str) and v)
+                            if (k in keys and isinstance(v, str) and v)
                             else _walk(v))
                         for k, v in x.items()}
             if isinstance(x, list):
@@ -5367,7 +5761,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def kg_source_add(url: str = "", path: str = "", level: str = "", role: str = "", title: str = "",
                       published: str = "", marks: str = "", derives_from: str = "", note: str = "",
-                      preview: bool = False, build: bool = False) -> dict:
+                      preview: bool = False, build: bool = False, for_items: str = "") -> dict:
         """Register an external source so a grounder can cite a verbatim span from it. The ENGINE copies
         it into the project's evidence/ directory: give exactly one of `url` (http/https; the engine fetches
         the page itself; never pass WebFetch output, which is a model's paraphrase) or `path` (a local
@@ -5382,12 +5776,57 @@ def _register(mcp, engine: KGEngine) -> None:
         Optional: `marks` (comma-separated: interest, corrected, retracted, superseded), `published`
         (YYYY[-MM[-DD]]), `derives_from` (a registered source this one repeats), `title`, `note` (why this
         level), `build` (true: also extract it into the graph like a configured source, so the graph can be
-        built from such sources; /burgess:kg-build plans it). The level measures the filter the text passed,
-        never whether a claim is true. Registering a source the policy accepts wakes the items waiting for new
-        sources; one it does not accept leaves them waiting. Writes only the evidence directory."""
+        built from such sources; /burgess:kg-build plans it), `for_items` (the ids of the waiting items
+        /burgess:kg-sources find found it for, comma-separated; the ones the search log shows are added on their
+        own). The level measures the filter the text passed, never whether a claim is true. Registering a source
+        the policy accepts wakes the waiting items it was found for and those whose words it contains (0.24.0);
+        one it does not accept leaves them waiting. Writes only the evidence directory."""
         return engine.kg_source_add(url=url, path=path, level=level, role=role, title=title,
                                     published=published, marks=marks, derives_from=derives_from, note=note,
-                                    preview=bool(preview), build=bool(build))
+                                    preview=bool(preview), build=bool(build), for_items=for_items)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_source_find(focus: str = "", limit: int = 6) -> dict:
+        """The graph items waiting for an outside source, for /burgess:kg-sources find: the ones a grounder judged
+        and recorded as unsupported that no new usable source wakes. Each comes with what it claims (`text`), its
+        content words (`terms`), what its grounder looked for and did not find (`looked_for`), and the searches and
+        proposals already logged for it, the never-searched first. `focus` keeps the items whose node (or edge
+        ends) it names; `limit` is 1-20 (default 6). Also `waiting_total`, `required_level` (the project's policy)
+        and `openalex_searches_today`. Read-only."""
+        return engine.kg_source_find(focus=focus, limit=limit)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_source_search(query: str, item_id: str = "", stance: str = "for", results: int = 8) -> dict:
+        """Search OpenAlex, the open catalogue of scholarly works, through the engine: only `query` leaves (no key,
+        no contact address; a query holding a secret or a personal detail is refused). Pass the `item_id` it is
+        for and its `stance` (for | against): every search is logged. Each result has title, doi, url (landing
+        page), oa_url (an open-access copy), published, type, venue, venue_type, retracted, cited_by, abstract
+        and a `level_hint` with its reason, from the catalogue's facts: propose it, the user confirms. Without a
+        key, OpenAlex shares a free budget of about 100 searches a day per network (`search-budget` when spent)."""
+        return engine.kg_source_search(query=query, item_id=item_id, stance=stance, results=results)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_source_probe(url: str, item_id: str = "", terms: str = "") -> dict:
+        """Read a candidate page for an item without registering it. The ENGINE fetches the page (never use
+        WebFetch, whose answer is a model's paraphrase, not the page): it refuses a site's bot check
+        (`fetch-blocked`) and PDF, and returns the title, published date, DOI, venue, a `level_hint`, and the
+        `passages` (verbatim paragraphs) that share the most of `terms` (your search words, in the page's language)
+        and of the item's own words. `registered_as` names a registered copy of the same page. Logged for the item,
+        so registering the page later wakes it."""
+        return engine.kg_source_probe(url=url, item_id=item_id, terms=terms)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_source_record_search(item_id: str, searches: list | None = None, proposed: list | None = None,
+                                note: str = "") -> dict:
+        """Log for an item what the engine did not see: your web searches (`searches`: [{query, stance: for |
+        against, results: how many hits you looked at, 0 when none}]) and the candidates you propose
+        (`proposed`: [{url, title, doi, level, stance}]), with a `note`. Log every web search, the empty ones
+        too. Writes only the search log."""
+        return engine.kg_source_record_search(item_id, searches=searches, proposed=proposed, note=note)
 
     @mcp.tool()
     @_tool_result

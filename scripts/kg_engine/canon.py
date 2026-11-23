@@ -132,6 +132,11 @@ EDGELESS_SECTIONS = ".kg-edgeless-sections.jsonl"
 # appended by `kg_record_unsupported` and read by `kg_ground_plan` (`groundplan.unsupported_records`), which
 # leaves such a pin out until the sources or the pin change. Engine state, not canon, like the two above.
 UNSUPPORTED_PINS = ".kg-unsupported-pins.jsonl"
+# Every search `/burgess:kg-sources find` ran for an item and every page it read (0.24.0), one JSON line each,
+# appended by `kg_source_search`, `kg_source_probe` and `kg_source_record_search`, read by `kg_source_find` (what
+# was already searched) and `kg_source_add` (which items a newly registered page was found for). Engine state,
+# not canon, like the three above: a clone without it only searches those items once more.
+SOURCE_SEARCHES = ".kg-source-searches.jsonl"
 
 
 # --------------------------------------------------------------------------- git helpers
@@ -749,9 +754,10 @@ class Canon:
         # The attack ledger (0.10.0) is per-machine engine state like the reconcile cache: a clone without
         # it only offers its hubs to one more attack. The edgeless-section ledger (0.14.0) likewise: a clone
         # without it only offers those sections to one more extraction. The unsupported-pin ledger (0.20.1)
-        # likewise: a clone without it only offers those pins to one more grounder.
+        # likewise: a clone without it only offers those pins to one more grounder. The source-search ledger
+        # (0.24.0) likewise: a clone without it only searches those items once more.
         patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
-                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS, UNSUPPORTED_PINS]
+                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS, UNSUPPORTED_PINS, SOURCE_SEARCHES]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""

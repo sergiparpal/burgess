@@ -147,13 +147,18 @@ def test_only_new_usable_evidence_wakes_a_waiting_item(rig):
 
 
 def test_a_looser_policy_wakes_a_waiting_item(rig):
+    # since 0.24.0 only the items the newly usable notes bear on: the gamma pin shares no word with them
     eng, _, _ = rig
     pin = _pin(eng)
+    eng.canon.write_one(Node(id="pin-b", label="Betweenness approximates importance in sparse graphs",
+                             node_type="claim", provenance=Provenance.HYPOTHESIZED,
+                             body="[diverge] pinned idea: betweenness approximates importance"))
     eng.kg_source_policy(required_level=2)
-    assert eng.kg_record_unsupported(pin, kind="node", note="nothing usable")["ok"]
-    assert _waiting(eng) == 1
+    for nid in (pin, "pin-b"):
+        assert eng.kg_record_unsupported(nid, kind="node", note="nothing usable")["ok"]
+    assert _waiting(eng) == 2
     eng.kg_source_policy(required_level=4)                                  # the notes become usable
-    assert _waiting(eng) == 0
+    assert _waiting(eng) == 1 and "pin-b" in _queued(eng.kg_ground_plan())
 
 
 def test_an_edited_note_still_wakes_a_waiting_item(rig):

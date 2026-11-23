@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.24.0 — 2026-11-23
+
+Burgess now suggests sources. On 21 November you asked for a command that finds outside sources able to verify or
+refute what your graph cannot settle. 0.21.0 to 0.23.1 built the registry, the levels and the policy; this release
+adds the suggestions.
+
+### Added
+
+- **`/burgess:kg-sources find [focus] [n]` looks for sources for the items waiting for one:** the ideas a
+  `/burgess:kg-ground` grounder judged and found no support for. `prueba-burgess` has 119.
+  - A new subagent, the scout (`kg-scout`), writes queries for and against each idea, in English when the idea is
+    in Spanish. It searches the scholarly catalogue OpenAlex through the engine, and the web.
+  - The engine reads each candidate page itself, never through WebFetch.
+  - For each idea you get up to three candidates. Each comes with a proposed level and role and why, whether its
+    passage supports or contradicts the idea, the passage verbatim, and its address.
+  - A page the engine cannot read, such as a publisher's bot check, comes with the catalogue's abstract and the
+    advice to save it from your browser.
+  - You pick what to register. Each pick goes through `add` as usual, and its record keeps the ideas it was found
+    for.
+  - Every search, read and proposal is logged (`.kg-source-searches.jsonl`), empty searches too, so the next run
+    starts with the ideas never searched.
+  - Only the search words leave your machine. A query the engine would redact, such as a secret or a personal
+    detail, is refused.
+  - Without a key, OpenAlex allows about 100 searches a day per network. The engine never sends your email to get
+    a key.
+- Four engine tools: `kg_source_find`, `kg_source_search`, `kg_source_probe` and `kg_source_record_search`, which
+  bring the total to 44.
+
+### Changed
+
+- **A new source wakes only the ideas it concerns.**
+  - Through 0.23.1, registering any usable source sent every waiting idea back to `/burgess:kg-ground`. In
+    `prueba-burgess` that was all 119, about 3.75 USD each time.
+  - Now only the ideas it was found for, or whose words it contains, come back.
+  - A source in English that you add by hand for an idea in Spanish shares no words with it, so it does not wake
+    the idea. `/burgess:kg-ground <focus>` still judges that idea.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- To try it in `prueba-burgess`: run `/burgess:kg-sources find` for 6 ideas, or `/burgess:kg-sources find <word> 3`
+  for three ideas about one topic.
+
 ## 0.23.1 — 2026-11-23
 
 Fixes for what phase 3 of the field test ran into when it built a graph from two peer-reviewed articles, and for

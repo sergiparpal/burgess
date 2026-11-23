@@ -670,11 +670,14 @@ def test_the_tools_are_registered():
 def test_the_command_copies_through_the_engine_only():
     head = COMMAND.split("---", 2)[1]
     allowed = next(line for line in head.splitlines() if line.startswith("allowed-tools:"))
+    # 0.24.0: `find` launches kg-scout subagents (Task) and lists the waiting items (kg_source_find); the command
+    # itself still reads no page and searches nothing: the scouts search, and the engine reads every page
     assert allowed.split(":", 1)[1].split(",") == [
-        " mcp__plugin_burgess_burgess__kg_source_add", " mcp__plugin_burgess_burgess__kg_source_list",
-        " mcp__plugin_burgess_burgess__kg_source_set", " mcp__plugin_burgess_burgess__kg_source_policy"]
+        " Task", " mcp__plugin_burgess_burgess__kg_source_add", " mcp__plugin_burgess_burgess__kg_source_find",
+        " mcp__plugin_burgess_burgess__kg_source_list", " mcp__plugin_burgess_burgess__kg_source_set",
+        " mcp__plugin_burgess_burgess__kg_source_policy"]
     flat = _flat(COMMAND)
-    assert "never use WebFetch or WebSearch for this" in flat
+    assert "never use WebFetch or WebSearch yourself" in flat
     assert "The level measures the filter a text passed before it was published, never whether a claim is true" \
         in flat
     assert "stop: ask the user to confirm or correct it." in flat

@@ -62,6 +62,7 @@ import hashlib
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field, fields
 from html.parser import HTMLParser
@@ -179,6 +180,8 @@ class EvidenceRecord:
     sha256_text: str = ""          # of the text file as written: the integrity check
     raw: str = ""                  # the raw copy's path under evidence/, or ""
     build: bool = False            # extracted into the graph like a configured source (0.22.0)
+    doi: str = ""                  # the DOI the page declares, bare and lower-case (0.24.0), or ""
+    found_for: list = field(default_factory=list)   # the items `find` looked for it for (0.24.0): they wake
     updated_at: str = ""
     schema: int = SCHEMA
 
@@ -604,8 +607,10 @@ def _record_from(data: dict) -> EvidenceRecord:
         raise EvidenceError("sidecar-malformed", "`level_by` is agent or human")
     if not isinstance(rec.build, bool):
         raise EvidenceError("sidecar-malformed", "`build` is true or false")
+    if not isinstance(rec.found_for, list) or not all(isinstance(x, str) and x for x in rec.found_for):
+        raise EvidenceError("sidecar-malformed", "`found_for` is a list of item ids")
     for key in ("title", "url", "final_url", "origin", "retrieved_at", "published_from", "derives_from",
-                "note", "content_type", "extractor", "sha256_raw", "sha256_text", "raw", "updated_at"):
+                "note", "content_type", "extractor", "sha256_raw", "sha256_text", "raw", "doi", "updated_at"):
         if not isinstance(getattr(rec, key), str):
             raise EvidenceError("sidecar-malformed", f"`{key}` must be a string")
     if not rec.sha256_text:
@@ -1066,3 +1071,128 @@ def preview(copy: Copy) -> dict:
     return {"title": copy.title, "chars": len(copy.text), "content_type": copy.content_type,
             "extractor": copy.extractor, "published": page_published(copy.meta), "meta": dict(copy.meta),
             "final_url": copy.final_url, "excerpt": copy.text[:PREVIEW_CHARS]}
+
+
+# ------------------------------------------------------------------------------ finding sources (0.24.0)
+
+# `/burgess:kg-sources find` searches OpenAlex, the open catalogue of scholarly works, through the engine: it knows
+# each work's venue, type, DOI, date and whether it was retracted, so a level is proposed from the catalogue's facts
+# rather than from a page's look. Only the query leaves: no key and no contact address. OpenAlex invites agents to
+# send the user's email to get a key; the engine never does. Without a key every request from one network shares a
+# free daily budget, about 100 searches (checked 2026-11-23).
+OPENALEX_WORKS = "https://api.openalex.org/works"
+OPENALEX_SELECT = ("id,doi,display_name,publication_date,type,primary_location,best_oa_location,is_retracted,"
+                   "abstract_inverted_index,cited_by_count")
+SEARCH_RESULTS = 8
+SEARCH_RESULTS_MAX = 15
+QUERY_MAX_CHARS = 200
+ABSTRACT_MAX_CHARS = 1200
+PASSAGES = 3
+PASSAGE_CHARS = 900
+_DOI_RE = re.compile(r"10\.\d{4,9}/\S+", re.I)
+
+
+def bare_doi(value) -> str:
+    """A DOI as `10.x/…` in lower case, from a bare DOI, a `doi:` form or a doi.org URL, or ""."""
+    m = _DOI_RE.search(str(value or ""))
+    return m.group(0).rstrip(".,;)]").lower() if m else ""
+
+
+def page_doi(meta: dict) -> str:
+    """The DOI a page declares in its metadata (`citation_doi`), bare, or ""."""
+    return bare_doi((meta or {}).get("citation_doi", ""))
+
+
+def rebuild_abstract(inverted) -> str:
+    """The text of an OpenAlex `abstract_inverted_index` (`{word: [positions]}`), its words in position order."""
+    if not isinstance(inverted, dict):
+        return ""
+    placed = sorted((p, w) for w, ps in inverted.items() if isinstance(w, str) and isinstance(ps, list)
+                    for p in ps if isinstance(p, int))
+    return " ".join(w for _p, w in placed)
+
+
+def level_hint(kind: str, venue_type: str, retracted: bool) -> "tuple[int | None, str]":
+    """A level to PROPOSE for a catalogued work, with why, or `(None, why not)`. It is a hint from the catalogue's
+    facts, which the user confirms or corrects like any proposal: a journal or conference article is a candidate
+    for level 1 (peer review, when the venue reviews), a preprint or a repository copy is level 4, a book is level 3,
+    and a retracted work supports and refutes nothing."""
+    if retracted:
+        return None, "retracted: it supports and refutes nothing"
+    kind, venue_type = (kind or "").lower(), (venue_type or "").lower()
+    if kind == "standard":
+        return 2, "a standard: a body answers for it"
+    if kind == "dissertation":
+        return 4, "a thesis: examined by its committee, not peer-reviewed as a paper is"
+    if kind in ("preprint", "posted-content") or venue_type == "repository":
+        return 4, "a preprint or a repository copy: not peer-reviewed as such"
+    # OpenAlex types a conference's paper `conference-paper` (seen 2026-11-23, an ICLR paper)
+    if venue_type in ("journal", "conference") and kind in ("article", "review", "letter", "proceedings-article",
+                                                            "conference-paper"):
+        article = "an" if kind[:1] in "aeiou" else "a"
+        return 1, f"{article} {kind} in a {venue_type}: level 1 when the venue is peer-reviewed"
+    if kind in ("book", "book-chapter", "monograph"):
+        return 3, "a book or a chapter: an editor's filter, unless a reviewed series"
+    if kind == "report":
+        return None, "a report: level 2 when a public body answers for it, 4 when a company or an author does"
+    return None, "the catalogue does not say what filter it passed"
+
+
+def openalex_work(w: dict) -> dict:
+    """What a scout proposes a catalogued work from: title, DOI, landing page, an open-access copy, date, type,
+    venue, retraction, citations, the abstract and a level hint."""
+    loc = w.get("primary_location") or {}
+    src = loc.get("source") or {}
+    oa = w.get("best_oa_location") or {}
+    doi = bare_doi(w.get("doi"))
+    kind, venue_type, retracted = str(w.get("type") or ""), str(src.get("type") or ""), bool(w.get("is_retracted"))
+    hint, why = level_hint(kind, venue_type, retracted)
+    abstract = rebuild_abstract(w.get("abstract_inverted_index"))
+    cited = w.get("cited_by_count")
+    return {"title": str(w.get("display_name") or ""), "doi": doi,
+            "url": str(loc.get("landing_page_url") or (f"https://doi.org/{doi}" if doi else "")),
+            "oa_url": str(oa.get("landing_page_url") or oa.get("pdf_url") or ""),
+            "published": str(w.get("publication_date") or ""), "type": kind,
+            "venue": str(src.get("display_name") or ""), "venue_type": venue_type, "retracted": retracted,
+            "cited_by": cited if isinstance(cited, int) and not isinstance(cited, bool) else None,
+            "abstract": abstract[:ABSTRACT_MAX_CHARS] + ("…" if len(abstract) > ABSTRACT_MAX_CHARS else ""),
+            "level_hint": hint, "level_hint_reason": why}
+
+
+def openalex_search(query: str, results: int = SEARCH_RESULTS) -> list:
+    """OpenAlex's works for `query` (titles, abstracts and full texts, best matches first): one GET carrying the
+    query and the fields wanted, no key, the engine's generic User-Agent. EvidenceError `search-budget` when
+    OpenAlex refuses for want of budget, `search-failed` for anything else."""
+    n = max(1, min(int(results or SEARCH_RESULTS), SEARCH_RESULTS_MAX))
+    url = OPENALEX_WORKS + "?" + urllib.parse.urlencode({"search": query, "per_page": n, "select": OPENALEX_SELECT})
+    try:
+        got = fetch(url)
+    except EvidenceError as e:
+        if e.code == "fetch-failed" and e.detail in ("HTTP 402", "HTTP 403", "HTTP 429"):
+            raise EvidenceError("search-budget", f"OpenAlex refused the search ({e.detail}): the free daily "
+                                "budget this network shares is probably spent") from None
+        raise EvidenceError("search-failed", e.detail or e.code) from None
+    try:
+        data = json.loads(decode(got.data, got.charset or "utf-8"))
+    except (EvidenceError, ValueError):
+        raise EvidenceError("search-failed", "OpenAlex answered with something that is not JSON") from None
+    rows = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        raise EvidenceError("search-failed", "OpenAlex's answer holds no list of results")
+    return [openalex_work(w) for w in rows if isinstance(w, dict)]
+
+
+def best_passages(text: str, terms: "list[str]", k: int = PASSAGES, max_chars: int = PASSAGE_CHARS) -> "list[dict]":
+    """The `k` paragraphs of `text` that share the most of `terms`, rare words weighing more (the rule a node's
+    grounder reads its sections by, 0.20.2), each `{text, matched}`: the paragraph alone, cut from `text` itself
+    (a paragraph longer than `max_chars` is split into its lines, and a line longer than that keeps its first
+    `max_chars` characters), so a span copied from it verifies once the page is registered."""
+    from .groundplan import rank_units, text_forms, text_units
+    units = text_units(text or "", max_chars)
+    if not units or not terms:
+        return []
+    out: "list[dict]" = []
+    for _score, i, matched in rank_units([text_forms(text[a:b]) for a, b in units], terms)[:k]:
+        a, b = units[i]
+        out.append({"text": text[a:min(b, a + max_chars)], "matched": matched})
+    return out

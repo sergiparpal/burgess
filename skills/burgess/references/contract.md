@@ -24,11 +24,13 @@ the twenty-two core read/write tools: `kg_ping`, `kg_scrub`, `kg_build_plan` (th
 `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path` (read-only grounded-only
 associative chain + advisory `leap`, §2), `kg_context`, `kg_agenda` (read-only structural agenda),
 `kg_export` (read-only human-facing render), `kg_source_add` / `kg_source_list` / `kg_source_set` (external
-sources with an epistemic level, 0.21.0), `kg_source_policy` (the project's evidence policy, 0.22.0) (plus the
+sources with an epistemic level, 0.21.0), `kg_source_policy` (the project's evidence policy, 0.22.0),
+`kg_source_find` / `kg_source_search` / `kg_source_probe` / `kg_source_record_search` (/burgess:kg-sources find,
+0.24.0: they read the graph and outside pages and write only the source-search ledger) (plus the
 five generative-layer tools `kg_propose` (§5a),
 `kg_generate`, `kg_operate`, `kg_absorption`, and `kg_record_generation`, the record a /burgess:kg-generate run
-leaves in the absorption ledger — see the generative-layer references) — thirty-two in all.
-The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to forty; they
+leaves in the absorption ledger — see the generative-layer references) — thirty-six in all.
+The eight `kg_diverge_*` tools of the divergence engine bring the full MCP surface to forty-four; they
 never touch this contract (nothing under `divergence/` can set an epistemic state — invariant I3).
 
 ---

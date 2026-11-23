@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the thirty-two graph tools (§1), then the eight divergence-surface
+Load on demand. The MCP **tool surface** — the thirty-six graph tools (§1), then the eight divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -17,7 +17,7 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-two** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-six** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
@@ -29,8 +29,11 @@ extraction leaves on a section it wrote no edge from, `kg_record_generation` (§
 (§1.26), the mark a grounder leaves on a `[diverge]` pin it judged and found no support for, and the
 sources tools `kg_source_add` (§1.27), `kg_source_list` (§1.28) and `kg_source_set` (§1.29), which register
 outside texts with an epistemic level so grounders can cite verbatim spans from them (0.21.0), and
-`kg_source_policy` (§1.30), the project's evidence policy (0.22.0).
-The eight **divergence-surface** tools (§1B) complete the server's **forty**.
+`kg_source_policy` (§1.30), the project's evidence policy (0.22.0), and the four tools of
+`/burgess:kg-sources find` (0.24.0): `kg_source_find` (§1.31), the items waiting for a source; `kg_source_search`
+(§1.32), the scholarly catalogue searched through the engine; `kg_source_probe` (§1.33), a candidate page read by
+the engine; and `kg_source_record_search` (§1.34), the scout's web searches and proposals.
+The eight **divergence-surface** tools (§1B) complete the server's **forty-four**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
@@ -39,7 +42,9 @@ the single source of truth) — `kg_propose` (§1.12) is the hypothesized write 
 through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
 `kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon, and
 `kg_record_generation` (§1.25) only the absorption ledger in the derived dir, and `kg_source_add` /
-`kg_source_set` / `kg_source_policy` (§1.27, §1.29, §1.30) only the project's `evidence/` directory. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+`kg_source_set` / `kg_source_policy` (§1.27, §1.29, §1.30) only the project's `evidence/` directory, and
+`kg_source_search` / `kg_source_probe` / `kg_source_record_search` (§1.32–§1.34) only the source-search ledger
+beside the canon. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -1278,7 +1283,8 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   `[diverge]` pin; nothing is written then.
 - Registering an external source (§1.27) changes the source signature. Through 0.22.0 that offered every waiting
   pin again, and so did any change of the policy (§1.30), whose fingerprint joins the signature whenever it
-  differs from the defaults. Since 0.22.1 only a usable file the item was not judged against does, as below.
+  differs from the defaults. Since 0.22.1 only a usable file the item was not judged against does, as below, and
+  since 0.24.0 only such a file that was found for the item or bears on it.
 - Since 0.22.0 two more kinds of item may be recorded, both ones the policy leaves without usable support, which
   a grounder leaves `unverified` rather than rejects: an edge whose span lies only in sources the project does
   not accept, and a hypothesis while the notes, at their default level, are below the required level. The plan
@@ -1288,10 +1294,16 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   or a looser policy, offers it again, while registering a source the policy does not accept, removing one, or
   a stricter policy does not. A record made before 0.22.1 has no list: when its `source_sig` is the signature of
   the configured sources as they are now, it stands for them; otherwise the signatures must match, as before.
+- **Since 0.24.0 such a file wakes only the items it bears on** (`KGEngine._new_source_wakes`): the items its
+  record says `/burgess:kg-sources find` looked for it for (`found_for`, §1.27), and the items with a paragraph
+  in it that shares their words (the 0.22.4 paragraph rule, `Projector._bearing_files`). Through 0.23.1 any new
+  usable file woke every waiting item: in the field one source would have sent all 119 waiting pins of a project
+  back to a grounder. A source in another language than an item shares no words with it, so one registered by
+  hand for it is reached with a `focus`. The record now keeps the grounder's `note`, which §1.31 shows.
 
 ---
 
-### 1.27 `mcp__plugin_burgess_burgess__kg_source_add(url="", path="", level="", role="", title="", published="", marks="", derives_from="", note="", preview=False)`
+### 1.27 `mcp__plugin_burgess_burgess__kg_source_add(url="", path="", level="", role="", title="", published="", marks="", derives_from="", note="", preview=False, build=False, for_items="")`
 
 Register an external source (0.21.0, `evidence.py`): the engine copies an outside text into
 `<project>/evidence/` and records its epistemic level, so a grounder can cite a verbatim span from it. Through
@@ -1355,6 +1367,12 @@ measures the filter the text passed before it was published, never whether a cla
   configured sources only. It is used for span verification (`kg_write`, `kg_ground`, the R3 staleness scan),
   the grounder's evidence (`kg_ground_item`), the adversarial grounder's search (`kg_ground_plan`'s
   `evidence`), and the source signature that wakes waiting pins.
+- `for_items` (0.24.0) — the ids of the waiting items `/burgess:kg-sources find` found the page for,
+  comma-separated. The engine adds the items its search ledger shows the page was read (§1.33) or proposed
+  (§1.34) for, or found by a catalogue search (§1.32) for: by URL, by DOI, or for a proposal by its exact title,
+  so a page saved from a browser still finds its item. The record keeps them in `found_for`, with the page's
+  `doi`, and the result names them in `found_for`: they, and the items whose words the source contains, wake
+  for the next `/burgess:kg-ground` (§1.26). `item-not-found` for an id the graph does not hold.
 - Refusals: `give-url-or-path`, `url-not-http`, `fetch-failed` (with the HTTP status or reason), `too-large`
   (over 5 MB), `undecodable`, `no-text` (the page needs JavaScript: save its text as `.md` and register the
   file), `pdf-not-supported`, `content-type-not-supported`, `file-type-not-supported`, `file-not-found`,
@@ -1452,6 +1470,103 @@ level-1 sources.
   at the required level is registered or the level is lowered.
 - A malformed `policy.json` is reported in `problems` and the defaults apply. Refusals: `bad-required-level`,
   `bad-level`, `bad-build-from-notes`, and the three `notes-path-*` above.
+
+### 1.31 `mcp__plugin_burgess_burgess__kg_source_find(focus="", limit=6)`
+
+The items waiting for an outside source, for `/burgess:kg-sources find` (0.24.0): every item a grounder recorded with
+`kg_record_unsupported` (§1.26) that still waits, because no usable source it was not judged against was found
+for it or bears on it. The user asked on 2026-11-21 for Burgess to *suggest* sources that could settle what the
+graph cannot; 0.21.0–0.23.1 built the registry, the levels and the policy, and this is the suggestion. Read-only.
+
+```json
+{"ok": true, "focus": "", "waiting_total": 119, "never_searched": 119, "limit": 6, "required_level": 4,
+ "openalex_searches_today": 0, "query_max_chars": 200,
+ "items": [{"id": "idea-atasco-fabrica-agentes-c1a", "kind": "node",
+            "text": "Comprimir el historial de acciones del agente y vigilar la ratio de compresión: …",
+            "terms": ["comprimir", "historial", "acciones", "agente", "vigilar", "ratio", "compresión"],
+            "looked_for": "Looked for … Closest: …", "waiting_since": "2026-11-22T17:28:00+00:00",
+            "searched": [], "proposed": []}]}
+```
+
+- `focus` keeps the items whose node, or whose edge's ends, it names (the word rules of §1.21). `limit` is 1–20.
+- The order: the items never searched first, then the ones searched longest ago (the search ledger, §1.32).
+- `text` is what the item claims (a node's label and body without its lineage lines and verdict paragraphs; an
+  edge's ends, relation and span), `terms` its content words, `looked_for` its grounder's note, `searched` the
+  last 8 searches logged for it and `proposed` the last 6 candidates proposed for it. Egress-scrubbed.
+- With nothing recorded, `note` says that an item waits once a grounder judged it and recorded that no usable
+  source supports it; with records but nothing waiting, that the new sources are to be judged first.
+
+---
+
+### 1.32 `mcp__plugin_burgess_burgess__kg_source_search(query, item_id="", stance="for", results=8)`
+
+Search OpenAlex, the open catalogue of scholarly works, through the engine (0.24.0). Only the query leaves the
+machine: one GET to `api.openalex.org/works` with `search`, `per_page` and `select`, the engine's generic
+User-Agent, no key and no contact address. (OpenAlex invites agents to send the user's email to get a key; the
+engine never does.) Without a key every request from one network shares a free daily budget, about 100 searches
+(checked 2026-11-23).
+
+```json
+{"ok": true, "backend": "openalex", "query": "stigmergy software agents coordination", "stance": "for", "count": 1,
+ "results": [{"title": "Stigmergy in software teams", "doi": "10.1234/stig.2025.7", "url": "https://example.org/stig",
+              "oa_url": "", "published": "2025-03-04", "type": "article", "venue": "Journal of Coordination",
+              "venue_type": "journal", "retracted": false, "cited_by": 12, "abstract": "Agents coordinate …",
+              "level_hint": 1, "level_hint_reason": "an article in a journal: level 1 when the venue is peer-reviewed"}]}
+```
+
+- `level_hint` comes from the catalogue's facts (`evidence.level_hint`): a journal or conference article 1, a
+  preprint or repository copy 4, a book 3, a retracted work none. It is a proposal the user confirms or corrects.
+- `abstract` is rebuilt from OpenAlex's inverted index, at most 1200 characters. It is not a registered copy:
+  only a registered page can carry a span.
+- Every search is logged in `<project>/.kg-source-searches.jsonl` (engine state, git-excluded, read fail-open)
+  with its item, stance, count and the results' titles, DOIs and URLs.
+- `query-refused`: an empty or overlong query (over 200 characters), or one holding what the §1.9 scrub would
+  redact (a secret, a personal detail, a ⟦CAT:N⟧ placeholder): nothing is sent. `search-budget`: OpenAlex refused
+  for want of budget (HTTP 402, 403 or 429). `search-failed`: anything else. `item-not-found` for an unknown item.
+
+---
+
+### 1.33 `mcp__plugin_burgess_burgess__kg_source_probe(url, item_id="", terms="")`
+
+Read a candidate page for an item without registering it (0.24.0). The engine fetches it as `kg_source_add` does
+(§1.27; never WebFetch, whose answer is a model's paraphrase of a page) and returns what to judge it by.
+
+```json
+{"ok": true, "url": "https://example.org/stig", "final_url": "https://example.org/stig", "title": "Stigmergy in software teams",
+ "doi": "10.1234/stig.2025.7", "published": "2025-03-04", "venue": "Journal of Coordination", "publisher": "",
+ "site": "", "chars": 210, "extractor": "html-text/3", "level_hint": 1,
+ "level_hint_reason": "declares a journal or conference (Journal of Coordination): level 1 when it is peer-reviewed",
+ "passages": [{"text": "Agents coordinate through stigmergy when each trace …", "matched": ["stigmergy", "repository"]}],
+ "terms": ["stigmergy", "repository", "traces"]}
+```
+
+- `passages` are the 3 paragraphs that share the most of `terms` (the scout's search words, in the page's
+  language) and of the item's own words, rare words weighing more (`evidence.best_passages`, the rule of
+  §1.22's node sections), each cut from the page as the engine would copy it, at most 900 characters.
+- `registered_as` names a registered copy of the same page (same bytes, URL or DOI).
+- Refusals: `fetch-blocked` (a site's bot check, with the hint to save the page from a browser and add the
+  file), `pdf-not-supported`, `fetch-failed`, `no-text`, and the other refusals of §1.27's fetch.
+- Every read is logged for its item, ok or not, so registering the page later (§1.27) records the item in
+  `found_for` and wakes it.
+
+---
+
+### 1.34 `mcp__plugin_burgess_burgess__kg_source_record_search(item_id, searches=None, proposed=None, note="")`
+
+Log for an item what the engine did not see (0.24.0): the scout's web searches and the candidates it proposes.
+
+- `searches` — `[{query, stance, results}]`: each web search, `stance` for or against, `results` the number of
+  hits looked at, 0 for an empty search. Empty searches are logged too: what was searched and found nothing is
+  part of the record.
+- `proposed` — `[{url, title, doi, level, stance}]`: the candidates the scout proposes. `kg_source_add` matches a
+  page registered later to these by URL, DOI or exact title.
+- `note` — what the scout found, or why nothing.
+
+```json
+{"ok": true, "item": "idea-atasco-fabrica-agentes-c1a", "searches": 2, "proposed": 1}
+```
+
+- `item-not-found`, or a refusal naming the malformed search or candidate; nothing is written then.
 
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 

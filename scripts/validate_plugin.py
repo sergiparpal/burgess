@@ -55,7 +55,7 @@ def _grep_project_version(rel: str, errors: list[str]) -> str | None:
     return None
 
 REQUIRED_AGENTS = ["extractor", "grounder", "annotator", "adversarial-grounder", "evaluator",
-                   "generator"]
+                   "generator", "scout"]
 REQUIRED_COMMANDS = ["kg-build", "kg-ground", "kg-query", "kg-eval", "kg-experiment", "kg-generate", "kg-diverge",
                      "kg-perturb", "kg-view", "kg-sources"]
 REQUIRED_FILES = ("skills/burgess/SKILL.md",

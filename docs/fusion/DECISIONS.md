@@ -2810,3 +2810,68 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - Under `back-matter`, an article's Funding and competing-interest sections are no longer read by an extractor.
     In phase 3 they told the agent that the interest mark was not needed; that check now rests on the preview.
 - **Pinned in:** `tests/test_fix_source_intake_and_build_noise.py`.
+
+## Burgess suggests sources: /burgess:kg-sources find (2026-11-23)
+
+- **Decision:**
+  - `/burgess:kg-sources find [focus] [n]` suggests outside sources for the items waiting for one, the items a
+    grounder recorded with `kg_record_unsupported` that still wait.
+  - **Who does what.** The language layer searches and proposes. The engine lists, searches the catalogue, reads
+    pages and logs. The user picks, and the existing `add` registers.
+  - **Four tools (40 → 44):**
+    - `kg_source_find` (read-only): the items, with `text`, `terms`, `looked_for` (the grounder's note, now kept by
+      `groundplan.unsupported_records`) and the searches already logged. The never-searched come first.
+    - `kg_source_search`: OpenAlex through the engine (`evidence.openalex_search`). One GET with `search`,
+      `per_page` and `select`, the generic User-Agent, no key and no contact address. A query that the §1.9 scrub
+      would change, or that holds a placeholder, is refused before anything is sent (`query-refused`).
+    - `kg_source_probe`: the engine fetches a candidate, refuses a bot check, and returns the page's metadata, a
+      `level_hint` and the paragraphs that share the most of the scout's terms (`evidence.best_passages`, the
+      0.20.2 ranking, the paragraph alone, at most 900 characters).
+    - `kg_source_record_search`: the scout's web searches (empty ones too) and its proposals.
+  - **Every search, read and proposal goes to `.kg-source-searches.jsonl`**: engine state beside the canon,
+    gitignored, git-excluded, and read fail-open.
+  - **The scout.** A new `kg-scout` agent has WebSearch and the three engine tools, and no WebFetch, Bash or Read.
+    It runs on `model: sonnet` with `omitClaudeMd: true`.
+    - It writes one or two queries for and one against, in English when the item is in Spanish.
+    - It proposes up to three candidates per item, each with a level, a role, a stance and a verbatim passage.
+    - It never registers and never judges.
+  - **Registration.** `kg_source_add(for_items=)` records `found_for`, plus the page's `doi`. The engine adds the
+    items the ledger ties to the page: a probe or proposal by URL or DOI, a catalogue result by DOI or URL, or a
+    proposal by its exact title. That way a page saved from a browser still finds its item.
+  - **The wake rule narrows.** `groundplan.waits_for_sources(wakes=)` lets a usable file an item was not judged
+    against wake it only when the file was found for it or bears on it (`KGEngine._new_source_wakes`: `found_for`,
+    or the 0.22.4 paragraph rule). The plan and `kg_source_find` share it.
+  - **Level hints** (`evidence.level_hint`): a journal or conference article (`conference-paper` included) 1, a
+    standard 2, a book 3, a preprint, repository copy or thesis 4, a report or anything else none, and a retracted
+    work none. A hint is a proposal the user confirms.
+- **What it answers:**
+  - The user's request of 2026-11-21 for Burgess to suggest sources. 0.21.0–0.23.1 shipped the registry, levels
+    and policy, and the user said the registry alone was not what they asked for.
+  - The design was proposed on 2026-11-21 and again on 2026-11-23, and approved («Sí, adelante»).
+- **Checked:**
+  - On 2026-11-23, from WSL, WebSearch works for this account in Spain despite the "US-only" in its description.
+  - The engine's fetch reaches OpenAlex, Crossref and arXiv without a key.
+  - OpenAlex without a key shares a $0.10 daily budget per IP at $0.001 a search, so about 100 searches. Its notice
+    asks agents to send the user's email for a key; the engine never does.
+  - A smoke run on a copy of `prueba-burgess`:
+    - `kg_source_find` lists 119 waiting items in 0.1 s;
+    - a search returns 5 works in 0.5 s;
+    - a probe of an ICLR page returns its passages in 0.9 s;
+    - the ledger holds both.
+    - It showed OpenAlex typing an ICLR paper `conference-paper`, which the level hint first missed.
+- **Why the scout starts without CLAUDE.md and memory:** its queries leave the machine, and the user's
+  instructions and memory notes hold names, paths and project names that a query must never carry. The Windows
+  memory notes have also carried stale rules into subagents before.
+  `tests/test_fix_grounders_without_memory.py` and `tests/test_fix_blind_memory.py` record the decision.
+- **Why OpenAlex in the engine and WebSearch in the scout:**
+  - The catalogue's facts (venue type, work type, DOI, retraction) are what a level is proposed from, and a
+    deterministic call can be logged and refused.
+  - Institutional and editorial sources (levels 2–3) are not in the catalogue, so the web search covers them.
+  - Pages are read only by the engine, so a passage is the page's own text.
+- **Accepted trade-offs:**
+  - A source in another language than an item shares no words with it. A source added by hand, without `find`,
+    does not wake such an item, and a focus reaches it.
+  - Through 0.23.1 every new usable file woke every waiting item, at about 3.75 USD per pass in the field.
+  - The OpenAlex budget is shared by the network. A spent budget (`search-budget`) leaves the web search.
+  - WebSearch on the user's Windows install is not yet checked; the field test will show it.
+- **Pinned in:** `tests/test_feat_source_find.py`.
