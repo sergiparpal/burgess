@@ -144,6 +144,36 @@ claim. Prefer depth on the vaguest hubs over breadth across many.
 3. Re-read `kg_context()`. Confirm `falsification_counters.failed_or_rejected_edges` rose by the number of
    claims you grounded `failed`. Report deltas.
 
+## Attacking an idea (0.25.0)
+
+Your prompt may also list **ideas**: `[diverge]` pins that a registered source was found against (the plan's
+`pin_attacks`). A pin is never a hub, so this is the only way one is ever attacked. For each idea, after the hubs:
+1. `kg_ground_item(target_id=<idea id>, kind="node")`. Its `against_context` holds the sections of the sources found
+   against it, ranked by the words the scout searched with. Read the idea's own text in `node.body`: what it does,
+   what for, what sets it off, where it acts.
+2. **What refutes an idea.** A passage refutes it only when, in its own context, it shows the idea's own mechanism
+   failing for the idea's purpose, or states the contrary of what the idea claims. None of these refute it:
+   - a passage that limits the idea: it works less well, sometimes, or only under conditions;
+   - a passage that refutes a neighbouring claim: the same mechanism put to another purpose, or a narrower or
+     broader idea;
+   - a passage that merely does not support the idea.
+3. **It refutes the idea:**
+   - Write the counter-claim and the counter-edge (Output A): the counter-claim a new node naming what the passage
+     states; the edge `<idea id> attacked_by <counter node>` (or `confounded_by` / `collapses_into`, as your
+     relation table defines them), with a VERBATIM span from that source, its basename as `source_file`, and notes
+     opening with `counter-edge (adversarial pass, hub <idea id>)`.
+   - Then call `kg_ground(target_id=<idea id>, verdict="failed", kind="node", refuted_by=<the edge id>, note=<what
+     the passage shows>)`.
+   - The engine HOLDS a refutation of an idea for a second grounder (`held: true, needs_confirmation: true`):
+     refuting an idea is permanent. Report it as held, and do not stamp it again.
+4. **It only limits the idea, or refutes a neighbour:** write no counter-edge. Record the attack with
+   `kg_record_attack(hub_id=<idea id>, question=<what the passage does to the idea, and the question it leaves
+   open>, reason="no-span")`. The idea keeps waiting for a source that supports it, and the plan does not offer it
+   again until a newer source is found against it.
+
+The ideas count against your per-run cap like hubs. Report each idea apart: held (with the edge and the span), or
+recorded as limited (with what the passage does to it).
+
 ## Output A — a counter-edge payload (exactly this shape; extra fields FORBIDDEN; `complete` MUST be true)
 ```json
 {

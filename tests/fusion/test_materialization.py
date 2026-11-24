@@ -282,7 +282,7 @@ def test_e2e_diverge_pin_materialize_ground_failure_feeds_back(rig):
     assert engine.canon.read_node(n0).epistemic_state is EpistemicState.GROUNDED
 
     # one failure: c1's idea is actively falsified
-    lost = engine.kg_ground(n1, "failed", kind="node")
+    lost = _refute(engine, n1)   # held, then confirmed by a second grounder (0.25.0)
     assert lost.get("ok"), lost
 
     # negative memory is permanent AND flows back into the brief's discards
@@ -437,6 +437,16 @@ def _bump_source(path: Path, text: str) -> None:
     os.utime(path, (st.st_atime, st.st_mtime + 100))
 
 
+
+def _refute(engine, node_id, **kw):
+    """Stamp a pin `failed`. Since 0.25.0 a refutation of a `[diverge]` pin is held for a second grounder, so the
+    first call is held and the second, the confirmation, applies it (tests/test_feat_attack_ideas.py)."""
+    first = engine.kg_ground(node_id, "failed", kind="node", **kw)
+    assert first.get("held"), first
+    second = engine.kg_ground(node_id, "failed", kind="node", **kw)
+    assert second.get("confirmed"), second
+    return second
+
 def _diverge_state(engine):
     from kg_engine.divergence.state import State
     return State("brief", home=Path(engine.project_dir) / ".kg" / "diverge")
@@ -447,7 +457,7 @@ def test_failed_fated_discard_surfaces_reexaminable_after_source_change(rig):
     the failed one (a live/unverified pin is never surfaced). Surface-only: the discard is NOT removed."""
     engine, t, _ = rig
     t["kg_diverge_materialize"](project="brief")               # materialize c0 + c1
-    assert engine.kg_ground(_node_id("brief", "c1"), "failed", kind="node").get("ok")
+    assert _refute(engine, _node_id("brief", "c1")).get("ok")
     resumed = t["kg_diverge_init"](project="brief", axes="generic", session="s1", seed=5)
     assert {"candidate": "c1", "fate": "failed"} in resumed.get("materialized_failures_discarded", [])
     assert not resumed.get("reexaminable_discards")            # source unchanged since judged
@@ -465,7 +475,7 @@ def test_reexaminable_discards_empty_without_source(rig, monkeypatch):
     """No source configured -> the divergence mirror is empty (parallels the graph advisory)."""
     engine, t, _ = rig
     t["kg_diverge_materialize"](project="brief")
-    assert engine.kg_ground(_node_id("brief", "c1"), "failed", kind="node").get("ok")
+    assert _refute(engine, _node_id("brief", "c1")).get("ok")
     t["kg_diverge_init"](project="brief", axes="generic", session="s1", seed=5)
     engine.source_path = None                                  # drop the source
     recalled = t["kg_diverge_recall"](project="brief")
@@ -477,7 +487,7 @@ def test_explicit_unseal_removes_discard_and_clears_fate(rig):
     fate; WITHOUT it the discard remains (permanence not silently broken)."""
     engine, t, _ = rig
     t["kg_diverge_materialize"](project="brief")
-    assert engine.kg_ground(_node_id("brief", "c1"), "failed", kind="node").get("ok")
+    assert _refute(engine, _node_id("brief", "c1")).get("ok")
     t["kg_diverge_init"](project="brief", axes="generic", session="s1", seed=5)
     st = _diverge_state(engine)
     assert "c1" in st.read_discards("generic")
@@ -503,7 +513,7 @@ def test_unseal_holds_across_next_fate_sync_until_source_changes(rig):
     (which would silently undo the un-seal) while the source is unchanged."""
     engine, t, _ = rig
     t["kg_diverge_materialize"](project="brief")
-    assert engine.kg_ground(_node_id("brief", "c1"), "failed", kind="node").get("ok")
+    assert _refute(engine, _node_id("brief", "c1")).get("ok")
     t["kg_diverge_init"](project="brief", axes="generic", session="s1", seed=5)
     _bump_source(engine.source_path, "New evidence for the c1 idea.\n")
     t["kg_diverge_recall"](project="brief", reexamine=["c1"])   # un-seal

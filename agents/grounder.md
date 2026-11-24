@@ -269,6 +269,19 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     (the verdict answers `confirmed: true` and a line in the notes or the body says how it was found), or
     leave it `unverified` and record it unsupported, saying what the passage lacks. Never confirm a verdict
     you were held on yourself.
+  - **A `confirm` whose `verdict` is `failed` (0.25.0)** is a refutation an adversarial grounder found against a
+    `[diverge]` idea. It holds the counter-edge (`refuted_by`), its span and the section around it. Judge only
+    whether that passage, in its section, refutes the idea: it shows the idea's own mechanism failing for the
+    idea's purpose, or states the contrary of the idea. A passage that only limits the idea, or refutes a
+    neighbouring claim, does not.
+    - **It refutes the idea:** confirm with `kg_ground(target_id, "failed", kind="node", refuted_by=<that
+      counter-edge>, note=…)`. The idea becomes `failed`, permanent negative memory.
+    - **It does not, and the idea is unverified:** decline with `kg_record_unsupported`, saying what the passage
+      does to it. The idea keeps waiting for a source.
+    - **It does not, and the idea is grounded:** decline by grounding it again, `kg_ground(target_id, "grounded",
+      kind="node", note=…)`.
+
+    This is the one `failed` you ever give an idea, and only to confirm another grounder's refutation.
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
   For a proposal, the excerpts are those of `shared_context`.

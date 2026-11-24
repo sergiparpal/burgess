@@ -85,7 +85,8 @@ Split it at the first space. The first word is the action, and the rest of the l
    answers.
 4. On the user's answer, call `kg_source_add` again with the same `url`/`path` and the confirmed `level`,
    `role`, `marks`, plus `published` when the user gave a date (otherwise the engine keeps the date the page
-   declares) and a `note` saying why this level. Pass `build=true` only when the user asked to build the graph
+   declares) and a `note` saying why this level. When the user registers it against an idea (a candidate with the stance
+   `refutes`, or one they say goes against an idea), pass `against_items=<those ids>` (0.25.0). Pass `build=true` only when the user asked to build the graph
    from this source (when the project builds from registered sources, `build_from_notes` false, ask). Under
    `find`, pass `for_items=<the item ids it was found for>`.
    - `already-registered`: the same text is already a source (`name`). Report it and stop.
@@ -98,7 +99,11 @@ Split it at the first space. The first word is the action, and the rest of the l
    - `found_for`: the source was found for it;
    - `words`: a paragraph of the source shares three of its words, the ones in `words`;
    - `no-words`: it has no words to test, so any new usable source brings it back.
-   An empty `comes_back` means no waiting item comes back. When `source.usable` is false, they all keep waiting
+   An empty `comes_back` means no waiting item comes back. When the result has `to_attack` (0.25.0), the source was
+   found AGAINST those items (a scout proposed it with the stance `refutes`, or you named them in `against_items`):
+   they do not come back to be grounded on it; the next `/burgess:kg-ground` has the adversarial grounder attack
+   them, and a refutation it finds is confirmed by a second grounder before the idea is marked refuted. Name them
+   apart. When `source.usable` is false, they all keep waiting
    and the source changes nothing until the policy accepts its level. Nothing was added to the graph. (Through
    0.24.4 the report had only `found_for`, and an item found for the source was reported as coming back for
    sharing words with it; through 0.23.1 every waiting item came back.)

@@ -1513,7 +1513,9 @@ class KGEngine:
                         return {"ok": False, **err} if isinstance(err, dict) else {"ok": False, "error": err}
                 # Support found after the grounder's own search is held for a second grounder (0.24.6), decided
                 # after the support checks and before any state change: nothing is written but the hold.
-                gate = self._hold_or_confirm("node", node.id, sig_before, state, support_span, support_note, note)
+                from .groundplan import DIVERGE_MARK
+                gate = self._hold_or_confirm("node", node.id, sig_before, state, support_span, support_note, note,
+                                             refuted_by=refuted_by, pin=DIVERGE_MARK in (node.body or ""))
                 if gate is not None and "confirming" not in gate:
                     return gate
                 confirming = gate.get("confirming") if gate else None
@@ -2975,8 +2977,7 @@ class KGEngine:
                 # A recorded item waits while the sources, the policy and the item are the ones it was judged
                 # against: a pin (0.20.1), or since 0.22.0 an item the policy leaves without usable support.
                 if ("edge", e.id) in holds:
-                    confirm_rows.append((e.id, "edge"))
-                    continue
+                    continue   # queued only to be confirmed, below
                 if unsupported and waits("edge", e):
                     unsupported_waiting += 1
                     continue
@@ -3009,8 +3010,7 @@ class KGEngine:
                 continue
             pinned = DIVERGE_MARK in (n.body or "")
             if ("node", n.id) in holds:
-                confirm_rows.append((n.id, "node"))
-                continue
+                continue   # queued only to be confirmed, below
             if unsupported and waits("node", n):
                 unsupported_waiting += 1
                 continue
@@ -3049,6 +3049,21 @@ class KGEngine:
                 queued_ids.add(item_id)
                 reexaminable += 1
         items.sort(key=lambda row: row[0])
+        # Every held verdict, whatever the item's state (0.24.6; a refutation of a grounded pin since 0.25.0), in
+        # the focus like any item, while the item is live.
+        node_by_id = {n.id: n for n in nodes}
+        edge_by_id = {e.id: e for n in nodes for e in n.edges}
+        live = (EpistemicState.UNVERIFIED, EpistemicState.GROUNDED)
+        for (hkind, hid) in holds:
+            held_item = node_by_id.get(hid) if hkind == "node" else edge_by_id.get(hid)
+            if held_item is None or held_item.epistemic_state not in live:
+                continue
+            if hkind == "node" and hid not in in_focus:
+                continue
+            if hkind == "edge" and focus and slug(held_item.source) not in in_focus and slug(held_item.target) not in in_focus:
+                continue
+            confirm_rows.append((hid, hkind))
+        pin_attacks = self._pin_attacks(nodes, in_focus, holds)
         # No source usable at all under the policy (0.22.1): a hypothesis can be neither grounded nor rejected for
         # its level, so judging it would only repeat the verdict-less outcome, and an attack could fail nothing.
         # Both are left out and counted in `blocked`. An extracted claim stays queued: its span can still be
@@ -3105,6 +3120,8 @@ class KGEngine:
                       # grounded verdicts held because their support came after the grounder's own search
                       # (0.24.6), queued last for a second grounder to confirm or decline
                       "confirm": len(confirm_rows),
+                      # pins a usable source was found against, for the adversarial grounder (0.25.0)
+                      "pin_attacks": len(pin_attacks),
                       "extractor_nodes_not_queued": skipped,
                       # pins judged unsupported against these sources, left out until the sources change
                       # (0.20.1); always 0 with a focus, which offers them again
@@ -3115,6 +3132,8 @@ class KGEngine:
             "batch_size": size, "wave_size": wave, "wave_size_from": origin,
             "batches": planned, "waves": -(-len(planned) // wave), "hubs": hubs,
             "attacked_hubs": [nid for nid, _ in eligible if nid in done],
+            # the [diverge] pins a usable source was found against (0.25.0), for the adversarial grounder
+            "pin_attacks": pin_attacks,
             # the configured files, for the adversarial grounder that searches them for counter-spans
             "source": self._source_info(),
             # the usable registered external sources (0.21.0), which it may search too
@@ -3240,6 +3259,50 @@ class KGEngine:
         return {"path": str(self._evidence_dir()), "files": files, "notes": notes,
                 "required_level": pol.required_level}
 
+    def _sources_against(self, item_id: str) -> "list[str]":
+        """The usable registered sources found AGAINST an item (0.25.0), by name."""
+        return sorted(r.name for r in self.evidence_registry().records.values()
+                      if item_id in (r.found_against or ()) and self._usable_file(r.name))
+
+    def _pin_attacks(self, nodes, in_focus, holds) -> "list[dict]":
+        """The `[diverge]` pins to attack (0.25.0): a live pin (unverified or grounded) that a usable registered
+        source was found AGAINST (`found_against`), and that has a source of those no attack has answered yet. An
+        attack answers the sources it names: an attack record (`kg_record_attack`) or a held refutation stores the
+        sources found against the pin when it was made, so a source registered later is one it did not answer,
+        whatever the clock says (both are stamped to the second). A pin with a counter-edge marked for it that
+        still waits for its verdict, or with a held verdict, is not offered. Each is `{id, label, sources}`, the
+        sources not yet answered. A pin is never a hub, so through 0.24.7 nothing attacked one, and a source found
+        against an idea led nowhere."""
+        from .groundplan import DIVERGE_MARK, attack_sources, attacked_hub
+        against: "dict[str, list[str]]" = {}
+        for rec in self.evidence_registry().records.values():
+            if rec.found_against and self._usable_file(rec.name):
+                for iid in rec.found_against:
+                    against.setdefault(iid, []).append(rec.name)
+        if not against:
+            return []
+        try:
+            with open(self.canon.root / HUB_ATTACKS, encoding="utf-8", errors="replace") as f:
+                answered = attack_sources(f)
+        except OSError:
+            answered = {}
+        for r in self._ground_requests():
+            if r.get("type") == "hold" and r.get("verdict") == EpistemicState.FAILED.value and r.get("kind") == "node":
+                answered.setdefault(str(r.get("item")), set()).update(str(x) for x in r.get("sources") or [])
+        pending = {attacked_hub(e.notes) for n in nodes for e in n.edges
+                   if e.epistemic_state == EpistemicState.UNVERIFIED and attacked_hub(e.notes)}
+        out = []
+        for n in nodes:
+            names = against.get(n.id)
+            if (not names or n.id not in in_focus or DIVERGE_MARK not in (n.body or "")
+                    or n.epistemic_state not in (EpistemicState.UNVERIFIED, EpistemicState.GROUNDED)
+                    or ("node", n.id) in holds or n.id in pending):
+                continue
+            fresh = sorted(set(names) - answered.get(n.id, set()))
+            if fresh:
+                out.append({"id": n.id, "label": n.label, "sources": fresh})
+        return out
+
     def _hub_attacks(self) -> "dict[str, list[str]]":
         """The attacks the ledger records by hub (`groundplan.attack_records`). Fail-open, like the
         reconcile cache: a missing or unreadable ledger is no record, and a bad byte only spoils its line.
@@ -3285,7 +3348,7 @@ class KGEngine:
             path = self.canon.root / HUB_ATTACKS
             try:
                 with open(path, "a", encoding="utf-8") as f:
-                    f.write(attack_record(hub, at, reason, question) + "\n")
+                    f.write(attack_record(hub, at, reason, question, self._sources_against(hub)) + "\n")
                     f.flush()
                     os.fsync(f.fileno())
                 fsync_dir(path.parent)
@@ -3388,7 +3451,7 @@ class KGEngine:
 
     def kg_source_add(self, url: str = "", path: str = "", level="", role: str = "", title: str = "",
                       published: str = "", marks="", derives_from: str = "", note: str = "",
-                      preview: bool = False, build=False, for_items="") -> dict:
+                      preview: bool = False, build=False, for_items="", against_items="") -> dict:
         """Register an external source (0.21.0): the engine copies it into `<project>/evidence/` and records
         its level, so a grounder may cite a verbatim span from it.
 
@@ -3409,6 +3472,9 @@ class KGEngine:
         comma- or space-separated) names the waiting items it was found for; the items the search ledger shows it
         was read or proposed for are added on their own (by URL, DOI or title). They are recorded in `found_for`,
         and only they, with the items whose words the source contains, wake for the next /burgess:kg-ground.
+        `against_items` (0.25.0) names the items it was found AGAINST; the items a scout proposed it for with the
+        stance `refutes` are added on their own. They are recorded in `found_against`, are not woken to be
+        grounded on it, and, when the copy is usable, are attacked by the next /burgess:kg-ground (`to_attack`).
         `comes_back` (0.24.5) lists the waiting items the copy wakes, each with `why`: `found_for`, or `words`
         (a paragraph shares three of its words, listed), or `no-words` (it has none to test, so any new usable
         source wakes it); `still_waiting` counts the others.
@@ -3459,15 +3525,23 @@ class KGEngine:
             bld = ev.parse_bool(build, "bad-build")
         except ev.EvidenceError as e:
             return {"ok": False, "error": e.code, "detail": e.detail}
-        named = [x for x in re.split(r"[,\s]+", for_items if isinstance(for_items, str) else
-                                     " ".join(str(v) for v in (for_items or []))) if x]
-        wanted = []
-        for iid in named:
-            _kind, item, _nodes = self._canon_item(iid)
-            if item is None:
-                return {"ok": False, "error": "item-not-found", "item": iid,
-                        "hint": "for_items names node or edge ids of the graph"}
-            wanted.append(item.id)
+        def ids(value) -> "list[str]":
+            return [x for x in re.split(r"[,\s]+", value if isinstance(value, str) else
+                                        " ".join(str(v) for v in (value or []))) if x]
+
+        wanted, wanted_against = [], []
+        for names, into, field_name in ((ids(for_items), wanted, "for_items"),
+                                        (ids(against_items), wanted_against, "against_items")):
+            for iid in names:
+                _kind, item, _nodes = self._canon_item(iid)
+                if item is None:
+                    return {"ok": False, "error": "item-not-found", "item": iid,
+                            "hint": f"{field_name} names node or edge ids of the graph"}
+                into.append(item.id)
+        both = sorted(set(wanted) & set(wanted_against))
+        if both:
+            return {"ok": False, "error": "item-for-and-against", "items": both,
+                    "hint": "a source is registered for an item or against it, not both"}
         reg = self.evidence_registry()
         derives_from = (derives_from or "").strip()
         if derives_from and reg.get(derives_from) is None:
@@ -3481,15 +3555,17 @@ class KGEngine:
         name_title = (title or copy.title or "").strip()
         doi = ev.page_doi(copy.meta)
         raw_sha = hashlib.sha256(copy.raw).hexdigest()
-        found_for = sorted(set(wanted) | set(self._found_for(url, copy.final_url if url else "", doi,
-                                                             copy.title, raw_sha)))
+        # The ledger's matches, by the stance of the proposals (0.25.0); what the caller names wins over them.
+        auto_for, auto_against = self._found_items(url, copy.final_url if url else "", doi, copy.title, raw_sha)
+        found_against = sorted(set(wanted_against) | (set(auto_against) - set(wanted)))
+        found_for = sorted((set(wanted) | set(auto_for)) - set(found_against))
         rec = ev.EvidenceRecord(
             name=ev.make_name(name_title, url, Path(path).stem if path else "", text_sha), title=name_title,
             url=url, final_url=copy.final_url if url else "", origin=origin, retrieved_at=utcnow(),
             published=pub or detected, published_from="caller" if pub else ("page" if detected else ""),
             level=lvl, level_by="agent", role=rl, marks=mk, derives_from=derives_from,
             note=(note or "").strip(), content_type=copy.content_type, extractor=copy.extractor,
-            sha256_raw=raw_sha, build=bld, doi=doi, found_for=found_for)
+            sha256_raw=raw_sha, build=bld, doi=doi, found_for=found_for, found_against=found_against)
         same_url = sorted(r.name for r in reg.records.values()
                           if url and (r.url == url or (copy.final_url and r.final_url == copy.final_url)))
         # A fetched page, or a local HTML file, keeps its raw bytes: the extraction can be redone from them.
@@ -3515,6 +3591,11 @@ class KGEngine:
         if found_for:
             # the waiting items it was found for (0.24.0): they wake for the next /burgess:kg-ground
             out["found_for"] = found_for
+        if found_against:
+            # the items it was found against (0.25.0): the next /burgess:kg-ground attacks them, if it is usable
+            out["found_against"] = found_against
+            if out["source"].get("usable"):
+                out["to_attack"] = found_against
         if waiting_before is not None:
             try:
                 out.update(self._comes_back(rec, copy.text, waiting_before))
@@ -3982,15 +4063,25 @@ class KGEngine:
         return out
 
     def _found_for(self, url: str, final_url: str, doi: str, title: str, raw_sha: str) -> "list[str]":
-        """The items the search ledger says a page was looked at or proposed for (0.24.0): a probe or a proposal
-        with its URL, final URL or DOI, or a search result with its DOI or its exact title. What a page saved from a
-        browser keeps of its address is its DOI and title, so those are matched too."""
+        """The items the search ledger says a page was looked at or proposed for, any stance (0.24.0)."""
+        found, against = self._found_items(url, final_url, doi, title, raw_sha)
+        return sorted(set(found) | set(against))
+
+    def _found_items(self, url: str, final_url: str, doi: str, title: str,
+                     raw_sha: str) -> "tuple[list[str], list[str]]":
+        """`(found for, found against)`: the items the search ledger says a page was looked at or proposed for
+        (0.24.0), by a probe or a proposal with its URL, final URL or DOI, or a search result with its DOI or its
+        exact title. What a page saved from a browser keeps of its address is its DOI and title, so those are
+        matched too. Split by the stance of the proposals that match (0.25.0): an item whose matching proposals
+        all say `refutes` was found AGAINST, and is attacked rather than woken; any other match (a proposal of
+        another stance, or only a probe or a search result) was found for it."""
         def norm(u: str) -> str:
             return (u or "").strip().rstrip("/").lower()
 
         urls = {norm(u) for u in (url, final_url) if u}
         tnorm = " ".join((title or "").lower().split())
-        out: "set[str]" = set()
+        matched: "set[str]" = set()
+        stances: "dict[str, set[str]]" = {}
         for r in self._source_searches():
             iid = r.get("item")
             if not isinstance(iid, str) or not iid:
@@ -3998,15 +4089,18 @@ class KGEngine:
             kind = r.get("type")
             if kind == "probe" and r.get("ok"):
                 if norm(r.get("url", "")) in urls or norm(r.get("final_url", "")) in urls or (doi and r.get("doi") == doi):
-                    out.add(iid)
+                    matched.add(iid)
             elif kind in ("proposed", "search"):
                 for c in (r.get("candidates") if kind == "proposed" else r.get("found")) or []:
                     if not isinstance(c, dict):
                         continue
                     if (doi and c.get("doi") == doi) or (norm(c.get("url", "")) in urls) or \
                             (tnorm and " ".join(str(c.get("title") or "").lower().split()) == tnorm and kind == "proposed"):
-                        out.add(iid)
-        return sorted(out)
+                        matched.add(iid)
+                        if kind == "proposed":
+                            stances.setdefault(iid, set()).add(str(c.get("stance") or "").strip().lower())
+        against = {i for i, st in stances.items() if st and st <= {"refutes"}}
+        return sorted(matched - against), sorted(against)
 
     def kg_source_set(self, name: str, level=None, role: "str | None" = None, marks=None,
                       published: "str | None" = None, derives_from: "str | None" = None,
@@ -4478,19 +4572,23 @@ class KGEngine:
         search = self._search_context(kind, item.id, scrub)
         if search is not None:
             out["search_context"] = search
+        against = self._search_context(kind, item.id, scrub, against=True)
+        if against is not None:
+            out["against_context"] = against
         if hold is not None:
             out["confirm"] = self._confirm_view(hold, scrub)
         return out
 
-    def _search_context(self, kind: str, item_id: str, scrub) -> "dict | None":
+    def _search_context(self, kind: str, item_id: str, scrub, against: bool = False) -> "dict | None":
         """The sections of the usable sources found for an item (`found_for`) that share the most of the words
         its scout searched for it with (the ledger's `search` records, both stances), or None. The scout chose
         them before any passage was judged, so they rank a source in another language than the item without
         giving the grounder the choice. Through 0.24.5 such a source was ranked by the item's own words alone:
-        across languages only cognates matched."""
+        across languages only cognates matched. `against=True` (0.25.0) ranks the sources found AGAINST the item
+        (`found_against`) instead, the passages its adversarial attacker judges."""
         from .groundplan import node_terms
         files = {r.name for r in self.evidence_registry().records.values()
-                 if item_id in (r.found_for or ()) and self._usable_file(r.name)}
+                 if item_id in ((r.found_against if against else r.found_for) or ()) and self._usable_file(r.name)}
         if not files:
             return None
         queries = [str(r.get("query") or "") for r in self._source_searches()
@@ -4598,28 +4696,48 @@ class KGEngine:
 
     def _confirm_view(self, hold: dict, scrub) -> dict:
         """What a second grounder judges a held verdict by: the passage the first one cited, the section around it,
-        the words its search used, and the rule."""
+        the words its search used, and the rule. A held refutation (0.25.0) shows the counter-edge instead."""
         span = str(hold.get("span") or "")
         context = self._span_context(span, str(hold.get("support_file") or ""), scrub) if span else None
-        return {"span": scrub(span) if span else None, "support_note": scrub(hold.get("support_note") or "") or None,
+        if hold.get("verdict") == EpistemicState.FAILED.value:
+            return {"verdict": "failed", "refuted_by": hold.get("refuted_by"), "span": scrub(span) if span else None,
+                    "context": context, "held_at": hold.get("at"),
+                    "rule": ("an adversarial grounder found this passage refutes the idea. Judge only whether it "
+                             "does: it shows the idea's own mechanism failing for the idea's purpose, or states the "
+                             "contrary of the idea. Confirm with kg_ground(verdict failed, refuted_by this "
+                             "counter-edge). If it only limits the idea, or refutes a neighbouring claim, decline: "
+                             "record the idea unsupported if it is unverified, or ground it again if it is grounded, "
+                             "saying what the passage does to it")}
+        return {"verdict": "grounded", "span": scrub(span) if span else None,
+                "support_note": scrub(hold.get("support_note") or "") or None,
                 "context": context, "terms": hold.get("terms") or [], "held_at": hold.get("at"),
                 "rule": ("another grounder found this support after asking for passages with its own words. Judge "
                          "only whether this passage, read in its context, states the item. Ground it with this "
                          "span, or leave the item unverified and record it; you cannot search for others")}
 
     def _hold_or_confirm(self, kind: str, item_id: str, item_sig: str, state, support_span: str,
-                         support_note: str, note: str = "") -> "dict | None":
-        """For a grounded verdict that brings support (0.24.6): `{"confirming": hold}` when a verdict on the item is
-        held, so this one is the second grounder's; the held answer when the item had a request against these
-        sources and no hold yet, after recording the hold; None otherwise (no request: the verdict proceeds as
-        through 0.24.5). The engine cannot tell one grounder from another: `/burgess:kg-ground` gives a held item
-        to a new grounder in a batch of its own, and the grounder's rules forbid confirming its own hold."""
+                         support_note: str, note: str = "", refuted_by: str = "",
+                         pin: bool = False) -> "dict | None":
+        """Two verdicts that a second grounder confirms before they apply, and None for every other one.
+        - A grounded verdict that brings support after the item's own search (0.24.6): held when the item had a
+          request against these sources.
+        - A `failed` verdict on a `[diverge]` pin (0.25.0, `pin=True`): always held, since a refutation is permanent
+          negative memory and only an adversarial grounder, which goes looking for one, ever gives it.
+        With a held verdict of the same kind open on the item, this one is the second grounder's: `{"confirming":
+        hold}`. A verdict of another kind proceeds and answers the hold (its audit record lies past the mark),
+        except a refutation of a pin, which is held in turn. The engine cannot tell one grounder from another:
+        `/burgess:kg-ground` gives a held item to a new grounder in a batch of its own, and the grounders' rules
+        forbid confirming their own hold."""
         from .groundaudit import read_audit_index
-        if state != EpistemicState.GROUNDED or not ((support_span or "").strip() or (support_note or "").strip()):
+        refutation = state == EpistemicState.FAILED and pin and kind == "node"
+        grounding = state == EpistemicState.GROUNDED and ((support_span or "").strip() or (support_note or "").strip())
+        if not (refutation or grounding):
             return None
         hold = self._open_holds().get((kind, item_id))
-        if hold is not None:
+        if hold is not None and (hold.get("verdict") or EpistemicState.GROUNDED.value) == state.value:
             return {"confirming": hold}
+        if refutation:
+            return self._hold_refutation(item_id, item_sig, refuted_by, note)
         request = self._current_request(kind, item_id, item_sig)
         if request is None:
             return None
@@ -4642,8 +4760,39 @@ class KGEngine:
                 "hint": ("held: the support came after this item's own search, so a second grounder confirms "
                          "it. Report it as held; do not record it unsupported and do not ground it again")}
 
+    def _hold_refutation(self, item_id: str, item_sig: str, refuted_by: str, note: str) -> dict:
+        """Record a refutation of a pin held for a second grounder (0.25.0): the counter-edge it rests on, with
+        its span and file, and the attacker's note, kept and never shown to the second one."""
+        from .groundaudit import read_audit_index
+        rid = (refuted_by or "").strip()
+        counter = None
+        try:
+            owner = self._owner_of_edge(rid) if rid else None
+            counter = next((e for e in owner.edges if e.id == rid), None) if owner else None
+        except EdgeOwnerUnreadable:
+            counter = None
+        record = {"type": "hold", "verdict": EpistemicState.FAILED.value, "kind": "node", "item": item_id,
+                  "item_sig": item_sig, "refuted_by": rid, "terms": [],
+                  # the sources found against it that this attack answered (`_pin_attacks`)
+                  "sources": self._sources_against(item_id),
+                  "span": ((counter.span if counter else "") or "")[:3000],
+                  "support_file": (counter.source_file if counter else None) or None,
+                  "note": (note or "")[:1000],
+                  "mark": read_audit_index(self.canon.root / GROUND_AUDIT).size,
+                  "unsupported_mark": self._unsupported_marks()[0]}
+        problem = self._log_ground_request(record)
+        if problem:
+            return {"ok": False, "error": problem}
+        return {"ok": True, "held": True, "needs_confirmation": True, "kind": "node", "target_id": item_id,
+                "refuted_by": rid,
+                "hint": ("held: refuting a [diverge] idea is permanent, so a second grounder confirms it. Report it "
+                         "as held; do not stamp it again")}
+
     @staticmethod
     def _confirmation_line(hold: dict) -> str:
+        if hold.get("verdict") == EpistemicState.FAILED.value:
+            return (f"confirmed by a second grounder (0.25.0): the refutation an adversarial grounder found, on "
+                    f"{hold.get('refuted_by') or '?'}")
         words = ", ".join(str(w) for w in hold.get("terms") or []) or "?"
         return (f"confirmed by a second grounder (0.24.6): the support was found after the first grounder asked "
                 f"for passages with its own words ({words})")
@@ -6167,7 +6316,13 @@ def _register(mcp, engine: KGEngine) -> None:
         `/burgess:kg-ground --reexamine <its id>` and found to rest on a neighbouring claim. The pin goes back to
         unverified and hypothesized, its support paragraphs become a 'verdict (unverified): support withdrawn'
         paragraph, and it is recorded unsupported, so it waits for a new source. A pin is never rejected for want
-        of support; any other node whose passage does not state it is rejected."""
+        of support; any other node whose passage does not state it is rejected.
+
+        Refuting a pin (0.25.0): `verdict="failed"` on a `[diverge]` pin, with `refuted_by` (a counter-edge touching
+        it whose span lies in a usable source), is always held for a second grounder (`held: true,
+        needs_confirmation: true`), since a refutation is permanent. The second grounder's `failed` with the same
+        counter-edge applies it (`confirmed: true`); recording the pin unsupported, or grounding it again, declines
+        it."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
                                 support_span=support_span, support_note=support_note, lead=lead,
                                 refuted_by=refuted_by)
@@ -6255,7 +6410,9 @@ def _register(mcp, engine: KGEngine) -> None:
         verdict on such an item, whatever it is, answers its flag, so the item leaves the plan. Last come the
         items with a grounded verdict held for a second grounder (0.24.6: the support came after the grounder's
         own search), in batches of their own, each item marked `"confirm": true` and counted in
-        `queue.confirm`; give each such batch to a new grounder. Read-only."""
+        `queue.confirm`; give each such batch to a new grounder. `pin_attacks` (0.25.0, counted in
+        `queue.pin_attacks`): the `[diverge]` pins a usable registered source was found AGAINST and that nothing has
+        attacked since, `{id, label, sources}`, for the adversarial grounder in Stage 2 beside the hubs. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size, reexamine=bool(reexamine))
 
     @mcp.tool()
@@ -6290,7 +6447,10 @@ def _register(mcp, engine: KGEngine) -> None:
         (kg_ground answers `needs_confirmation`). An item with a held verdict gets `confirm`, the held passage
         with its context and the rule, and refuses `terms`. A grounded node a promotion grounded (0.24.7) gets
         `grounded_on`: the support spans it was grounded on, each with its file and the section around it, any
-        unchecked citation, and the rule for judging it again. Text is egress-scrubbed with the session's
+        unchecked citation, and the rule for judging it again. An item a usable source was found AGAINST (0.25.0)
+        gets `against_context`: that source's sections ranked by the words its scout searched with, the passages
+        an adversarial grounder judges. A held refutation's `confirm` has `verdict: "failed"` and the counter-edge.
+        Text is egress-scrubbed with the session's
         placeholders. Read-only, except that a request is recorded."""
         return engine.kg_ground_item(target_id, kind, terms)
 
@@ -6301,6 +6461,9 @@ def _register(mcp, engine: KGEngine) -> None:
         sets itself against the hub or its claims. `question` is the falsifying question the attack ended
         with; `reason` is `no-span` or `vague`. `kg_ground_plan` then leaves the hub out of `hubs` (it is
         listed in `attacked_hubs`) until it gains a newer grounded claim, as a counter-edge's mark does.
+        Also for a `[diverge]` pin attacked from `pin_attacks` (0.25.0) and not refuted, because its passage only
+        limits it or refutes a neighbouring claim: `question` then says what the passage does to the idea, and the
+        plan leaves the pin out of `pin_attacks` until a newer source is found against it.
         Writes only the attack ledger beside the canon: no node, edge or verdict changes."""
         return engine.kg_record_attack(hub_id, question, reason)
 
@@ -6321,7 +6484,8 @@ def _register(mcp, engine: KGEngine) -> None:
     @_tool_result
     def kg_source_add(url: str = "", path: str = "", level: str = "", role: str = "", title: str = "",
                       published: str = "", marks: str = "", derives_from: str = "", note: str = "",
-                      preview: bool = False, build: bool = False, for_items: str = "") -> dict:
+                      preview: bool = False, build: bool = False, for_items: str = "",
+                      against_items: str = "") -> dict:
         """Register an external source so a grounder can cite a verbatim span from it. The ENGINE copies
         it into the project's evidence/ directory: give exactly one of `url` (http/https; the engine fetches
         the page itself; never pass WebFetch output, which is a model's paraphrase) or `path` (a local
@@ -6342,11 +6506,15 @@ def _register(mcp, engine: KGEngine) -> None:
         the policy accepts wakes the waiting items it was found for and those with a paragraph of it that shares
         three of their words (0.24.0, 0.24.4); one it does not accept leaves them waiting. The answer's
         `comes_back` lists the items that come back and why (`found_for`, `words` with the shared words,
-        `no-words`), and `still_waiting` how many keep waiting: report those, never guess. Writes only the
-        evidence directory."""
+        `no-words`), and `still_waiting` how many keep waiting: report those, never guess. `against_items`
+        (0.25.0, comma-separated ids) names the items the source was found AGAINST; the ones a scout proposed it
+        for with the stance `refutes` are added on their own (`found_against`). They are not woken to be
+        grounded on it: when it is usable, the next /burgess:kg-ground has the adversarial grounder attack them
+        (`to_attack`). Writes only the evidence directory."""
         return engine.kg_source_add(url=url, path=path, level=level, role=role, title=title,
                                     published=published, marks=marks, derives_from=derives_from, note=note,
-                                    preview=bool(preview), build=bool(build), for_items=for_items)
+                                    preview=bool(preview), build=bool(build), for_items=for_items,
+                                    against_items=against_items)
 
     @mcp.tool()
     @_tool_result

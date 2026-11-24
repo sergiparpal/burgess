@@ -184,6 +184,7 @@ class EvidenceRecord:
     build: bool = False            # extracted into the graph like a configured source (0.22.0)
     doi: str = ""                  # the DOI the page declares, bare and lower-case (0.24.0), or ""
     found_for: list = field(default_factory=list)   # the items `find` looked for it for (0.24.0): they wake
+    found_against: list = field(default_factory=list)  # the items it was found AGAINST (0.25.0): attacked, not woken
     updated_at: str = ""
     schema: int = SCHEMA
 
@@ -611,6 +612,8 @@ def _record_from(data: dict) -> EvidenceRecord:
         raise EvidenceError("sidecar-malformed", "`build` is true or false")
     if not isinstance(rec.found_for, list) or not all(isinstance(x, str) and x for x in rec.found_for):
         raise EvidenceError("sidecar-malformed", "`found_for` is a list of item ids")
+    if not isinstance(rec.found_against, list) or not all(isinstance(x, str) and x for x in rec.found_against):
+        raise EvidenceError("sidecar-malformed", "`found_against` is a list of item ids")
     for key in ("title", "url", "final_url", "origin", "retrieved_at", "published_from", "derives_from",
                 "note", "content_type", "extractor", "sha256_raw", "sha256_text", "raw", "doi", "updated_at"):
         if not isinstance(getattr(rec, key), str):

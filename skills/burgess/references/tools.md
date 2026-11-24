@@ -267,6 +267,19 @@ for the same case. `withdraw-needs-note` is the answer without a note.
 Through 0.24.6 nothing could take a grounding back. Two field pins rested on passages their own grounders had
 noted fell short of the idea, and the only verdicts on offer would have rejected them.
 
+**A refutation of a pin is held (0.25.0, `KGEngine._hold_refutation`).** A `failed` verdict on a `[diverge]` pin,
+which only an adversarial grounder attacking it from `pin_attacks` gives, is checked like any `failed` (its
+`refuted_by`, the level veto) and then always held. Nothing is written but a `hold` record with `verdict: "failed"`,
+the counter-edge, its span and file, and the attacker's note (kept, never shown). The answer is `{ok, held: true,
+needs_confirmation: true, kind, target_id, refuted_by, hint}`. A refutation is permanent negative memory, so the
+attacker alone never decides it.
+- **Confirmed:** the next `failed` on the pin is the second grounder's. It applies, with `confirmed: true` and a
+  `verdict (failed): confirmed by a second grounder (0.25.0)…` paragraph.
+- **Declined:** the pin is recorded unsupported, or grounded again, or changed.
+
+A verdict of the same kind as an open hold confirms it; a verdict of another kind answers it, except a refutation
+of a pin, which is held in turn.
+
 **Held for a second grounder (0.24.6, `KGEngine._hold_or_confirm`).** A `grounded` verdict that brings support
 (`support_span` or `support_note`), on an item whose grounder asked `kg_ground_item` for passages with its own
 `terms` against the sources as they are now (§1.22), is checked like any other and then held. Nothing is written
@@ -1035,6 +1048,16 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   is, is counted in `queue.reexaminable_held`. A `failed` item is not queued: an adversarial grounder refuted it
   with a counter-edge, whose span a new source does not remove. Through 0.22.3 the command's Stage 0c asked the
   orchestrator, which never calls `kg_ground`, to re-check these items itself.
+- **`pin_attacks` (0.25.0)**, counted in `queue.pin_attacks`: the live `[diverge]` pins (unverified or grounded) that
+  a usable registered source was found AGAINST (`found_against`), with a source among those that no attack has
+  answered yet. An attack record (§1.23) and a held refutation store the sources found against the pin when they
+  were made, so a source registered later is one they did not answer, whatever the clock says. A pin with a
+  counter-edge marked for it that still waits for its verdict, or with a held verdict, is not offered. Each entry
+  is `{id, label, sources}`, the sources not yet answered.
+  `/burgess:kg-ground` gives them to the adversarial grounder in Stage 2, beside the hubs. A pin never has the
+  claims a hub needs, so through 0.24.7 nothing ever attacked one: a source found against an idea led nowhere.
+  The held items of `queue.confirm` now include held refutations, and the item's state no longer matters: a
+  grounded pin whose refutation is held is queued to be confirmed too.
 - **A grounding judged again (0.24.7):** with `reexamine=True` AND a focus, the plan also queues the grounded nodes
   a promotion grounded (`KGEngine._promoted`) that the focus names, marked `reexamine: true` and counted in
   `queue.reexamine`. Never without a focus: `--reexamine` alone judges no grounding again.
@@ -1199,6 +1222,13 @@ a `terms` request is recorded (0.24.6).
     come up to 3 more from external copies, so a source registered for a node is never crowded out by the
     notes. Since 0.22.0 the index holds only usable files under the policy (the notes too: below a required
     level they are left out), and every section carries `source`, its label.
+- `against_context` (0.25.0) — for an item a usable registered source was found against: that source's sections
+  ranked by the words of the scout's searches for the item (both stances), `{terms, sections, sections_total,
+  files}`, as `search_context` ranks the sources found for it. These are the passages an adversarial grounder
+  judges.
+- `confirm` carries `verdict` since 0.25.0. `grounded` is the 0.24.6 hold. `failed` is a held refutation of a pin:
+  `{verdict, refuted_by, span, context, held_at, rule}`, the counter-edge the adversarial grounder wrote, its span,
+  and the section around it.
 - `grounded_on` (0.24.7) — for a grounded node a promotion grounded: `{spans, citations, rule}`, each span with
   its `source_file` and `context` (the section around it, as an edge's span gets). It is what its grounder judges
   when the user asks for the grounding to be judged again.
@@ -1232,6 +1262,11 @@ the falsifying question its attack ended with (its contract's Output B). `kg_gro
 record like a counter-edge judged at the time of the record: the hub stays out of `hubs`, in
 `attacked_hubs`, until it gains a newer grounded claim. Through 0.9.0 such an attack left nothing behind, so
 the plan offered that hub to every later pass, and each attack searched the source for nothing again.
+
+**On an idea (0.25.0).** The adversarial grounder also calls it for a `[diverge]` pin from `pin_attacks` that it
+attacked and did not refute: the passage found against it only limits it, or refutes a neighbouring claim. The
+`question` then says what the passage does to the idea and the question it leaves open. The plan leaves the pin
+out of `pin_attacks` until a newer source is found against it.
 
 - `hub_id` — the node attacked (slugged); it must exist.
 - `question` — the falsifying question, up to 2000 characters, whitespace collapsed.
@@ -1452,6 +1487,14 @@ measures the filter the text passed before it was published, never whether a cla
   `comes_back_total`; `still_waiting` counts the items that keep waiting. Empty when the copy is not usable. The
   command reports these reasons and no others: through 0.24.4 the result had only `found_for`, and on the field
   an agent told the user that an item found for the copy came back because it shared words with it.
+- `against_items` (0.25.0) — the ids of the items the page was found AGAINST. The engine adds the items a scout
+  proposed it for with the stance `refutes` (`KGEngine._found_items`: an item whose matching proposals all say
+  `refutes`; any other match is `found_for`). What the caller names wins over the ledger, and one id in both lists
+  is refused (`item-for-and-against`).
+  - The record keeps them in `found_against`, and the result names them there. When the copy is usable, they are
+    also listed as `to_attack`.
+  - They are not woken to be grounded on the copy. The plan lists them in `pin_attacks` (§1.21) for the
+    adversarial grounder, and `kg_ground_item` gives them `against_context` (§1.22).
 - Refusals: `give-url-or-path`, `url-not-http`, `fetch-failed` (with the HTTP status or reason), `too-large`
   (over 5 MB), `undecodable`, `no-text` (the page needs JavaScript: save its text as `.md` and register the
   file), `pdf-not-supported`, `content-type-not-supported`, `file-type-not-supported`, `file-not-found`,
