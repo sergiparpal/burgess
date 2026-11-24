@@ -1437,9 +1437,17 @@ measures the filter the text passed before it was published, never whether a cla
 - `published` comes from the page when the caller gives none: the online date first (`citation_online_date`),
   then the issue's (`citation_publication_date`) and the others, never a date still to come when an earlier one
   is declared (0.23.1; the field's Copilot paper went online on 2026-11-03 for an April 2027 issue).
-- `preview=True` — fetch or read it and return `{title, chars, content_type, extractor, published, meta,
-  final_url, excerpt}` (the first 1500 characters) without writing anything: what the command proposes a level
-  and role from. `meta` holds the page's `citation_*`, `dc.*`, `og:*` and `article:published_time` values.
+- `preview=True` — fetch or read it and return `{title, authors, authors_total, chars, content_type, extractor,
+  published, meta, final_url, excerpt}` (the first 1500 characters) without writing anything: what the command
+  proposes a level and role from. `meta` holds the page's `citation_*`, `dc.*`, `og:*` and `article:published_time`
+  values, the first of each.
+- `authors` (0.25.1) — the names the page declares as its authors, in its order, at most 20 (`authors_total` counts
+  them all): every `citation_author` tag (a journal's, PMC's, arXiv's or Springer's page has one per author), else
+  every `dc.creator` / `dcterms.creator`, else the generic `author`. Empty for a page that names none and for a
+  Markdown or text file. The record keeps them, and the registration's result gives them back. `meta` kept only
+  the first `citation_author`, and nothing the engine returned named any author: on 2026-11-23 a scout named a
+  paper's authors from memory, and named people who did not write it. A work's authors are named from these and
+  from the catalogue's (§1.32), never from memory.
 - `level` — required: `1` reviewed (peer review), `2` institutional (official statistics, standards, official
   documentation, university textbooks), `3` editorial (press with corrections, edited books), `4` author or
   community (preprints, code, changelogs, company docs and blogs, forums, Wikipedia), `5` unfiltered (no
@@ -1467,7 +1475,8 @@ measures the filter the text passed before it was published, never whether a cla
 
 - Per source the directory holds the copy (`ext-<slug>-<8 hex of its sha256>.md`), its record
   (`<same stem>.source.json`: level, `level_by`, role, marks, dates, url, `sha256_raw`, `sha256_text`,
-  extractor) and, for a fetched page or a local HTML file, the bytes as received under `raw/`. The `ext-`
+  extractor, `authors` and `authors_total` since 0.25.1) and, for a fetched page or a local HTML file, the bytes as
+  received under `raw/`. The `ext-`
   prefix keeps a copy from sharing a basename with a configured source.
 - `level_by` is always `agent` through this tool; only a hand edit of the record says `human`.
 - A copy is **never extracted**: `kg_build_plan`, `kg_section`, coverage and the specificity corpus read the
@@ -1511,7 +1520,8 @@ The registered external sources and what the grounded claims rest on (0.21.0). R
 
 - `sources[]` — each one's `name`, label (`level`, `level_name`, `role`, `marks`, `usable`, `unusable`, `title`,
   `url`, `published`, `derives_from`), `retrieved_at`, `published_from`, `level_by`, `note`, `origin`, `build` and
-  `chars`; `by_level` and `usable` count them.
+  `chars`, and `authors` / `authors_total` when its page named them (registered since 0.25.1, §1.27); `by_level`
+  and `usable` count them.
 - `notes[]` (0.22.0) — each configured file's `name`, label (`level`, `level_name`, `role`, `marks`, `usable`),
   `recorded` (whether the user set its level), `chars` and `built`; `policy` — `{required_level, notes_level,
   build_from_notes}` (§1.30); `usable_sources` (0.22.1) — how many files may support or refute, with a
@@ -1636,12 +1646,16 @@ engine never does.) Without a key every request from one network shares a free d
 
 ```json
 {"ok": true, "backend": "openalex", "query": "stigmergy software agents coordination", "stance": "for", "count": 1,
- "results": [{"title": "Stigmergy in software teams", "doi": "10.1234/stig.2025.7", "url": "https://example.org/stig",
+ "results": [{"title": "Stigmergy in software teams", "authors": ["Ana Ruiz", "Ben Ode"], "authors_total": 2,
+              "doi": "10.1234/stig.2025.7", "url": "https://example.org/stig",
               "oa_url": "", "published": "2025-03-04", "type": "article", "venue": "Journal of Coordination",
               "venue_type": "journal", "retracted": false, "cited_by": 12, "abstract": "Agents coordinate …",
               "level_hint": 1, "level_hint_reason": "an article in a journal: level 1 when the venue is peer-reviewed"}]}
 ```
 
+- `authors` (0.25.1) — the first 3 authors the catalogue lists (each authorship's author as OpenAlex names it,
+  else the name as the work printed it), and `authors_total` how many it lists, so a scout names a work's authors
+  from the catalogue, never from memory.
 - `level_hint` comes from the catalogue's facts (`evidence.level_hint`): a journal or conference article 1, a
   preprint or repository copy 4, a book 3, a retracted work none. It is a proposal the user confirms or corrects.
 - `abstract` is rebuilt from OpenAlex's inverted index, at most 1200 characters. It is not a registered copy:
@@ -1671,6 +1685,7 @@ Read a candidate page for an item without registering it (0.24.0). The engine fe
 
 ```json
 {"ok": true, "url": "https://example.org/stig", "final_url": "https://example.org/stig", "title": "Stigmergy in software teams",
+ "authors": ["Ana Ruiz", "Ben Ode"], "authors_total": 2,
  "doi": "10.1234/stig.2025.7", "published": "2025-03-04", "venue": "Journal of Coordination", "publisher": "",
  "site": "", "chars": 210, "extractor": "html-text/3", "level_hint": 1,
  "level_hint_reason": "declares a journal or conference (Journal of Coordination): level 1 when it is peer-reviewed",
@@ -1682,6 +1697,8 @@ Read a candidate page for an item without registering it (0.24.0). The engine fe
   language) and of the item's own words, rare words weighing more (`evidence.best_passages`, the rule of
   §1.22's node sections), each cut from the page as the engine would copy it, at most 900 characters.
 - `registered_as` names a registered copy of the same page (same bytes, URL or DOI).
+- `authors` / `authors_total` (0.25.1) — the names the page declares as its authors, as §1.27's preview gives
+  them; empty when it names none.
 - Refusals: `fetch-blocked` (a site's bot check, with the hint to save the page from a browser and add the
   file), `pdf-not-supported`, `fetch-failed`, `no-text`, and the other refusals of §1.27's fetch.
 - Every read is logged for its item, ok or not, so registering the page later (§1.27) records the item in

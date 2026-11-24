@@ -185,6 +185,10 @@ class EvidenceRecord:
     doi: str = ""                  # the DOI the page declares, bare and lower-case (0.24.0), or ""
     found_for: list = field(default_factory=list)   # the items `find` looked for it for (0.24.0): they wake
     found_against: list = field(default_factory=list)  # the items it was found AGAINST (0.25.0): attacked, not woken
+    # the authors the page declares (0.25.1): at most AUTHORS_MAX names in its order, and how many it names. A
+    # source registered before 0.25.1, or from a Markdown or text file, has none.
+    authors: list = field(default_factory=list)
+    authors_total: int = 0
     updated_at: str = ""
     schema: int = SCHEMA
 
@@ -614,6 +618,10 @@ def _record_from(data: dict) -> EvidenceRecord:
         raise EvidenceError("sidecar-malformed", "`found_for` is a list of item ids")
     if not isinstance(rec.found_against, list) or not all(isinstance(x, str) and x for x in rec.found_against):
         raise EvidenceError("sidecar-malformed", "`found_against` is a list of item ids")
+    if not isinstance(rec.authors, list) or not all(isinstance(x, str) and x for x in rec.authors):
+        raise EvidenceError("sidecar-malformed", "`authors` is a list of names")
+    if isinstance(rec.authors_total, bool) or not isinstance(rec.authors_total, int) or rec.authors_total < 0:
+        raise EvidenceError("sidecar-malformed", "`authors_total` is a count")
     for key in ("title", "url", "final_url", "origin", "retrieved_at", "published_from", "derives_from",
                 "note", "content_type", "extractor", "sha256_raw", "sha256_text", "raw", "doi", "updated_at"):
         if not isinstance(getattr(rec, key), str):
@@ -797,6 +805,15 @@ _META_KEYS = ("citation_title", "citation_journal_title", "citation_conference_t
 # its issue's, often months later; the field's Copilot paper went online on 2026-11-03 for an April 2027 issue.
 _DATE_KEYS = ("citation_online_date", "citation_publication_date", "citation_date", "dcterms.issued",
               "dc.date.issued", "dc.date", "article:published_time")
+# The people a page names as its authors (0.25.1), in the page's order. A journal's, PMC's, arXiv's or Springer's
+# page carries one `citation_author` tag per author; a page without them may name its authors in Dublin Core
+# (`dc.creator`, `dcterms.creator`) or in one generic `author`. The first family the page uses is its list.
+# `meta` keeps only the first value of each tag, so through 0.25.0 a second author was never read, and nothing the
+# engine returned named any author: on 2026-11-23 a scout named a paper's authors from memory, and named people
+# who did not write it.
+_AUTHOR_KEYS = ("citation_author", "dc.creator", "dcterms.creator", "author")
+# At most this many names in a preview, a probe and a record; `authors_total` says how many the page names.
+AUTHORS_MAX = 20
 
 
 class _Extractor(HTMLParser):
@@ -825,6 +842,7 @@ class _Extractor(HTMLParser):
         self.in_title = False
         self.title: "list[str]" = []
         self.meta: "dict[str, str]" = {}
+        self.authors: "dict[str, list[str]]" = {}   # every name of each `_AUTHOR_KEYS` tag, in order (0.25.1)
         self.math = 0
 
     def _flush(self, paragraph: bool = True) -> None:
@@ -840,8 +858,14 @@ class _Extractor(HTMLParser):
         if tag == "meta":
             a = {k.lower(): (v or "") for k, v in attrs if k}
             key = (a.get("name") or a.get("property") or "").strip().lower()
-            if key in _META_KEYS and a.get("content", "").strip() and key not in self.meta:
-                self.meta[key] = _WS_RE.sub(" ", a["content"]).strip()
+            value = _WS_RE.sub(" ", a.get("content", "")).strip()
+            if value:
+                if key in _META_KEYS and key not in self.meta:
+                    self.meta[key] = value
+                if key in _AUTHOR_KEYS:
+                    names = self.authors.setdefault(key, [])
+                    if value not in names:
+                        names.append(value)
             return
         if tag == "title":
             self.in_title = True
@@ -946,11 +970,18 @@ _MAIN_RE = re.compile(r"<main[\s>]|\brole\s*=\s*[\"']?main\b", re.I)
 
 
 def html_text(markup: str) -> "tuple[str, str, dict]":
-    """``(title, text, meta)`` of an HTML document by the fixed rule (`_Extractor`). Since version 3 (0.23.1) a
-    page with a ``<main>`` (or ``role="main"``) gives only that part's text, and sidebars, recommendation lists,
-    related-content and sharing blocks are left out wherever they sit (`_FURNITURE_RE`). In the field's two
+    """``(title, text, meta)`` of an HTML document: `html_page` without the authors."""
+    return html_page(markup)[:3]
+
+
+def html_page(markup: str) -> "tuple[str, str, dict, list]":
+    """``(title, text, meta, authors)`` of an HTML document by the fixed rule (`_Extractor`). Since version 3
+    (0.23.1) a page with a ``<main>`` (or ``role="main"``) gives only that part's text, and sidebars, recommendation
+    lists, related-content and sharing blocks are left out wherever they sit (`_FURNITURE_RE`). In the field's two
     Springer articles those made a third of the copy's sections, each one an extractor run that found nothing
-    (2026-11-22). The metadata and the title are read from the whole page as before."""
+    (2026-11-22). The metadata and the title are read from the whole page as before. `authors` (0.25.1) are the
+    names of the first `_AUTHOR_KEYS` family the page declares, every one of them, in the page's order; the text
+    is unchanged by them."""
     parser = _Extractor(scoped=bool(_MAIN_RE.search(markup)))
     parser.feed(markup)
     parser.close()
@@ -965,7 +996,8 @@ def html_text(markup: str) -> "tuple[str, str, dict]":
         out.pop()
     text = "\n".join(out) + ("\n" if out else "")
     title = _WS_RE.sub(" ", "".join(parser.title)).strip()
-    return title, text, dict(parser.meta)
+    authors = next((list(parser.authors[key]) for key in _AUTHOR_KEYS if parser.authors.get(key)), [])
+    return title, text, dict(parser.meta), authors
 
 
 def page_published(meta: dict) -> str:
@@ -991,6 +1023,7 @@ class Copy:
     raw: bytes
     raw_ext: str
     final_url: str = ""
+    authors: list = field(default_factory=list)   # the names the page declares (0.25.1), every one, in order
 
 
 def copy_from_bytes(data: bytes, content_type: str, charset: str = "", *, final_url: str = "") -> Copy:
@@ -999,10 +1032,10 @@ def copy_from_bytes(data: bytes, content_type: str, charset: str = "", *, final_
     ctype = (content_type or "").lower()
     if ctype in _HTML_TYPES:
         markup = decode(data, charset or sniff_charset(data))
-        title, text, meta = html_text(markup)
+        title, text, meta, authors = html_page(markup)
         extractor, ext = HTML_EXTRACTOR, ".html"
     elif ctype in _PLAIN_TYPES:
-        text, title, meta = decode(data, charset), "", {}
+        text, title, meta, authors = decode(data, charset), "", {}, []
         extractor, ext = VERBATIM, ".md" if "markdown" in ctype else ".txt"
     elif ctype == "application/pdf":
         raise EvidenceError("pdf-not-supported", "convert the PDF to Markdown and register that file")
@@ -1012,7 +1045,7 @@ def copy_from_bytes(data: bytes, content_type: str, charset: str = "", *, final_
         raise EvidenceError("no-text", "the page has no text the engine can read (it may need JavaScript); "
                                        "save its text as a .md file and register that file")
     return Copy(text=text, title=title, meta=meta, content_type=ctype, extractor=extractor, raw=data,
-                raw_ext=ext, final_url=final_url)
+                raw_ext=ext, final_url=final_url, authors=authors)
 
 
 def copy_from_file(path: Path) -> Copy:
@@ -1071,9 +1104,16 @@ def blocked_page(copy: Copy) -> str:
     return ""
 
 
+def page_authors(copy: Copy) -> dict:
+    """The authors a copy's page declares (0.25.1): `authors`, at most `AUTHORS_MAX` names in the page's order,
+    and `authors_total`, how many it names. Both are empty for a page that names none and for a Markdown or text
+    file: who wrote a work is never filled in from anywhere but the page."""
+    return {"authors": list(copy.authors[:AUTHORS_MAX]), "authors_total": len(copy.authors)}
+
+
 def preview(copy: Copy) -> dict:
     """What the command shows before registering: enough to propose a level and a role."""
-    return {"title": copy.title, "chars": len(copy.text), "content_type": copy.content_type,
+    return {"title": copy.title, **page_authors(copy), "chars": len(copy.text), "content_type": copy.content_type,
             "extractor": copy.extractor, "published": page_published(copy.meta), "meta": dict(copy.meta),
             "final_url": copy.final_url, "excerpt": copy.text[:PREVIEW_CHARS]}
 
@@ -1087,7 +1127,10 @@ def preview(copy: Copy) -> dict:
 # free daily budget, about 100 searches (checked 2026-11-23).
 OPENALEX_WORKS = "https://api.openalex.org/works"
 OPENALEX_SELECT = ("id,doi,display_name,publication_date,type,primary_location,best_oa_location,is_retracted,"
-                   "abstract_inverted_index,cited_by_count")
+                   "abstract_inverted_index,cited_by_count,authorships")
+# A catalogue result names its first authors (0.25.1), so a scout names a work's authors from the catalogue and
+# never from memory; `authors_total` says how many the catalogue lists.
+SEARCH_AUTHORS = 3
 SEARCH_RESULTS = 8
 SEARCH_RESULTS_MAX = 15
 QUERY_MAX_CHARS = 200
@@ -1143,9 +1186,24 @@ def level_hint(kind: str, venue_type: str, retracted: bool) -> "tuple[int | None
     return None, "the catalogue does not say what filter it passed"
 
 
+def openalex_authors(w: dict) -> "list[str]":
+    """The names of a catalogued work's authors, in the catalogue's order (0.25.1): each authorship's author as
+    OpenAlex names it, else the name as the work printed it."""
+    out: "list[str]" = []
+    rows = w.get("authorships")
+    for row in rows if isinstance(rows, list) else ():
+        if not isinstance(row, dict):
+            continue
+        who = row.get("author") if isinstance(row.get("author"), dict) else {}
+        name = _WS_RE.sub(" ", str(who.get("display_name") or row.get("raw_author_name") or "")).strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def openalex_work(w: dict) -> dict:
-    """What a scout proposes a catalogued work from: title, DOI, landing page, an open-access copy, date, type,
-    venue, retraction, citations, the abstract and a level hint."""
+    """What a scout proposes a catalogued work from: title, its first authors, DOI, landing page, an open-access
+    copy, date, type, venue, retraction, citations, the abstract and a level hint."""
     loc = w.get("primary_location") or {}
     src = loc.get("source") or {}
     oa = w.get("best_oa_location") or {}
@@ -1154,7 +1212,9 @@ def openalex_work(w: dict) -> dict:
     hint, why = level_hint(kind, venue_type, retracted)
     abstract = rebuild_abstract(w.get("abstract_inverted_index"))
     cited = w.get("cited_by_count")
-    return {"title": str(w.get("display_name") or ""), "doi": doi,
+    names = openalex_authors(w)
+    return {"title": str(w.get("display_name") or ""),
+            "authors": names[:SEARCH_AUTHORS], "authors_total": len(names), "doi": doi,
             "url": str(loc.get("landing_page_url") or (f"https://doi.org/{doi}" if doi else "")),
             "oa_url": str(oa.get("landing_page_url") or oa.get("pdf_url") or ""),
             "published": str(w.get("publication_date") or ""), "type": kind,

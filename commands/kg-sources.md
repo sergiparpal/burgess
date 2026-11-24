@@ -76,11 +76,13 @@ Split it at the first space. The first word is the action, and the rest of the l
      save it as an `.html` file (Ctrl+S, HTML only) and run `/burgess:kg-sources add <that path>`. Some sites
      answer the engine on one machine and challenge it on another. `pdf-not-supported`: convert the PDF to
      Markdown and add that file.
-2. From the preview (`title`, `meta`: `citation_journal_title`, `citation_doi`, `og:site_name`, … ,
+2. From the preview (`title`, `authors`, `meta`: `citation_journal_title`, `citation_doi`, `og:site_name`, … ,
    `published`, the address and the `excerpt`), **propose** a level, a role and any marks, each with a
    one-line reason. Propose level 1 only when the preview shows peer review (a journal or conference in the
    metadata, a DOI of a reviewed venue); a preprint server is level 4. Mark `interest` when the author speaks
    about its own product, method or result. When unsure between two levels, propose the lower one and say so.
+   Name the authors as the preview's `authors` gives them (0.25.1), or as the excerpt prints them; with neither,
+   name none. Never from memory or from earlier notes: a name a session wrote down can be wrong.
 3. Show the proposal and **stop: ask the user to confirm or correct it.** Do not register before the user
    answers.
 4. On the user's answer, call `kg_source_add` again with the same `url`/`path` and the confirmed `level`,
@@ -122,7 +124,9 @@ and left unverified because no usable source supports them. It proposes; the use
    Tell it nothing else about the project: not its folder, not its name. Wait for every scout.
 3. Show the candidates, numbered across the whole run, item by item:
    - the item: its id and the first line of its `text`;
-   - each candidate: its number, title, venue and year, the proposed level and role with the reason, the stance
+   - each candidate: its number, title, its authors when the scout's candidate carries them (`authors`, which
+     the scout copies from the engine; with none, name no author), venue and year, the proposed level and role
+     with the reason, the stance
      (supports, refutes, related), the verbatim passage (shortened only with "…"), the address, and "the engine
      cannot read this page: save it from your browser" when `readable` is false;
    - the queries the scout ran, for and against, and its note when it found nothing. Each item is owed three
@@ -201,8 +205,8 @@ Never tell the user that a policy change brings them back otherwise.
 
 ## Rules
 
-- Never invent a source, a title, a date or a level the preview does not support. Never register a source the
-  user did not name or pick from `find`.
+- Never invent a source, a title, an author, a date or a level the preview does not support. Never register a
+  source the user did not name or pick from `find`.
 - Never paraphrase a source into the evidence directory, and never write files: only `kg_source_add` writes a
   copy.
 - The level is a property of the source, not of a claim, and never a verdict. Never say a claim "is true"
