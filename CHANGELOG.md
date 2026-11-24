@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.24.6 — 2026-11-24
+
+Grounders can now reach a source in another language than the idea, with safeguards against picking a
+passage that only seems to fit.
+
+### Added
+
+- **The grounder sees a source found for an idea through the scout's own words.**
+  - `/burgess:kg-sources find` pairs your Spanish ideas with English sources. Until now the engine chose the
+    passages a grounder saw by the idea's own words, so an English text matched a Spanish idea only through words
+    both languages spell alike («agentes»/agents, «test»).
+  - In a long text, the paragraph that mattered could stay out of view even when the source had been found for
+    that very idea. The grounder then recorded the idea as unsupported, and nothing showed that a passage had
+    been missed.
+  - Now the grounder also gets that source's sections ranked by the words the scout searched for the idea with.
+    Those words were chosen before anyone judged a passage, by someone who does not judge.
+- **A grounder may ask once for passages with its own words.**
+  - When the idea and a source are in different languages and nothing shown bears on the idea, the grounder may
+    ask for passages with at most 8 words in the source's language.
+  - It may ask once per idea while the sources stay the same. A second request gives back the first one's words
+    and passages, and every request is recorded.
+- **What such a search finds is confirmed by a second grounder.**
+  - The engine always checked that a cited passage is copied word for word from the source. Nothing checked that
+    it was not picked out of a search run until something seemed to fit.
+  - A grounding with support given after the grounder's own request is now held, and changes nothing.
+    `/burgess:kg-ground` gives the idea to a new grounder in a batch of its own. That grounder sees only the
+    passage and its section, and cannot search.
+  - If it agrees, the grounding applies, with a line in the idea saying how it was found. If not, the idea goes
+    back to waiting.
+  - The report of `/burgess:kg-ground` lists these ideas apart, so you can read them yourself.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- A new engine-state file, `.kg-ground-requests.jsonl`, appears beside the canon the first time a grounder asks
+  for passages. It is ignored by git like the other ledgers.
+
 ## 0.24.5 — 2026-11-23
 
 A fix for the field test of 0.24.4, the registration of Sentry for the idea c1j.

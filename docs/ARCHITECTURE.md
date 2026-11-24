@@ -263,6 +263,22 @@ waiting item was not judged against wakes it only when the file was found for it
 (`KGEngine._new_source_wakes`, the paragraph rule above, with three shared words since 0.24.4), where through
 0.23.1 any such file woke every waiting item.
 
+**Passages across languages (0.24.6).** Every excerpt `kg_ground_item` hands a grounder is chosen by the item's own
+words, so a source in another language matches it only through words both languages spell alike. Two views bridge
+that, and the language work stays in the language layer:
+- `search_context`: a source found for the item, ranked by the words its scout searched with. They were chosen
+  before any passage was judged, by someone who does not judge.
+- `requested_context`: one request per item (`terms`, at most 8 words in the source's language), recorded in
+  `.kg-ground-requests.jsonl`.
+
+The ranking stays the engine's and deterministic; only the words come from a model. The new risk is a search run
+until something fits, which the verbatim-span check does not catch. So a grounded verdict with support given after a
+request is held (`KGEngine._hold_or_confirm`). `kg_ground_plan` queues the item last, marked `confirm`, in a batch
+of its own. The second grounder sees only the held passage and its section, and cannot search. A hold is answered
+by the item's next verdict or an unsupported record past its byte marks (`_open_holds`). The engine cannot tell
+grounders apart; `/burgess:kg-ground` gives each held item to a new launch. Embeddings were considered and left
+out: they would bring geometry into the evidence a verdict rests on, which the design razor keeps them out of.
+
 The **reconciler** (`reconciler.py`) polices the canon for out-of-band edits: an
 `epistemic_state` sitting in a groundable state with no matching audit record is a **forged
 verdict**, and its fields are cleared and re-quarantined. The state it is reset *to* is the
@@ -831,6 +847,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-edgeless-sections.jsonl   build sections an extraction wrote no edge from (gitignored engine state, 0.14.0)
   .kg-unsupported-pins.jsonl    [diverge] pins judged unsupported (gitignored engine state, 0.20.1)
   .kg-source-searches.jsonl     /burgess:kg-sources find searches, reads, proposals (gitignored engine state, 0.24.0)
+  .kg-ground-requests.jsonl     grounders' own passage requests and the verdicts held for confirmation (gitignored engine state, 0.24.6)
   .kg/diverge/<brief>/          divergence state (durable memory + ephemeral session/)
   .kg/constructions/<slug>/     /burgess:kg-perturb second construction (alt canon/ + derived/; ephemeral)
 <data dir>/                     $KG_DATA (or <project>/.kg-data, already one per project)

@@ -2999,3 +2999,51 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   `kg_source_add`. On the field the plan after that registration showed `reexaminable: 0`. Under the new bar it
   would raise 1.
 - **Pinned in:** `tests/test_fix_reexamine_needs_three_words.py`.
+
+## A grounder reaches another language, and a second grounder confirms what its own search found (2026-11-24)
+
+- **Decision:**
+  - `kg_ground_item` gives an item a registered usable source was found for (`found_for`) `search_context`: that
+    source's sections ranked by the words of every search its scout logged for it (both stances), through
+    `_ranked_context` with a `files` filter. The ranking stays the engine's; the words came from the scout before
+    any judging.
+  - `kg_ground_item(…, terms=…)` is the grounder's own request: at most `GROUND_TERMS_MAX` (8) content words,
+    which answer `requested_context`. One per item while the item, the sources and the policy are unchanged
+    (`_current_request`: `item_signature` + `_source_signature`). It is recorded in the new ledger
+    `.kg-ground-requests.jsonl` (`canon.GROUND_REQUESTS`, git-excluded). A refusal records nothing.
+  - `kg_ground` holds a `grounded` verdict that brings support on an item with a current request
+    (`_hold_or_confirm`), after the support checks and before any state change. It writes only a `hold` record:
+    the span, its file, the words, the first note, and byte marks of the audit log and of the unsupported ledger.
+  - `kg_ground_plan` queues a held item only as `{id, kind, confirm: true}`, last, in batches of its own
+    (`queue.confirm`).
+  - The next grounded verdict with support is the confirmation (`confirmed: true`, a line in the notes or body).
+    Another verdict, an unsupported record past the mark, or a change to the item answers the hold the other way.
+  - `kg_ground_item` gives a held item `confirm` (the span, its section, the words) and refuses `terms` for it.
+  - The grounder contract and `/burgess:kg-ground` say when to ask, how to report a hold, that a confirm batch
+    goes to a new launch, and that the report lists these items apart.
+- **What it answers:**
+  - The user's question of 2026-11-24 (can English sources verify Spanish ideas?) and the analysis that
+    followed. The verdict always crossed languages, since the grounder reads both. The passages it was shown did
+    not, because the engine ranked them by the item's own spelling.
+  - A missed paragraph is silent: the grounder records the item unsupported, and no field run would show it. So
+    waiting for a field miss, which I had first advised, could never settle it.
+  - The user approved safeguards 1, 2, 4 and 5 of the proposal («Sí, prepárala»):
+    1. pre-recorded words;
+    2. one capped, recorded request;
+    3. (left out) section titles plus a related-work rule;
+    4. a second grounder;
+    5. the report.
+- **Why not translate, and why not embeddings:**
+  - A translated source is a paraphrase: the verbatim-span rule, the reason the engine refuses WebFetch,
+    forbids citing it. Translating the idea risks changing the nuance under judgment.
+  - Multilingual embeddings would bring geometry into the evidence a verdict rests on, which the design razor
+    («embeddings measure dispersion, never truth») and the I3 firewall keep out. They would also add a model of
+    hundreds of megabytes.
+  - Letting the grounder choose the words keeps the language work in the language layer, and the engine
+    deterministic.
+- **What the safeguards cannot do:** the engine cannot tell one subagent from another, so the separation of the
+  second grounder rests on `/burgess:kg-ground` (a new launch, a batch of its own) and on the grounder's contract.
+  A grounder that broke both could confirm its own hold. The marks are byte offsets because ledger records are
+  stamped to the second: in the first smoke run, a pin recorded unsupported in the very second of its hold read as
+  answered.
+- **Pinned in:** `tests/test_feat_grounder_search_terms.py`.

@@ -137,6 +137,11 @@ UNSUPPORTED_PINS = ".kg-unsupported-pins.jsonl"
 # was already searched) and `kg_source_add` (which items a newly registered page was found for). Engine state,
 # not canon, like the three above: a clone without it only searches those items once more.
 SOURCE_SEARCHES = ".kg-source-searches.jsonl"
+# The passages a grounder asked for with its own words, one request per item against the sources as they are
+# (0.24.6, `kg_ground_item(terms=…)`), and the grounded verdicts held because their support came after such a
+# request, until a second grounder confirms or declines them. Engine state, not canon, like the four above: a
+# clone without it only lets a grounder ask once more, and a held verdict waits to be found again.
+GROUND_REQUESTS = ".kg-ground-requests.jsonl"
 
 
 # --------------------------------------------------------------------------- git helpers
@@ -755,9 +760,11 @@ class Canon:
         # it only offers its hubs to one more attack. The edgeless-section ledger (0.14.0) likewise: a clone
         # without it only offers those sections to one more extraction. The unsupported-pin ledger (0.20.1)
         # likewise: a clone without it only offers those pins to one more grounder. The source-search ledger
-        # (0.24.0) likewise: a clone without it only searches those items once more.
+        # (0.24.0) likewise: a clone without it only searches those items once more. The grounder-request
+        # ledger (0.24.6) likewise: a clone without it only lets a grounder ask once more.
         patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
-                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS, UNSUPPORTED_PINS, SOURCE_SEARCHES]
+                    f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS, UNSUPPORTED_PINS, SOURCE_SEARCHES,
+                    GROUND_REQUESTS]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
