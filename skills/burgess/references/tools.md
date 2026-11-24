@@ -250,6 +250,25 @@ leaves both as they are, so they record who put the edge in its state and when. 
 still appended, and the audit log records the call. Note: the return `key` for a node verdict is
 `node:<id>`; for an edge it is the edge id.
 
+**Held for a second grounder (0.24.6, `KGEngine._hold_or_confirm`).** A `grounded` verdict that brings support
+(`support_span` or `support_note`), on an item whose grounder asked `kg_ground_item` for passages with its own
+`terms` against the sources as they are now (§1.22), is checked like any other and then held. Nothing is written
+but a `hold` record in `.kg-ground-requests.jsonl`, which keeps the span, the file it lies in, the words of the
+search, the first grounder's note, and two marks: the grounding audit log's size and the unsupported ledger's.
+The answer is `{ok: true, held: true, needs_confirmation: true, kind, target_id, terms, hint}`. Until the hold is
+answered, `kg_ground_plan` queues the item only marked `confirm`, last and in a batch of its own (§1.21).
+- **Confirmed:** the next `grounded` verdict with support on the item is the second grounder's. It applies,
+  answers `confirmed: true` with `search_terms`, and adds a line saying how the support was found, in the edge's
+  notes or as a `verdict (grounded):` paragraph of the node's body.
+- **Declined:** another verdict on the item, or an unsupported record made after the hold (both read by byte
+  offset past its marks, so a record from the same second does not count), answers it the other way. So does a
+  change to the item itself.
+- **What it guards against.** The engine checks that a cited passage is verbatim. Nothing checked that it was not
+  picked out of a search run until something fitted. A request lets a grounder look in another language; the hold
+  sends what that search found to a grounder who did not choose the words. The engine cannot tell one grounder
+  from another, so `/burgess:kg-ground` gives a held item to a new launch, and the grounder's contract forbids
+  confirming its own hold.
+
 > Adversarial grounding (§1.7): the adversarial grounder writes counter-edges typed `attacked_by`,
 > `confounded_by` or `collapses_into`, which stay `unverified` for the next pass's grounders, and calls
 > `kg_ground(target_id=<the refuted claim's edge id>, verdict="failed", refuted_by=<the counter-edge id>)` only
@@ -999,6 +1018,10 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   is, is counted in `queue.reexaminable_held`. A `failed` item is not queued: an adversarial grounder refuted it
   with a counter-edge, whose span a new source does not remove. Through 0.22.3 the command's Stage 0c asked the
   orchestrator, which never calls `kg_ground`, to re-check these items itself.
+- **`queue.confirm` (0.24.6):** the items with a grounded verdict held for a second grounder, because its support
+  came after the grounder's own search (§1.4, §1.22). Each is queued only this way, last, in batches of their own
+  as `{id, kind, confirm: true}`, so no grounder judges its own hold in the same launch. It leaves the plan once a
+  verdict or an unsupported record answers it. With nothing usable, the held items are counted in `blocked`.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
   for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
@@ -1025,7 +1048,7 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 ```json
 {"ok": true, "focus": null,
  "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "reexamine": 0, "reexaminable": 0,
-           "reexaminable_held": 0, "extractor_nodes_not_queued": 399, "unsupported_waiting": 0,
+           "reexaminable_held": 0, "confirm": 0, "extractor_nodes_not_queued": 399, "unsupported_waiting": 0,
            "leads_pending": 0},
  "batch_size": 12, "wave_size": 6, "wave_size_from": "default",
  "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
@@ -1064,9 +1087,10 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   level 1 over level-4 notes and a level-4 preprint would otherwise have sent 119 pins to 10 grounders.
 - An item leaves the plan once it carries a verdict, so calling it again between waves is the progress probe.
 
-### 1.22 `mcp__plugin_burgess_burgess__kg_ground_item(target_id, kind="edge")`
+### 1.22 `mcp__plugin_burgess_burgess__kg_ground_item(target_id, kind="edge", terms="")`
 
-One queued item's evidence, so a grounder verdicts it without reading a file (0.7.0). **Read-only.**
+One queued item's evidence, so a grounder verdicts it without reading a file (0.7.0). **Read-only**, except that
+a `terms` request is recorded (0.24.6).
 
 ```json
 {"ok": true, "kind": "edge",
@@ -1155,6 +1179,24 @@ One queued item's evidence, so a grounder verdicts it without reading a file (0.
     come up to 3 more from external copies, so a source registered for a node is never crowded out by the
     notes. Since 0.22.0 the index holds only usable files under the policy (the notes too: below a required
     level they are left out), and every section carries `source`, its label.
+- **Across languages (0.24.6), for either kind.** Every excerpt above is chosen by the item's own words, so a
+  source in another language matches it only through words both languages spell alike. Through 0.24.5 that was
+  all a grounder had, and an English source found for a Spanish pin could keep its key paragraph out of view.
+  - `search_context` — for an item a registered usable source was found for (`found_for`, §1.26): that source's
+    sections ranked by the words of every search the scout logged for the item (§1.32, both stances), as
+    `{terms, sections, sections_total, files}`. Those words were chosen before any passage was judged, by
+    someone else. Absent when no such source or no such search exists.
+  - `terms` — the grounder's own request: at most 8 content words (`GROUND_TERMS_MAX`), in the source's
+    language. It answers `requested_context`, the usable sections that share the most of them, ranked as
+    `source_context` is, with `repeated` and a `note`. One request per item while the item and the sources (and
+    the policy) are what they are now (`_current_request`): asking again gives back the first words and
+    sections. Every request goes to `.kg-ground-requests.jsonl`. Refusals: `terms-too-many` (with `max`),
+    `terms-empty`, and `terms-not-allowed` for an item with a held verdict. A refusal records nothing.
+  - **A held verdict.** After a request, a grounded verdict that brings support (`support_span` or
+    `support_note`) is held (§1.4, `needs_confirmation`): `kg_ground_plan` queues the item last, marked
+    `confirm` (§1.21), and `kg_ground_item` then gives it `confirm`: `{span, support_note, context, terms,
+    held_at, rule}`, the passage the first grounder cited with the section around it and the words its search
+    used. The first grounder's note is kept in the ledger and not shown, since it would anchor the second one.
 - All free text leaves through the SESSION scrub (`kg_scrub`), so a `support_span` copied back to `kg_ground`,
   placeholders included, restores and verifies.
 - `ok: false` for an unknown id, or a `kind` other than `edge`/`node`.

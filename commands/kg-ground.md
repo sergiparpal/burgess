@@ -196,7 +196,14 @@ judge it from what it returns: the edge and its span, span_in_source, its two no
 of the source (for an edge with no span, a proposal: shared_context, the source sections where both its ends
 are discussed, and, for a proposal from /burgess:kg-perturb, passage, the span a second reading of the source
 wrote it from, with its excerpt; for a node: source_context, the source sections that share the most of its
-words, with excerpts). Do not read files. An item marked re-examine was rejected before and is judged again:
+words, with excerpts; for an item a registered source was found for: search_context, that source's sections
+ranked by the words the scout searched for it with). Do not read files. When the item and a source are in
+different languages and nothing in the excerpts bears on it, you may ask kg_ground_item once more with
+terms, at most 8 words in the source's language naming what the item claims (your contract says how). Any
+support you find after that is held for a second grounder, and kg_ground answers needs_confirmation: report
+it as held and do not record it unsupported. An item marked confirm carries confirm, a passage another
+grounder cited after its own search: judge only whether that passage states the item, with no search of your
+own, and ground it with that span or record it unsupported. An item marked re-examine was rejected before and is judged again:
 a node the user asked to have judged again, or an item a source changed under since its verdict, which then
 comes with reexamine, the sections of that source that share its words. Judge it on those as well, and stamp
 your verdict even though its `from` is that rejection: a rejection again is a verdict too, and it answers the
@@ -237,6 +244,12 @@ those. A re-examined item drops out once a grounder has given it a new verdict, 
 grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`; since 0.22.0
 so does a claim whose only support lies below the project's required level. One it did not record stays in the
 plan: do not re-launch it, report it.
+
+**Held verdicts (0.24.6).** A grounder that asked for passages with its own words and then found support
+gets its verdict held, not applied. The next probe lists that item marked `confirm` (`queue.confirm`), last, in
+a batch of its own. Launch that batch like any other, as its own `kg-grounder` in the next wave, with the item
+written `(node, confirm)` or `(edge, confirm)`. Never hand it back to the grounder that was held: a new launch
+is a new grounder, and that is the point. The engine cannot tell grounders apart; this command does.
 
 ## Stage 2 — Attack the hubs (kg-adversarial-grounder)
 
@@ -315,6 +328,11 @@ Grounding pass complete.
 
 For each hub attacked without a counter-edge, give its falsifying question: it is for a human, and its
 record keeps the hub out of the next plan until the hub gains a newer grounded claim.
+
+List apart every item a grounder asked passages for with its own words (0.24.6), with those words: each
+one held, then confirmed or declined by a second grounder, and why. A grounding that only such a search
+found is the one to read twice, so name it even when it was confirmed. A held item still unanswered when the
+pass ends (the last probe's `queue.confirm`) is waiting for its second grounder: say so.
 
 Then list the leads the grounders named for an extractor: for each `wrong-relation` rejection, the relation its
 span does state (a precondition filed as `grounds` is an `enables` edge from the same span), and for each

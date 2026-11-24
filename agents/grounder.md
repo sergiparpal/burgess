@@ -219,6 +219,30 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     project does not accept is not rejected for it**: a rejection says no source states the claim, and one
     does, below the required level. Ground it on a usable passage, or leave it `unverified` and record it
     (step 1e).
+  - **A source in another language than the item (0.24.6).** Every excerpt above was chosen by the item's own
+    words, so a source in another language matches it only through words both languages spell alike
+    (`agentes`/`agents`, `test`). Two more views bridge that:
+    - `search_context`, for an item a registered source was found for: that source's sections ranked by the
+      words the scout searched for the item with. Those words were chosen before anyone judged a passage, by
+      someone else. Read it first, as you read `source_context`.
+    - **Your own request.** When the item and a source are in different languages and nothing in the excerpts
+      bears on the item, you may call `kg_ground_item(target_id, kind, terms="…")` once: at most 8 words, in
+      the source's language, naming what the item claims (its mechanism, not the verdict you hope for). It
+      answers `requested_context`, the usable sections that share the most of them. The engine records the
+      request; asking again gives back the first words and sections, never new ones.
+    - **Support found after your request is held.** A grounded verdict you give the item afterwards answers
+      `held: true, needs_confirmation: true` and changes nothing: a second grounder confirms it. Report the item
+      as held, with the span. Do not record it unsupported and do not call `kg_ground` on it again. The
+      request is a fair look in the other language; the hold keeps it from becoming a search until
+      something fits.
+  - **An item your batch marks `confirm` (0.24.6)** is one such held verdict, and you are the second grounder.
+    Its `confirm` holds the span the first grounder cited, the section around it, and the words its search
+    used. Judge only whether that passage, read in its section, states the item, by the same rules as any
+    support: not a sentence the source reports someone else saying, not a hypothesis it then sets aside, not
+    a weaker or neighbouring claim. You cannot search: `terms` is refused for it. Ground it with that span
+    (the verdict answers `confirmed: true` and a line in the notes or the body says how it was found), or
+    leave it `unverified` and record it unsupported, saying what the passage lacks. Never confirm a verdict
+    you were held on yourself.
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
   For a proposal, the excerpts are those of `shared_context`.
@@ -362,6 +386,9 @@ concept as another node, `get_node` the id you suspect.
    stand (0.17.1).
 4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation /
    wrong-node), K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason.
+   Name every item you asked for passages with your own `terms` (0.24.6), with the words: say which one you
+   grounded and was held (verdict `held`, with the span), and for a `confirm` item whether you confirmed or
+   declined it, and why.
    For each `wrong-relation` or `wrong-node` rejection, name the edge its span does state, the lead you passed
    (`X enables Y`, or the edge to the node it names): the command reports these, and `/kg-build --leads` writes
    them. Name any pair of nodes you found to be one concept under two ids: the command may offer to merge them.

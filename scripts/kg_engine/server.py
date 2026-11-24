@@ -26,7 +26,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__, envconfig
-from .canon import EDGELESS_SECTIONS, HUB_ATTACKS, SOURCE_SEARCHES, UNSUPPORTED_PINS, Canon
+from .canon import EDGELESS_SECTIONS, GROUND_REQUESTS, HUB_ATTACKS, SOURCE_SEARCHES, UNSUPPORTED_PINS, Canon
 from .groundaudit import GroundAuditLog
 from .model import (
     AuthoredBy,
@@ -1475,6 +1475,8 @@ class KGEngine:
         state = EpistemicState(verdict)
         promoted_to = None
         withdrawn = None   # the lead this verdict withdraws (0.11.1): edge verdicts only
+        confirming = None  # the held verdict this one confirms (0.24.6), or None
+        from .groundplan import item_signature
         # Lease-first read-modify-write; the full rationale (F17/L5, server-3,
         # writers-use-nonblocking-lock) lives once on _try_writer_lease.
         if not self._try_writer_lease():
@@ -1492,6 +1494,7 @@ class KGEngine:
                 except Exception as e:  # noqa: BLE001 — surface as a structured error, not an MCP exception
                     return {"ok": False, "error": self._scrub_error(f"node unreadable: {e}")}
                 corroboration = None
+                sig_before = item_signature("node", node)   # what a request or a hold was made against
                 # The level veto on a refutation (0.21.0), decided before any state change like every gate here.
                 if state == EpistemicState.FAILED:
                     refusal = self._failed_refusal("node", node, refuted_by)
@@ -1505,6 +1508,12 @@ class KGEngine:
                     promoted_to, err = self._promote_hypothesis_node(node, support_span, support_note)
                     if err:
                         return {"ok": False, **err} if isinstance(err, dict) else {"ok": False, "error": err}
+                # Support found after the grounder's own search is held for a second grounder (0.24.6), decided
+                # after the support checks and before any state change: nothing is written but the hold.
+                gate = self._hold_or_confirm("node", node.id, sig_before, state, support_span, support_note, note)
+                if gate is not None and "confirming" not in gate:
+                    return gate
+                confirming = gate.get("confirming") if gate else None
                 frm = node.epistemic_state.value
                 node.epistemic_state = state
                 if state == EpistemicState.FAILED and refuted_by.strip():
@@ -1517,6 +1526,9 @@ class KGEngine:
                 # a reason each, and both reasons were lost.
                 if note and note.strip():
                     node.body = self._append_body(node.body, f"verdict ({verdict}): {note.strip()}")
+                if confirming:
+                    node.body = self._append_body(node.body, f"verdict ({verdict}): "
+                                                             f"{self._confirmation_line(confirming)}")
                 key = f"node:{node.id}"
             else:
                 try:
@@ -1526,6 +1538,7 @@ class KGEngine:
                 if node is None:
                     return {"ok": False, "error": "edge not found"}
                 edge = next(e for e in node.edges if e.id == target_id)
+                sig_before = item_signature("edge", edge)   # what a request or a hold was made against
                 if triple and edge_id(*triple) == edge.id:  # decided before any state change, like the gate below
                     return {"ok": False, "error": "lead: it repeats the edge being rejected"}
                 # A lead is written from the rejected edge's span (`_lead_section`), so an edge with none, a
@@ -1581,6 +1594,11 @@ class KGEngine:
                     promoted_to, err = self._promote_hypothesis(edge, support_span, support_note)
                     if err:
                         return {"ok": False, **err} if isinstance(err, dict) else {"ok": False, "error": err}
+                # held for a second grounder when the support came after the item's own search (0.24.6)
+                gate = self._hold_or_confirm("edge", edge.id, sig_before, state, support_span, support_note, note)
+                if gate is not None and "confirming" not in gate:
+                    return gate
+                confirming = gate.get("confirming") if gate else None
                 frm = edge.epistemic_state.value
                 # A lead belongs to the rejection that recorded it (0.11.1). A verdict that changes the
                 # state and records no lead of its own withdraws the lead the notes hold, so an overturned
@@ -1609,6 +1627,8 @@ class KGEngine:
                     edge.notes = self._append_note(edge.notes, REFUTED_BY_MARK + refuted_by.strip())
                 if corroboration:
                     edge.notes = self._append_note(edge.notes, support_segment(*corroboration))
+                if confirming:
+                    edge.notes = self._append_note(edge.notes, self._confirmation_line(confirming))
                 if triple:
                     from .groundplan import LEAD_MARK
                     edge.notes = self._append_note(edge.notes, LEAD_MARK + " ".join(triple))
@@ -1651,6 +1671,10 @@ class KGEngine:
                 out["lead"] = " ".join(triple)
             if withdrawn:
                 out["lead_withdrawn"] = " ".join(withdrawn)
+            if confirming:
+                # a verdict held for a second grounder, confirmed by this one (0.24.6)
+                out["confirmed"] = True
+                out["search_terms"] = confirming.get("terms") or []
             return out
         finally:
             self.canon.release_lock()
@@ -2811,6 +2835,10 @@ class KGEngine:
         state = self._usable_state() if unsupported else {}
         unsupported_waiting = 0
         wake = self._wake_context(state, nodes) if unsupported else None
+        # Grounded verdicts held for a second grounder (0.24.6): such an item is queued only to be confirmed, in
+        # a batch of its own after everything else, so the grounder that found its support never confirms it.
+        holds = self._open_holds()
+        confirm_rows: "list[tuple[str, str]]" = []
 
         def waits(kind: str, item) -> bool:
             return waits_for_sources(unsupported.get((kind, item.id)), current_sig, item_signature(kind, item),
@@ -2838,6 +2866,9 @@ class KGEngine:
                 pinned = DIVERGE_MARK in (e.notes or "")
                 # A recorded item waits while the sources, the policy and the item are the ones it was judged
                 # against: a pin (0.20.1), or since 0.22.0 an item the policy leaves without usable support.
+                if ("edge", e.id) in holds:
+                    confirm_rows.append((e.id, "edge"))
+                    continue
                 if unsupported and waits("edge", e):
                     unsupported_waiting += 1
                     continue
@@ -2862,6 +2893,9 @@ class KGEngine:
                 skipped += 1
                 continue
             pinned = DIVERGE_MARK in (n.body or "")
+            if ("node", n.id) in holds:
+                confirm_rows.append((n.id, "node"))
+                continue
             if unsupported and waits("node", n):
                 unsupported_waiting += 1
                 continue
@@ -2910,13 +2944,18 @@ class KGEngine:
         blocked_items = 0
         if nothing_usable:
             kept = [row for row in items if row[2] == "edge" and row[0][1] == 1]
-            blocked_items = len(items) - len(kept)
+            blocked_items = len(items) - len(kept) + len(confirm_rows)
             items = kept
+            confirm_rows = []
         # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
         # grounder judges a generated compression and its star together, instead of parallel grounders
         # rejecting the node while grounding an edge into it.
         planned = node_star_batches([{"id": i, "kind": k.split(":")[0], "reexamine": True} if ":" in k
                                      else {"id": i, "kind": k} for _, i, k in items], ends, size)
+        # the held verdicts last, in batches of their own (0.24.6): a new grounder confirms or declines each
+        confirm_rows.sort(key=lambda row: (row[1] != "node", row[0]))
+        planned += [[{"id": i, "kind": k, "confirm": True} for i, k in confirm_rows[at:at + size]]
+                    for at in range(0, len(confirm_rows), size)]
         # attacks that wrote no counter-edge (0.10.0), each counted like a counter-edge judged at its time
         for hub, times in self._hub_attacks().items():
             attacks.setdefault(hub, []).extend((ATTACK_RECORDED, at) for at in times)
@@ -2948,6 +2987,9 @@ class KGEngine:
                       # rejected items a source changed under since they were judged, queued to be judged
                       # again (0.22.4), and those held back because no file that flagged them is usable
                       "reexaminable": reexaminable, "reexaminable_held": reexaminable_held,
+                      # grounded verdicts held because their support came after the grounder's own search
+                      # (0.24.6), queued last for a second grounder to confirm or decline
+                      "confirm": len(confirm_rows),
                       "extractor_nodes_not_queued": skipped,
                       # pins judged unsupported against these sources, left out until the sources change
                       # (0.20.1); always 0 with a focus, which offers them again
@@ -4164,8 +4206,17 @@ class KGEngine:
         return {**counts, "external_items": external_items, "unchecked_items": unchecked_items,
                 "on_unusable": on_unusable[:cap], "on_unusable_total": len(on_unusable)}
 
-    def kg_ground_item(self, target_id: str, kind: str = "edge") -> dict:
+    def kg_ground_item(self, target_id: str, kind: str = "edge", terms: str = "") -> dict:
         """Everything a grounder judges ONE queued item by (0.7.0), so it never reads a file.
+
+        Across languages (0.24.6, `_with_search_views`): an item a registered source was found for also gets
+        `search_context`, that source's sections ranked by the words the scout searched for the item with. Words
+        chosen before anyone judged, by someone else. `terms` (at most `GROUND_TERMS_MAX` words, in the language
+        of the sources) is the grounder's own request: `requested_context`, the usable sections that share the
+        most of them. One request per item against the sources as they are, recorded; a second gets the first
+        one's words and sections back. A grounded verdict given after such a request is held for a second grounder
+        (`kg_ground`'s `needs_confirmation`), and an item with a held verdict gets `confirm`, the held passage
+        with its context, and refuses `terms`.
 
         For an edge: the edge itself (its span among the fields), `span_in_source`, which says whether the
         span still verifies against its file now (the engine's own check, so a stale span shows as false),
@@ -4203,9 +4254,10 @@ class KGEngine:
                          "epistemic_state": e.epistemic_state.value}
                         for m in nodes.values() for e in m.edges
                         if n.id in (slug(e.source), slug(e.target))][:20]
-            return {"ok": True, "kind": "node", "node": view(n), "edges": incident,
-                    "source_context": self._node_source_context(n, scrub),
-                    "reexamine": self._reexamine_view("node", n, scrub)}
+            return self._with_search_views({"ok": True, "kind": "node", "node": view(n), "edges": incident,
+                                            "source_context": self._node_source_context(n, scrub),
+                                            "reexamine": self._reexamine_view("node", n, scrub)},
+                                           "node", n, scrub, terms)
         try:
             owner = self._owner_of_edge(target_id)
         except EdgeOwnerUnreadable as e:
@@ -4232,7 +4284,7 @@ class KGEngine:
             src, tgt = nodes.get(slug(e.source)), nodes.get(slug(e.target))
             words = " ".join(x for x in ((src.label if src else e.source), (tgt.label if tgt else e.target)) if x)
             support = self._ranked_context(node_terms(words, e.span or ""), scrub)
-        return {"ok": True, "kind": "edge",
+        return self._with_search_views({"ok": True, "kind": "edge",
                 "edge": {"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
                          "provenance": e.provenance.value, "authored_by": e.authored_by.value,
                          "epistemic_state": e.epistemic_state.value, "confidence": e.confidence,
@@ -4246,7 +4298,223 @@ class KGEngine:
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
                 "context": context, "shared_context": shared, "passage": passage, "support_context": support,
                 # a rejected item a source changed under since it was judged (0.22.4), or None
-                "reexamine": self._reexamine_view("edge", e, scrub)}
+                "reexamine": self._reexamine_view("edge", e, scrub)}, "edge", e, scrub, terms)
+
+    # ---- passages across languages (0.24.6) ----------------------------------------------------------------
+
+    # How many words a grounder may ask for passages with, once per item. Enough to name a mechanism in the
+    # source's language ("quorum sensing threshold decay"), too few to fish with a list of everything it might say.
+    GROUND_TERMS_MAX = 8
+    _requests_lock = threading.Lock()   # parallel grounders log their requests and holds through one engine
+
+    def _with_search_views(self, out: dict, kind: str, item, scrub, terms: str) -> dict:
+        """`out` (a kg_ground_item answer) with the 0.24.6 views of `item`: `search_context` when a registered
+        usable source was found for it and the scout's searches for it are on record; `confirm` when a grounded
+        verdict on it is held; `requested_context` for the grounder's own `terms`. A refusal of `terms`
+        (`terms-too-many`, `terms-empty`, `terms-not-allowed`) replaces the answer, so the grounder asks again
+        without them."""
+        from .groundplan import item_signature, node_terms
+        hold = self._open_holds().get((kind, item.id))
+        if (terms or "").strip():
+            if hold is not None:
+                return {"ok": False, "error": "terms-not-allowed",
+                        "hint": "a verdict on this item is held for a second grounder: judge the passage in "
+                                "`confirm`, without searching"}
+            words = node_terms(terms, "")
+            if not words:
+                return {"ok": False, "error": "terms-empty", "hint": "give content words, not only stopwords"}
+            if len(words) > self.GROUND_TERMS_MAX:
+                return {"ok": False, "error": "terms-too-many", "max": self.GROUND_TERMS_MAX, "terms": words,
+                        "hint": f"at most {self.GROUND_TERMS_MAX} words, naming what the item claims in the "
+                                f"language of the source"}
+            sig = item_signature(kind, item)
+            prior = self._current_request(kind, item.id, sig)
+            if prior is not None:
+                words = [str(w) for w in prior.get("terms") or []]
+            else:
+                problem = self._log_ground_request({"type": "request", "kind": kind, "item": item.id,
+                                                    "item_sig": sig, "source_sig": self._source_signature(),
+                                                    "terms": words})
+                if problem:
+                    return {"ok": False, "error": problem}
+            ctx = self._ranked_context(words, scrub)
+            out["requested_context"] = {**ctx, "repeated": prior is not None,
+                                        "note": ("one request per item against these sources: the sections "
+                                                 "for the words asked first" if prior is not None else
+                                                 "recorded: a grounded verdict on this item now needs a second "
+                                                 "grounder's confirmation")}
+        search = self._search_context(kind, item.id, scrub)
+        if search is not None:
+            out["search_context"] = search
+        if hold is not None:
+            out["confirm"] = self._confirm_view(hold, scrub)
+        return out
+
+    def _search_context(self, kind: str, item_id: str, scrub) -> "dict | None":
+        """The sections of the usable sources found for an item (`found_for`) that share the most of the words
+        its scout searched for it with (the ledger's `search` records, both stances), or None. The scout chose
+        them before any passage was judged, so they rank a source in another language than the item without
+        giving the grounder the choice. Through 0.24.5 such a source was ranked by the item's own words alone:
+        across languages only cognates matched."""
+        from .groundplan import node_terms
+        files = {r.name for r in self.evidence_registry().records.values()
+                 if item_id in (r.found_for or ()) and self._usable_file(r.name)}
+        if not files:
+            return None
+        queries = [str(r.get("query") or "") for r in self._source_searches()
+                   if r.get("type") == "search" and r.get("item") == item_id and r.get("kind", kind) == kind]
+        words = node_terms(" ".join(q for q in queries if q), "")
+        if not words:
+            return None
+        ctx = self._ranked_context(words, scrub, files=files)
+        if not ctx["sections"]:
+            return None
+        return {**ctx, "files": sorted(files)}
+
+    def _ground_requests(self) -> "list[dict]":
+        """Every record of the grounder-request ledger (`canon.GROUND_REQUESTS`), oldest first. Fail-open: a
+        missing or unreadable ledger is no record and a bad line is skipped. Never creates the ledger."""
+        out: "list[dict]" = []
+        try:
+            with open(self.canon.root / GROUND_REQUESTS, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(rec, dict) and rec.get("type") in ("request", "hold"):
+                        out.append(rec)
+        except OSError:
+            return []
+        return out
+
+    def _log_ground_request(self, record: dict) -> "str | None":
+        """Append `record`, stamped `at`, to the grounder-request ledger. Returns why it could not be written, or
+        None. Unlike the search ledger this record is a safeguard, so its callers refuse what they were asked
+        when it cannot be written: a request that left no trace would let a grounded verdict through unheld."""
+        line = json.dumps({"at": utcnow(), **record}, ensure_ascii=False) + "\n"
+        path = self.canon.root / GROUND_REQUESTS
+        try:
+            with self._requests_lock:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line)
+                    f.flush()
+        except OSError as e:
+            return self._scrub_error(f"not recorded: {e}")
+        return None
+
+    def _current_request(self, kind: str, item_id: str, item_sig: str) -> "dict | None":
+        """The latest request a grounder made for this item while it read as it does now and the sources and the
+        policy were what they are now (`_source_signature`), or None. A changed item or a new source is a new
+        look, with a request of its own."""
+        sig = self._source_signature()
+        for rec in reversed(self._ground_requests()):
+            if (rec.get("type") == "request" and rec.get("kind") == kind and rec.get("item") == item_id
+                    and rec.get("item_sig") == item_sig and rec.get("source_sig") == sig):
+                return rec
+        return None
+
+    def _open_holds(self) -> "dict[tuple[str, str], dict]":
+        """`(kind, id) -> hold` for every grounded verdict held for a second grounder that nothing has answered:
+        no verdict on the item recorded in the grounding audit log beyond the hold's `mark`, no unsupported record
+        for it in its ledger beyond the hold's `unsupported_mark`, and the item still as it read when held. Both
+        are byte offsets, as in the audit index: records are stamped to the second, and a pin recorded
+        unsupported in the very second its next grounder was held must not count as that hold's answer. Read
+        without projecting, like the plan."""
+        from .groundaudit import audit_key, read_audit_index
+        from .groundplan import item_signature
+        holds = [r for r in self._ground_requests() if r.get("type") == "hold"]
+        if not holds:
+            return {}
+        audit = read_audit_index(self.canon.root / GROUND_AUDIT)
+        _size, recorded = self._unsupported_marks()
+        nodes = self._canon_baseline()
+        edges = {e.id: e for n in nodes.values() for e in n.edges}
+        out: "dict[tuple[str, str], dict]" = {}
+        for hold in holds:
+            kind, iid = hold.get("kind"), hold.get("item")
+            item = nodes.get(iid) if kind == "node" else edges.get(iid)
+            key = (kind, iid)
+            mark, umark = hold.get("mark"), hold.get("unsupported_mark")
+            answered = (item is None or item_signature(kind, item) != hold.get("item_sig")
+                        or audit.judged_since(audit_key(kind, iid), mark if isinstance(mark, int) else 0)
+                        or recorded.get(key, -1) >= (umark if isinstance(umark, int) else 0))
+            if answered:
+                out.pop(key, None)
+            else:
+                out[key] = hold
+        return out
+
+    def _unsupported_marks(self) -> "tuple[int, dict[tuple[str, str], int]]":
+        """`(size, {(kind, id): offset of its latest record})` of the unsupported-item ledger, in bytes, the
+        points a hold compares against (`_open_holds`). Fail-open: no ledger is `(0, {})`."""
+        size, last = 0, {}
+        try:
+            with open(self.canon.root / UNSUPPORTED_PINS, "rb") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line.decode("utf-8", "replace"))
+                    except ValueError:
+                        rec = None
+                    if isinstance(rec, dict) and rec.get("kind") in ("node", "edge") and isinstance(rec.get("item"), str):
+                        last[(rec["kind"], rec["item"])] = size
+                    size += len(line)
+        except OSError:
+            return 0, {}
+        return size, last
+
+    def _confirm_view(self, hold: dict, scrub) -> dict:
+        """What a second grounder judges a held verdict by: the passage the first one cited, the section around it,
+        the words its search used, and the rule."""
+        span = str(hold.get("span") or "")
+        context = self._span_context(span, str(hold.get("support_file") or ""), scrub) if span else None
+        return {"span": scrub(span) if span else None, "support_note": scrub(hold.get("support_note") or "") or None,
+                "context": context, "terms": hold.get("terms") or [], "held_at": hold.get("at"),
+                "rule": ("another grounder found this support after asking for passages with its own words. Judge "
+                         "only whether this passage, read in its context, states the item. Ground it with this "
+                         "span, or leave the item unverified and record it; you cannot search for others")}
+
+    def _hold_or_confirm(self, kind: str, item_id: str, item_sig: str, state, support_span: str,
+                         support_note: str, note: str = "") -> "dict | None":
+        """For a grounded verdict that brings support (0.24.6): `{"confirming": hold}` when a verdict on the item is
+        held, so this one is the second grounder's; the held answer when the item had a request against these
+        sources and no hold yet, after recording the hold; None otherwise (no request: the verdict proceeds as
+        through 0.24.5). The engine cannot tell one grounder from another: `/burgess:kg-ground` gives a held item
+        to a new grounder in a batch of its own, and the grounder's rules forbid confirming its own hold."""
+        from .groundaudit import read_audit_index
+        if state != EpistemicState.GROUNDED or not ((support_span or "").strip() or (support_note or "").strip()):
+            return None
+        hold = self._open_holds().get((kind, item_id))
+        if hold is not None:
+            return {"confirming": hold}
+        request = self._current_request(kind, item_id, item_sig)
+        if request is None:
+            return None
+        restore = self._restore_fn()
+        span = (restore(support_span) if restore else support_span) if (support_span or "").strip() else ""
+        record = {"type": "hold", "kind": kind, "item": item_id, "item_sig": item_sig,
+                  "terms": request.get("terms") or [], "span": span[:3000],
+                  "support_file": self._support_file(span) if span else None,
+                  "support_note": (support_note or "")[:1000],
+                  # the first grounder's reason, kept for the record and never shown to the second one, whose
+                  # judgment it would anchor
+                  "note": (note or "")[:1000],
+                  "mark": read_audit_index(self.canon.root / GROUND_AUDIT).size,
+                  "unsupported_mark": self._unsupported_marks()[0]}
+        problem = self._log_ground_request(record)
+        if problem:
+            return {"ok": False, "error": problem}
+        return {"ok": True, "held": True, "needs_confirmation": True, "kind": kind, "target_id": item_id,
+                "terms": record["terms"],
+                "hint": ("held: the support came after this item's own search, so a second grounder confirms "
+                         "it. Report it as held; do not record it unsupported and do not ground it again")}
+
+    @staticmethod
+    def _confirmation_line(hold: dict) -> str:
+        words = ", ".join(str(w) for w in hold.get("terms") or []) or "?"
+        return (f"confirmed by a second grounder (0.24.6): the support was found after the first grounder asked "
+                f"for passages with its own words ({words})")
 
     def _section_index(self) -> dict:
         """The units of every section of the configured sources (`groundplan.text_units`: paragraphs, and the
@@ -5752,7 +6020,14 @@ def _register(mcp, engine: KGEngine) -> None:
         required once any external source is registered. The level vetoes, never decides: an unusable source
         refutes nothing (`failed-by-unusable-source`) and a lower level cannot fail a higher one
         (`failed-by-lower-level`); a refused failed leaves the counter-edge standing as a visible dispute. A
-        support_note promotion is recorded as an unchecked citation."""
+        support_note promotion is recorded as an unchecked citation.
+
+        Held for a second grounder (0.24.6): a grounded verdict with support on an item whose grounder asked
+        kg_ground_item for passages with its own `terms` changes nothing; it answers `held: true,
+        needs_confirmation: true`. Report it as held, do not record the item unsupported, do not ground it
+        again: kg_ground_plan queues it last, marked `confirm`, for a new grounder. That grounder's grounded
+        verdict applies it (`confirmed: true`, and a line saying so in the notes or the body); recording it
+        unsupported, or another verdict, declines it."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
                                 support_span=support_span, support_note=support_note, lead=lead,
                                 refuted_by=refuted_by)
@@ -5836,12 +6111,15 @@ def _register(mcp, engine: KGEngine) -> None:
         source text. Every pass also queues, after everything new and marked `"reexamine": true`, the rejected
         items a source changed under since they were judged (`queue.reexaminable`, the flags kg_context lists,
         all of them), leaving out those no usable source flagged (`queue.reexaminable_held`). A grounder's new
-        verdict on such an item, whatever it is, answers its flag, so the item leaves the plan. Read-only."""
+        verdict on such an item, whatever it is, answers its flag, so the item leaves the plan. Last come the
+        items with a grounded verdict held for a second grounder (0.24.6: the support came after the grounder's
+        own search), in batches of their own, each item marked `"confirm": true` and counted in
+        `queue.confirm`; give each such batch to a new grounder. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size, reexamine=bool(reexamine))
 
     @mcp.tool()
     @_tool_result
-    def kg_ground_item(target_id: str, kind: str = "edge") -> dict:
+    def kg_ground_item(target_id: str, kind: str = "edge", terms: str = "") -> dict:
         """Everything needed to judge ONE queued item, so a grounder never reads a file. For an edge: its
         fields and span, `span_in_source` (does the span still verify now), its two endpoint nodes, and
         `context`, the excerpt of the source that holds the span. An edge with no span (a proposal) gets
@@ -5863,8 +6141,15 @@ def _register(mcp, engine: KGEngine) -> None:
         `reason`, `files` (the sources whose changed text shares its words, each with its level and `usable`)
         and `context`, the usable sections of those files that share the most of its words (`null` for an edge
         whose own span's file changed: its `context` is that file now). Every other item has `reexamine: null`.
-        Text is egress-scrubbed with the session's placeholders. Read-only."""
-        return engine.kg_ground_item(target_id, kind)
+        Across languages (0.24.6): an item a registered source was found for gets `search_context`, that
+        source's sections ranked by the words the scout searched for the item with. `terms` (at most 8 words,
+        in the language of the sources) asks for `requested_context`, the usable sections that share the most
+        of them: once per item against these sources, and recorded; asking again returns the first request's
+        words and sections. A grounded verdict given after such a request is held for a second grounder
+        (kg_ground answers `needs_confirmation`). An item with a held verdict gets `confirm`, the held passage
+        with its context and the rule, and refuses `terms`. Text is egress-scrubbed with the session's
+        placeholders. Read-only, except that a request is recorded."""
+        return engine.kg_ground_item(target_id, kind, terms)
 
     @mcp.tool()
     @_tool_result
