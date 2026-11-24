@@ -105,6 +105,9 @@ jobs:
     needs: [test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Read-only access to this run's jobs, for the second step. Job-level, so nothing else gains it.
+    permissions:
+      actions: read
     steps:
       - name: Fail unless every required job succeeded
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
@@ -112,3 +115,32 @@ jobs:
           echo "A required job did not succeed:"
           echo '${{ toJSON(needs) }}'
           exit 1
+      # The step above reads the matrix's summary result, and on PR #153 (2026-11-24) that summary said success
+      # while the macOS leg had never run: GitHub found no runner for it and cancelled it after 15 minutes. The
+      # first step was skipped, this gate passed, and auto-merge merged the PR. So also ask the API for every
+      # leg of this run, the latest attempt of each, and fail unless each one concluded success. Finding no
+      # leg at all fails too, so renaming the test job can never open the gate. The API can answer a passing
+      # server error (a 502 on this very PR's re-run blocked it): ask up to five times, then fail closed.
+      - name: Fail unless every test leg ran and succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if legs=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=latest&per_page=100" \
+                       --jq '.jobs[] | select(.name | startswith("engine tests")) | "\(.name)\t\(.conclusion // "none")"'); then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "the API did not list this run's jobs after 5 attempts"
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+          printf '%s\n' "$legs"
+          total=$(printf '%s\n' "$legs" | grep -c . || true)
+          bad=$(printf '%s\n' "$legs" | awk -F'\t' '$2 != "success"' | grep -c . || true)
+          if [ "$total" -eq 0 ] || [ "$bad" -ne 0 ]; then
+            echo "$bad of $total test legs did not succeed"
+            exit 1
+          fi
+          echo "all $total test legs succeeded"

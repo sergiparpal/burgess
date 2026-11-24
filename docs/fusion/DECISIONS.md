@@ -3124,3 +3124,37 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Also settled the same day:** the user kept the strict reading of what grounds a node (0.24.7). A pin is
   grounded only when a source states the whole idea; partial support stays in the withdrawal or unsupported
   notes.
+
+## The CI gate checks every test leg, not the matrix's summary (2026-11-24)
+
+- **Decision:** `ci-complete` keeps its first step, which fails on a `failure`, `cancelled` or `skipped` in
+  `needs.*.result`, and gains a second.
+  - The second step lists the run's jobs, the latest attempt of each (`gh api
+    repos/<repo>/actions/runs/<run_id>/jobs?filter=latest`), and fails unless every job named `engine tests…`
+    concluded `success`. It also fails when it finds no such job, so renaming the test job cannot open the gate,
+    and when the API call fails (the default `bash -eo pipefail`).
+  - The job gains `permissions: actions: read`, at job level, since the workflow's `contents: read` leaves every
+    other scope at none.
+  - It is a CI-only change, with no version bump and no release.
+- **What it answers:** PR #153 (0.25.0, 2026-11-24).
+  - The macOS leg never ran: «The job was not acquired by Runner of type hosted even after multiple attempts»,
+    while GitHub reported limited macOS arm64 capacity. It was cancelled after 15 minutes, with no steps.
+  - `ci-complete`'s first step was skipped, so the matrix's summary result read as success. The gate passed, and
+    auto-merge merged the PR at 18:01 CET.
+  - The user reported «un check cancelado en la CI», then approved the fix («Sí, prepáralo»).
+- **Checked against real runs:** by hand, the same logic fails the #153 run (1 of 6 legs cancelled) and passes the
+  0.24.7 run (6 of 6). A re-run of only the failed leg counts its latest attempt, so the gate opens once it passes.
+- **Shared posture:** the six plugin repositories share this gate, so they share the hole. Fixing the other five
+  is a separate decision.
+- **A passing API error is asked again.**
+  - On this fix's own PR (#154), a re-run of the gate met `gh: Server Error (HTTP 502)`. The step failed closed,
+    as designed, and blocked the merge on GitHub's hiccup.
+  - The step now asks up to five times (10, 20, 30 and 40 s apart, within the job's 5 minutes) before failing.
+  - The same PR also showed two re-run habits of GitHub. «Re-run failed jobs» skips a leg that timed out, which
+    counts as cancelled, not failed. A leg cut by its timeout does show in `needs.*.result`; one that never got a
+    runner does not.
+- **Pinned in:** `tests/test_fix_ci_gate_every_leg.py`. It checks the step's configuration, and runs its script as
+  GitHub does (`bash -eo pipefail`, with a stub `gh` and `sleep`) for these cases:
+  - a passing leg set, a cancelled leg, a failed leg, a leg with no conclusion, and none;
+  - an API that fails twice and then answers;
+  - an API that never answers.
