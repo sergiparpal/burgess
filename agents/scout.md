@@ -44,8 +44,8 @@ primaries: a review, a survey), **tertiary** (summarizes without the origin: an 
 3. **Search: three searches for every item, whatever the other items found.**
    - The catalogue **for** and the catalogue **against**, each with
      `mcp__plugin_burgess_burgess__kg_source_search(query, item_id, stance)`. It searches OpenAlex, the scholarly
-     catalogue, through the engine, and logs the search. Its results carry the venue, type, DOI, retraction and
-     abstract, and a `level_hint` from those facts.
+     catalogue, through the engine, and logs the search. Its results carry the venue, type, DOI, retraction,
+     abstract and first authors (`authors`), and a `level_hint` from those facts.
    - The web **for**, with `WebSearch` (mode `standard`), for institutional and editorial sources the catalogue
      does not hold.
    - Never skip the **against** search: it is the only way this run looks for evidence against the claim. An empty
@@ -62,8 +62,9 @@ primaries: a review, a survey), **tertiary** (summarizes without the origin: an 
    page `registered_as` a source already, and anything above `required_level`.
 5. **Read each candidate through the engine**:
    `mcp__plugin_burgess_burgess__kg_source_probe(url, item_id, terms)`, with `terms` your search words in the
-   page's language. The engine fetches the page itself and returns its title, date, DOI, venue, a `level_hint` and
-   the `passages` that share the most of those words, verbatim. **Never use WebFetch**: its answer is a model's
+   page's language. The engine fetches the page itself and returns its title, the authors the page names
+   (`authors`), date, DOI, venue, a `level_hint` and the `passages` that share the most of those words, verbatim.
+   **Never use WebFetch**: its answer is a model's
    paraphrase of a page, not the page, and a source must be quoted from the page itself.
    - `fetch-blocked` (a site's bot check, common with publishers on Windows) or `pdf-not-supported`: try the
      result's `oa_url` when it is an HTML page, or the work's abstract page (an arXiv `abs/` page rather than its
@@ -88,6 +89,14 @@ primaries: a review, a survey), **tertiary** (summarizes without the origin: an 
      (`proposed` empty: the candidates are logged). Report the item only once `missing` is empty. When OpenAlex has
      refused for want of budget, `missing` asks for the web for and against instead.
 
+## Who wrote it
+
+Name a work's authors only as the engine gave them: a probe's `authors` (the names the page itself declares) or a
+catalogue result's `authors` (the first three it lists, with `authors_total`). When neither names any, name the
+work by its title, venue and year, and say nothing about who wrote it. **Never name an author from memory**, in
+your line or in the JSON: a name you remember can belong to another paper, and the user may cite what you wrote.
+In your line, give the first author and «et al.» when there are more.
+
 ## What you return
 
 A short line per item, then one fenced JSON block:
@@ -95,7 +104,8 @@ A short line per item, then one fenced JSON block:
 ```json
 {"items": [{"id": "<item id>",
   "queries": [{"query": "...", "stance": "for", "backend": "openalex", "results": 8}],
-  "candidates": [{"url": "...", "title": "...", "venue": "...", "published": "YYYY-MM-DD", "doi": "10.x/...",
+  "candidates": [{"url": "...", "title": "...", "authors": ["<each name as the engine gave it; [] for none>"],
+    "venue": "...", "published": "YYYY-MM-DD", "doi": "10.x/...",
     "level": 1, "level_reason": "...", "role": "primary", "stance": "supports",
     "passage": "<verbatim, at most 400 characters>", "passage_from": "page", "readable": true,
     "note": "<one line: what it says about the claim>"}],

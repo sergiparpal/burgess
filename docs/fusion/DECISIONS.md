@@ -3109,8 +3109,9 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     confirmations to a later wave.
 - **What it answers:**
   - The user asked whether the loop works end to end (2026-11-24). It did for support, but a source found
-    against an idea led nowhere. The scout of 2026-11-23 had proposed Brett et al. 2012 (level 1) with the
-    stance `refutes` for c2e.
+    against an idea led nowhere. The scout of 2026-11-23 had proposed Boettiger & Hastings 2012 (level 1) with
+    the stance `refutes` for c2e. This entry first named it «Brett et al. 2012», as that scout had: a wrong
+    attribution, corrected with 0.25.1 (below).
   - The engine already accepted `failed` on a pin (`_claim_side` of a span-less hypothesis is `none`, so the
     level veto lets a usable source fail it). What was missing was the routing and the rules.
   - The user approved the five parts («Sí, prepárala»).
@@ -3158,3 +3159,36 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - a passing leg set, a cancelled leg, a failed leg, a leg with no conclusion, and none;
   - an API that fails twice and then answers;
   - an API that never answers.
+
+## Who wrote a work comes from the page or the catalogue, never from memory (2026-11-24)
+
+- **Decision:**
+  - The page parser keeps every name of each author tag (`_Extractor.authors`). `evidence.html_page` returns the
+    first family the page uses: every `citation_author`, else `dc.creator` / `dcterms.creator`, else the generic
+    `author`. `meta` still keeps the first value of each tag, and the copy's text is unchanged (`html_text` is
+    `html_page` without the authors).
+  - `Copy.authors`, and `evidence.page_authors` gives `authors` (at most `AUTHORS_MAX`, 20) and `authors_total`.
+    The preview and `kg_source_probe` return them. The record keeps them (`EvidenceRecord.authors` and
+    `authors_total`, checked on load; a record from before 0.25.1 has none), `kg_source_add`'s answer gives them
+    back and `kg_source_list` shows them.
+  - `OPENALEX_SELECT` asks for `authorships`, and each catalogue result gives its first three authors
+    (`SEARCH_AUTHORS`, `evidence.openalex_authors`) with `authors_total`. The ledger's record of a search is
+    unchanged.
+  - The scout contract gains "Who wrote it": a work's authors only from a probe's or a catalogue result's
+    `authors`, else its title, venue and year, never from memory; its JSON candidate carries `authors`.
+    `/burgess:kg-sources` names authors from the preview's `authors` (or as the excerpt prints them) and from the
+    scout's `authors`, and its rules forbid inventing an author.
+- **What it answers:**
+  - On the field run of 2026-11-23 a scout proposed a level-1 paper against c2e and wrote «Brett et al. (2012, J.
+    R. Soc. Interface)». The paper is Boettiger & Hastings 2012 (DOI 10.1098/rsif.2012.0125). The probe had
+    returned no author, so the names came from the scout's memory.
+  - The orchestrator showed the user only the title and the venue that day. Notes taken from the scout's report
+    kept its names, and on 2026-11-24 they reached the user and the 0.25.0 entry above. The registration that
+    evening matched the paper by its title and DOI, which were right, and its session noticed the mismatch.
+  - The user approved the fix («Sí, prepárala»).
+- **Why the engine, and not only a rule:** a rule alone leaves a scout no author to give, and a user wants to know
+  who wrote a candidate. A page's own tags and the catalogue are records; a model's memory of a citation is not.
+  No level, wake or verdict reads the authors.
+- **Not done:** a source registered before 0.25.1 keeps no authors, and registering the same text again is
+  refused (`already-registered`).
+- **Pinned in:** `tests/test_fix_authors_from_the_page.py`.

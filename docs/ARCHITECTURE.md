@@ -202,7 +202,9 @@ page's `<main>`, without sidebars, recommendation lists or sharing blocks, and a
 `ext-<slug>-<hash>.md`, a record `<stem>.source.json` and the raw bytes under `raw/` into
 `<project>/evidence/`. PDF is refused, as for the configured sources. The record carries a **level** (1 reviewed,
 2 institutional, 3 editorial, 4 author or community, 5 unfiltered), a **role** (primary, secondary, tertiary),
-**marks** (interest, corrected, retracted, superseded), the certified `retrieved_at`, the claimed `published`, and
+**marks** (interest, corrected, retracted, superseded), the certified `retrieved_at`, the claimed `published`, the
+`authors` the page declares (0.25.1: every `citation_author`, else Dublin Core's creators, else `author`; at most
+20, with `authors_total`), and
 the sha256 of the copy: a copy whose bytes no longer match is left out and reported, so a hand edit never
 becomes a span the engine vouches for. The design razor carries over: **the level measures the filter a text
 passed, never the truth of a claim**. The grounder still judges only whether a passage states a claim, and the
@@ -253,7 +255,9 @@ they claim, their words, what their grounder looked for, and the searches alread
 through the engine (`kg_source_search`, `evidence.openalex_search`: one GET with the query, no key, no contact
 address, a query the §1.9 scrub would change refused before anything leaves), and the web (WebSearch). The
 engine reads each candidate page itself (`kg_source_probe`: fetch, bot check, the paragraphs that share the most
-of the search words, verbatim), so a scout never quotes a WebFetch paraphrase. Every search, read and proposal
+of the search words, verbatim), so a scout never quotes a WebFetch paraphrase. Who wrote a work comes from the
+engine too (0.25.1): a probe gives the authors the page declares and a catalogue result its first three, and a
+scout names authors from those only, never from memory. Every search, read and proposal
 goes to the search ledger beside the canon (`.kg-source-searches.jsonl`; the scouts log their web searches with
 `kg_source_record_search`). The user picks; each pick goes through `kg_source_add`, which records the items the
 page was found for (`found_for`, from `for_items` and from the ledger by URL, DOI or title). A level stays a

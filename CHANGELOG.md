@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.25.1 — 2026-11-24
+
+Who wrote a source now comes from the source itself.
+
+### Fixed
+
+- **A scout no longer names authors from memory.**
+  - On 2026-11-23 a scout proposed a paper against an idea and gave it authors who did not write it: «Brett et
+    al.» for Boettiger and Hastings (2012). Nothing the engine returned named any author, so the scout filled
+    them in from memory.
+  - The engine itself registered the paper correctly, by its title and DOI. But the wrong names went into notes,
+    and from there into a message to the user.
+- **The engine now reads who wrote a page.**
+  - A page's metadata names its authors: a journal's, PMC's, arXiv's or Springer's page has one `citation_author`
+    tag per author. Until now the engine kept only the first, and returned none.
+  - Reading a candidate, previewing a source and registering it now give every author the page names, at most 20,
+    with how many there are. `/burgess:kg-sources list` shows them.
+  - A search of the scholarly catalogue gives each result's first three authors.
+- **The scout and `/burgess:kg-sources` name authors only from those.** When neither the page nor the catalogue
+  names any, a candidate is named by its title, journal and year.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+- A source registered before 0.25.1 has no authors in its record.
+
 ## 0.25.0 — 2026-11-24
 
 A source found against an idea now leads somewhere. The idea is attacked, and a refutation, confirmed by a

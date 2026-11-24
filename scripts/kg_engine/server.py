@@ -3458,8 +3458,9 @@ class KGEngine:
         Exactly one of `url` (http/https: the engine fetches the bytes itself, never through WebFetch, whose
         answer is a model's paraphrase) or `path` (a local .md/.markdown/.txt copied verbatim, or .html/.htm
         by the fixed rule; relative to the project). PDF is refused: convert it to Markdown and register the
-        file. `preview=true` fetches or reads it and returns the title, the date the page declares, its
-        metadata and the first characters, writing nothing: what to propose a level and a role from.
+        file. `preview=true` fetches or reads it and returns the title, the authors the page names (0.25.1), the
+        date the page declares, its metadata and the first characters, writing nothing: what to propose a level
+        and a role from. The record keeps those authors, and the answer gives them back.
         Otherwise `level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community, 5 unfiltered)
         and `role` (primary | secondary | tertiary) are required; `marks` (interest, corrected, retracted,
         superseded), `published` (YYYY[-MM[-DD]]; else the page's own date when it declares one),
@@ -3565,7 +3566,8 @@ class KGEngine:
             published=pub or detected, published_from="caller" if pub else ("page" if detected else ""),
             level=lvl, level_by="agent", role=rl, marks=mk, derives_from=derives_from,
             note=(note or "").strip(), content_type=copy.content_type, extractor=copy.extractor,
-            sha256_raw=raw_sha, build=bld, doi=doi, found_for=found_for, found_against=found_against)
+            sha256_raw=raw_sha, build=bld, doi=doi, found_for=found_for, found_against=found_against,
+            **ev.page_authors(copy))
         same_url = sorted(r.name for r in reg.records.values()
                           if url and (r.url == url or (copy.final_url and r.final_url == copy.final_url)))
         # A fetched page, or a local HTML file, keeps its raw bytes: the extraction can be redone from them.
@@ -3584,6 +3586,9 @@ class KGEngine:
                "chars": len(copy.text),
                "retrieved_at": rec.retrieved_at, "published_from": rec.published_from,
                "directory": str(edir)}
+        if rec.authors:
+            # who the page says wrote it (0.25.1), recorded with the source: the names to give, never others
+            out["authors"], out["authors_total"] = list(rec.authors), rec.authors_total
         if same_url:
             out["same_url_as"] = same_url
             out["hint"] = ("this URL was registered before with other text; if this copy replaces that one, "
@@ -3868,10 +3873,11 @@ class KGEngine:
     def kg_source_search(self, query: str, item_id: str = "", stance: str = "for", results=None) -> dict:
         """Search OpenAlex, the open catalogue of scholarly works, for `query` (0.24.0): through the engine, so the
         query is the only thing that leaves (no key, no contact address) and every search is logged for the item
-        it was run for (`item_id`, with its `stance`: for | against). Each result carries its title, DOI, landing
-        page, open-access copy, date, type, venue and venue type, whether it was retracted, its citations, the
-        abstract, and a level hint from the catalogue's facts that the user confirms or corrects. A query holding
-        a secret or a personal detail is refused before anything is sent. Since 0.24.3 the engine paces its
+        it was run for (`item_id`, with its `stance`: for | against). Each result carries its title, its first
+        authors (0.25.1), DOI, landing page, open-access copy, date, type, venue and venue type, whether it was
+        retracted, its citations, the abstract, and a level hint from the catalogue's facts that the user confirms
+        or corrects. A query holding a secret or a personal detail is refused before anything is sent. Since
+        0.24.3 the engine paces its
         catalogue requests and retries once on a rate limit (`evidence._openalex_get`); `budget` is what OpenAlex
         says is left of the network's free daily budget, `search-budget` means it is spent, and
         `search-rate-limited` that OpenAlex still asked to slow down after a pause, with budget left."""
@@ -3921,7 +3927,8 @@ class KGEngine:
     def kg_source_probe(self, url: str, item_id: str = "", terms: str = "") -> dict:
         """Read a candidate page for an item, writing nothing to the evidence (0.24.0): the ENGINE fetches it (never
         WebFetch, whose answer is a model's paraphrase), refuses a site's bot check (`fetch-blocked`), and returns
-        its title, the date and DOI it declares, its journal, the level hint its metadata gives, and the paragraphs
+        its title, the authors it names (0.25.1), the date and DOI it declares, its journal, the level hint its
+        metadata gives, and the paragraphs
         that share the most of `terms` (the scout's search words, in the page's language) and of the item's own
         words, cut from the page as the engine would copy it. `registered_as` names a registered copy of the same
         page. The read is logged for the item, so registering the page later wakes it."""
@@ -3964,8 +3971,8 @@ class KGEngine:
                             or (r.final_url and r.final_url in (url, copy.final_url)))
         logged = self._log_source_search([{**record, "final_url": copy.final_url, "doi": doi,
                                            "title": copy.title[:200], "ok": True, "passages": len(passages)}])
-        out = {"ok": True, "url": url, "final_url": copy.final_url, "title": copy.title, "doi": doi,
-               "published": ev.page_published(copy.meta), "venue": venue,
+        out = {"ok": True, "url": url, "final_url": copy.final_url, "title": copy.title, **ev.page_authors(copy),
+               "doi": doi, "published": ev.page_published(copy.meta), "venue": venue,
                "publisher": copy.meta.get("citation_publisher", ""), "site": copy.meta.get("og:site_name", ""),
                "chars": len(copy.text), "extractor": copy.extractor, "level_hint": hint, "level_hint_reason": why,
                "passages": passages, "terms": words}
@@ -4340,6 +4347,8 @@ class KGEngine:
                             "retrieved_at": rec.retrieved_at, "published_from": rec.published_from,
                             "level_by": rec.level_by, "note": rec.note, "origin": rec.origin,
                             "build": rec.build, "chars": len(vs.for_file(rec.name))})
+            if rec.authors:
+                sources[-1].update(authors=list(rec.authors), authors_total=rec.authors_total)
         by_level = Counter(str(rec.level) for rec in reg.records.values())
         return {"ok": True, "directory": str(self._evidence_dir()), "sources": sources,
                 "by_level": dict(sorted(by_level.items())),
@@ -6490,7 +6499,8 @@ def _register(mcp, engine: KGEngine) -> None:
         it into the project's evidence/ directory: give exactly one of `url` (http/https; the engine fetches
         the page itself; never pass WebFetch output, which is a model's paraphrase) or `path` (a local
         .md/.markdown/.txt, or .html; PDF is refused: convert it to Markdown and register that file).
-        `preview=true` returns the title, the date the page declares, its metadata and the first characters
+        `preview=true` returns the title, the authors the page names (`authors`, `authors_total`: name a work's
+        authors from these, never from memory), the date the page declares, its metadata and the first characters
         without writing anything: propose the level and role from it and let the user confirm. Then call
         again with `level` (1 reviewed: peer-reviewed; 2 institutional: official statistics, standards,
         official documentation; 3 editorial: press or publishers with an editor; 4 author or community:
@@ -6532,9 +6542,10 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_source_search(query: str, item_id: str = "", stance: str = "for", results: int = 8) -> dict:
         """Search OpenAlex, the open catalogue of scholarly works, through the engine: only `query` leaves (no key,
         no contact address; a query holding a secret or a personal detail is refused). Pass the `item_id` it is
-        for and its `stance` (for | against): every search is logged. Each result has title, doi, url (landing
-        page), oa_url (an open-access copy), published, type, venue, venue_type, retracted, cited_by, abstract
-        and a `level_hint` with its reason, from the catalogue's facts: propose it, the user confirms. `budget` is
+        for and its `stance` (for | against): every search is logged. Each result has title, authors (the first
+        three the catalogue lists; `authors_total` counts them all), doi, url (landing page), oa_url (an
+        open-access copy), published, type, venue, venue_type, retracted, cited_by, abstract and a `level_hint`
+        with its reason, from the catalogue's facts: propose it, the user confirms. `budget` is
         what OpenAlex says is left of the free daily budget a network shares without a key (about 100 searches).
         The engine runs one catalogue search at a time and retries once when OpenAlex asks it to slow down.
         `search-budget`: the budget is spent, search the web for the rest of the run. `search-rate-limited`: it
@@ -6546,10 +6557,11 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_source_probe(url: str, item_id: str = "", terms: str = "") -> dict:
         """Read a candidate page for an item without registering it. The ENGINE fetches the page (never use
         WebFetch, whose answer is a model's paraphrase, not the page): it refuses a site's bot check
-        (`fetch-blocked`) and PDF, and returns the title, published date, DOI, venue, a `level_hint`, and the
-        `passages` (verbatim paragraphs) that share the most of `terms` (your search words, in the page's language)
-        and of the item's own words. `registered_as` names a registered copy of the same page. Logged for the item,
-        so registering the page later wakes it."""
+        (`fetch-blocked`) and PDF, and returns the title, the authors the page names (`authors`, `authors_total`;
+        empty when it names none), published date, DOI, venue, a `level_hint`, and the `passages` (verbatim
+        paragraphs) that share the most of `terms` (your search words, in the page's language) and of the item's
+        own words. `registered_as` names a registered copy of the same page. Logged for the item, so registering
+        the page later wakes it."""
         return engine.kg_source_probe(url=url, item_id=item_id, terms=terms)
 
     @mcp.tool()
@@ -6567,8 +6579,9 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_source_list() -> dict:
-        """The registered external sources (name, title, url, level, role, marks, usable, build, dates), the
-        user's notes with their level and whether they are usable and built, the project's `policy`, the
+        """The registered external sources (name, title, url, level, role, marks, usable, build, dates, and the
+        authors the page named when it was registered, since 0.25.1), the user's notes with their level and
+        whether they are usable and built, the project's `policy`, the
         files the registry leaves out and why (`problems`: an edited copy, a missing text, a bad policy;
         `unregistered`: a text with no record), and `support`: how many grounded edges and nodes rest on the
         notes and on external sources, each by level, or on an unchecked citation, with the claims whose
