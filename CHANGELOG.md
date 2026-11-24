@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.24.7 — 2026-11-24
+
+A grounding can now be judged again on request. An idea found to rest on a passage that falls short of it
+goes back to waiting instead of staying grounded.
+
+### Added
+
+- **What grounds an idea is now written down.**
+  - An idea claims more than its mechanism: what it is for, what sets it off, where it acts.
+  - A passage that states the same mechanism for another purpose, a narrower version, or one ingredient of the
+    idea is a neighbouring claim, and it does not ground the idea.
+  - The field grounder that judged c2c read it this way on its own. The ones that grounded c1l and c1j did
+    not, and each of them noted where its passage fell short of the idea.
+- **`/burgess:kg-ground --reexamine <id>` can judge a grounding again.**
+  - With a focus, it now also brings back the grounded ideas the focus names. Their grounder sees the
+    passage each one rests on, with its section.
+  - Without a focus it judges no grounding again, as before.
+  - Name one idea by its full id to judge that one alone.
+- **An idea's support can be withdrawn without rejecting it.**
+  - An idea from `/burgess:kg-diverge` without support waits for a source; it is never rejected. Until now,
+    no verdict could take a grounded idea back.
+  - When the passage it rests on states only a neighbouring claim, its grounder now withdraws the support.
+    The idea goes back to unverified and waits for a new source, like any idea recorded as unsupported.
+  - The old passage stays in the idea, marked as withdrawn, with the reason.
+  - A grounding confirmed on the second look stays as it is, with a note saying so.
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+
 ## 0.24.6 — 2026-11-24
 
 Grounders can now reach a source in another language than the idea, with safeguards against picking a

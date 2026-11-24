@@ -26,7 +26,11 @@ An optional focus: a word or a node id (e.g. `betweenness`, `compression`). Pass
 If the line starts with the word `--reexamine`, drop that word, pass the rest as the focus, and call the plan
 with `reexamine: true` (0.20.2). The plan then also queues the rejected hypothesized nodes the focus names (all of
 them with no focus), marked `"reexamine": true`, to be judged again. Through 0.20.1 a node's grounder got no source
-text, so a node rejected then was judged only against the spans other edges cited.
+text, so a node rejected then was judged only against the spans other edges cited. With a focus, it also queues
+the **grounded** nodes a promotion grounded that the focus names (0.24.7), so a grounding can be judged again on
+the user's request: its grounder gets `grounded_on`, the passage it rests on. A grounding is never judged again
+without a focus. A focus keeps the items whose id or label holds every word of it, so name one item by its full
+id to judge that one alone.
 
 ## Stage 0 — Plan the pass (read-only)
 
@@ -203,7 +207,11 @@ terms, at most 8 words in the source's language naming what the item claims (you
 support you find after that is held for a second grounder, and kg_ground answers needs_confirmation: report
 it as held and do not record it unsupported. An item marked confirm carries confirm, a passage another
 grounder cited after its own search: judge only whether that passage states the item, with no search of your
-own, and ground it with that span or record it unsupported. An item marked re-examine was rejected before and is judged again:
+own, and ground it with that span or record it unsupported. An item marked re-examine that is grounded was
+grounded before and is judged again on request: its grounded_on holds the passage it rests on. Ground it again if
+that passage states the node itself; if it states only a neighbouring claim, withdraw a [diverge] pin's support
+with kg_ground(verdict "unverified", note saying what the passage lacks) and reject any other node no-support.
+An item marked re-examine that is not grounded was rejected before and is judged again:
 a node the user asked to have judged again, or an item a source changed under since its verdict, which then
 comes with reexamine, the sections of that source that share its words. Judge it on those as well, and stamp
 your verdict even though its `from` is that rejection: a rejection again is a verdict too, and it answers the
@@ -328,6 +336,10 @@ Grounding pass complete.
 
 For each hub attacked without a counter-edge, give its falsifying question: it is for a human, and its
 record keeps the hub out of the next plan until the hub gains a newer grounded claim.
+
+List every grounding judged again with `--reexamine` (0.24.7), each re-confirmed or withdrawn, with the reason the
+grounder gave: a withdrawn pin is back among the waiting pins, recorded unsupported, and its old support stays in
+its body as withdrawn.
 
 List apart every item a grounder asked passages for with its own words (0.24.6), with those words: each
 one held, then confirmed or declined by a second grounder, and why. A grounding that only such a search

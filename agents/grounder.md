@@ -159,6 +159,32 @@ non-failure reason.
   session mapped before generating, carried into the graph when the user asked. It claims what is usual, not
   what is new, so it is checked now: `grounded` with support, `rejected` without, like any proposal.
 
+### What grounds a node (0.24.7)
+
+A node claims more than its mechanism. A pin, a cliché or a compression says what is done, and also what makes it
+this claim: what it is done for, what sets it off, where it acts, and on what. A passage grounds the node only when
+it states all of that. These are **neighbouring claims**, and none of them grounds the node:
+- the same mechanism put to another purpose;
+- the mechanism without what sets it off, or acting on something else;
+- a narrower or weaker version, or one ingredient of the node offered as the whole.
+
+When the best passage states a neighbouring claim, say in your note what it lacks. A `[diverge]` pin then stays
+`unverified` and is recorded with `kg_record_unsupported`; any other node is `rejected` `no-support`. A
+neighbouring claim is not evidence against the node either, so it never calls for `failed`.
+
+### A grounded node judged again (0.24.7)
+
+An item your batch marks `re-examine` whose state is `grounded` was promoted earlier, and the user asked for it to
+be judged again (`/kg-ground --reexamine <its id>`). Its `grounded_on` holds the support spans it was grounded on,
+each with the section around it. Judge them by **What grounds a node**, together with the item's other excerpts:
+- **A passage states the node:** ground it again, `kg_ground(target_id, "grounded", kind="node", note=…)`, saying
+  which passage. Its state does not change, and the note records the second look.
+- **None does, and it is a `[diverge]` pin:** take the support back with
+  `kg_ground(target_id, "unverified", kind="node", note=<what the passage lacks>)`. The engine returns the pin to
+  the waiting pins: unverified, hypothesized, its old support kept in the body as withdrawn, and recorded
+  unsupported. Never reject a pin.
+- **None does, and it is any other node:** `rejected`, `no-support`, as for any proposal.
+
 ## The edge.id format (target_id)
 
 Edge ids are deterministic, derived from the triple by the engine (`model.edge_id`):

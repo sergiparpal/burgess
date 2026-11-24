@@ -1450,6 +1450,9 @@ class KGEngine:
         # Strip/normalize inputs like kg_rename/kg_merge do, so a stray-whitespace verdict (" grounded ")
         # isn't mis-classified as invalid and a stray-whitespace `kind` is canonicalized before dispatch.
         verdict = verdict.strip().lower()
+        if verdict == EpistemicState.UNVERIFIED.value:
+            # not a verdict state: the withdrawal of a pin's grounding (0.24.7), with its own narrow gate
+            return self._withdraw_support(target_id, kind, note, by)
         if verdict not in VALID_VERDICTS:
             return {"ok": False, "error": f"invalid verdict {verdict!r}"}
         # `kind` selects the dispatch branch; reject anything outside {node,edge} up front (mirroring the
@@ -1773,6 +1776,111 @@ class KGEngine:
             verify=lambda s: self.verify_set().verifies(s),
             apply_span=apply_span, apply_note=apply_note,
             support_span=support_span, support_note=support_note)
+
+    def _withdraw_support(self, target_id: str, kind: str, note: str, by: str) -> dict:
+        """`kg_ground(verdict="unverified")` (0.24.7): take back the grounding of a `[diverge]` pin that a
+        promotion grounded, when the passage it rests on states a neighbouring claim and not the pin.
+
+        A pin without support is left unverified and waits for a source, never rejected (a rejection is
+        permanent negative memory, and an unsupported novel idea is not a refuted one). A grounding taken back
+        therefore returns the pin to that state, not to `rejected`:
+        - the state goes back to `unverified` and the provenance to `hypothesized`, the pin's lane;
+        - the support paragraphs the promotion wrote (`grounding span:`, `grounding source:`, an unchecked
+          citation) leave the claim and are kept as one `verdict (unverified): support withdrawn …` paragraph
+          with `note`, what the passage lacks. A verdict paragraph never counts as the pin's words;
+        - the transition is audited like a verdict, so the reconciler sees a legitimate change;
+        - the pin is recorded unsupported against the current sources, so the plan leaves it out until a
+          new source comes.
+
+        Only a grounded node with the `[diverge]` marker and a promotion's support can be withdrawn: any other
+        node takes a verdict (`rejected`), and an edge has `rejected` for the same case. Through 0.24.6 nothing
+        could take a grounding back. Two pins of the field were grounded on passages that each grounder itself
+        noted fell short of the idea, and the only verdicts on offer would have rejected them."""
+        from .groundplan import (DIVERGE_MARK, GROUNDING_SOURCE_MARK, GROUNDING_SPAN_MARK,
+                                 MAX_UNSUPPORTED_NOTE_CHARS, _paragraphs, grounding_spans)
+        if (kind or "").strip() != "node":
+            return {"ok": False, "error": "withdraw-node-only",
+                    "hint": "only a node's support can be withdrawn; reject an edge whose passage does not state it"}
+        note = " ".join((note or "").split())
+        if not note:
+            return {"ok": False, "error": "withdraw-needs-note", "hint": "say what the passage lacks"}
+        if len(note) > MAX_UNSUPPORTED_NOTE_CHARS:
+            return {"ok": False, "error": f"the note is over {MAX_UNSUPPORTED_NOTE_CHARS} characters"}
+        by = by if by in VALID_ACTORS else "agent"
+        if not self._try_writer_lease():
+            return {"ok": False, "error": self._LOCKED_ERROR}
+        try:
+            target_id = slug(target_id)
+            if not self.canon.exists(target_id):
+                return {"ok": False, "error": "node not found"}
+            try:
+                node = self.canon.read_node(target_id)
+            except Exception as e:  # noqa: BLE001 — surface as a structured error, not an MCP exception
+                return {"ok": False, "error": self._scrub_error(f"node unreadable: {e}")}
+            body = node.body or ""
+            if (node.epistemic_state != EpistemicState.GROUNDED or DIVERGE_MARK not in body
+                    or not self._promoted(node)):
+                return {"ok": False, "error": "withdraw-not-allowed", "state": node.epistemic_state.value,
+                        "hint": ("only a grounded [diverge] pin whose grounding a promotion wrote can have its "
+                                 "support withdrawn; give any other node its verdict, rejected if no passage "
+                                 "states it")}
+            rested = [f"«{span}» ({fname})" if fname else f"«{span}»" for span, fname in grounding_spans(body)]
+            kept = []
+            for para in _paragraphs(body):
+                head = para.strip()
+                if head.startswith(CITATION_MARK):
+                    rested.append(f"the citation «{head[len(CITATION_MARK):].strip()}»")
+                    continue
+                if head.startswith((GROUNDING_SPAN_MARK, GROUNDING_SOURCE_MARK)):
+                    continue
+                kept.append(para.strip("\n"))
+            line = (f"verdict (unverified): support withdrawn (0.24.7): {note} It rested on "
+                    + "; ".join(rested) + ".")
+            node.body = self._append_body("\n\n".join(kept), line)
+            frm = node.epistemic_state.value
+            node.epistemic_state = EpistemicState.UNVERIFIED
+            node.provenance = Provenance.HYPOTHESIZED
+            key = f"node:{node.id}"
+            err_holder: dict = {}
+
+            def _attempt():
+                try:
+                    self.canon.write_one(node)
+                    return True, None
+                except Exception as e:  # noqa: BLE001 — surface as a structured error, not an MCP exception
+                    err_holder["error"] = self._scrub_error(f"write failed: {e}")
+                    return False, None
+
+            self._audit_log.audited_write([(key, frm, EpistemicState.UNVERIFIED.value, by)], _attempt)
+            if err_holder:
+                return {"ok": False, "error": err_holder["error"]}
+            at, problem = self._append_unsupported("node", node.id, node, note)
+            out = {"ok": True, "key": key, "from": frm, "to": EpistemicState.UNVERIFIED.value, "by": by,
+                   "withdrawn": True, "recorded_unsupported": at is not None}
+            if problem:
+                out["warning"] = problem + ": record it with kg_record_unsupported, or the plan offers it again"
+            return out
+        finally:
+            self.canon.release_lock()
+
+    def _append_unsupported(self, kind: str, item_id: str, item, note: str) -> "tuple[str | None, str | None]":
+        """Append one unsupported record for `item` against the current sources (`groundplan.unsupported_record`),
+        fsync'd. The caller holds the writer lease. `(at, None)`, or `(None, why it could not be written)`."""
+        from .atomicio import fsync_dir
+        from .groundplan import item_signature, unsupported_record
+        at = utcnow()
+        path = self.canon.root / UNSUPPORTED_PINS
+        line = unsupported_record(kind, item_id, at, self._source_signature(), item_signature(kind, item), note,
+                                  usable=self._usable_state()["usable"])
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            fsync_dir(path.parent)
+        except OSError as e:
+            return None, self._scrub_error(f"record not written: {e}")
+        return at, None
 
     # ---- every source in a verdict (0.21.0 external sources; 0.22.0 one level and one policy for all)
 
@@ -2887,6 +2995,13 @@ class KGEngine:
                 items.append(((1, 0, 1, (len(texts), 0), n.id), n.id, "node:reexamine"))
                 reexamined += 1
                 continue
+            # A grounding judged again on request (0.24.7): a node a promotion grounded, named by the focus. Never
+            # without a focus, so `--reexamine` alone keeps its 0.20.2 meaning and judges no grounding again.
+            if (reexamine and focus and n.epistemic_state == EpistemicState.GROUNDED and n.id in in_focus
+                    and self._promoted(n)):
+                items.append(((1, 0, 1, (len(texts), 0), n.id), n.id, "node:reexamine"))
+                reexamined += 1
+                continue
             if n.epistemic_state != EpistemicState.UNVERIFIED or n.id not in in_focus:
                 continue
             if n.provenance != Provenance.HYPOTHESIZED:
@@ -3203,9 +3318,7 @@ class KGEngine:
         pin. It sets no state: no node, edge or verdict changes. Through 0.20.0 nothing recorded such a
         judgment, and every pass judged every pin again (field pass of 2026-11-21: 120 pins, about $2.50,
         all left unverified)."""
-        from .atomicio import fsync_dir
-        from .groundplan import (DIVERGE_MARK, MAX_UNSUPPORTED_NOTE_CHARS, item_signature,
-                                 unsupported_record)
+        from .groundplan import DIVERGE_MARK, MAX_UNSUPPORTED_NOTE_CHARS
         kind = (kind or "").strip().lower()
         if kind not in ("node", "edge"):
             return {"ok": False, "error": f"invalid kind {kind!r}; expected node|edge"}
@@ -3238,18 +3351,9 @@ class KGEngine:
                                  "lies only in sources this project does not accept, or a hypothesis while the "
                                  "notes are below the required level can be recorded as unsupported; give any "
                                  "other item its verdict with kg_ground"}
-            at = utcnow()
-            path = self.canon.root / UNSUPPORTED_PINS
-            line = unsupported_record(kind, item_id, at, self._source_signature(),
-                                      item_signature(kind, item), note, usable=self._usable_state()["usable"])
-            try:
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write(line + "\n")
-                    f.flush()
-                    os.fsync(f.fileno())
-                fsync_dir(path.parent)
-            except OSError as e:
-                return {"ok": False, "error": self._scrub_error(f"record not written: {e}"), "item": item_id}
+            at, problem = self._append_unsupported(kind, item_id, item, note)
+            if problem:
+                return {"ok": False, "error": problem, "item": item_id}
         finally:
             self.canon.release_lock()
         return {"ok": True, "item": item_id, "kind": kind, "at": at}
@@ -4254,10 +4358,12 @@ class KGEngine:
                          "epistemic_state": e.epistemic_state.value}
                         for m in nodes.values() for e in m.edges
                         if n.id in (slug(e.source), slug(e.target))][:20]
-            return self._with_search_views({"ok": True, "kind": "node", "node": view(n), "edges": incident,
-                                            "source_context": self._node_source_context(n, scrub),
-                                            "reexamine": self._reexamine_view("node", n, scrub)},
-                                           "node", n, scrub, terms)
+            out = {"ok": True, "kind": "node", "node": view(n), "edges": incident,
+                   "source_context": self._node_source_context(n, scrub),
+                   "reexamine": self._reexamine_view("node", n, scrub)}
+            if n.epistemic_state == EpistemicState.GROUNDED and self._promoted(n):
+                out["grounded_on"] = self._grounded_on_view(n, scrub)
+            return self._with_search_views(out, "node", n, scrub, terms)
         try:
             owner = self._owner_of_edge(target_id)
         except EdgeOwnerUnreadable as e:
@@ -4299,6 +4405,32 @@ class KGEngine:
                 "context": context, "shared_context": shared, "passage": passage, "support_context": support,
                 # a rejected item a source changed under since it was judged (0.22.4), or None
                 "reexamine": self._reexamine_view("edge", e, scrub)}, "edge", e, scrub, terms)
+
+    # ---- a grounding judged again (0.24.7) -------------------------------------------------------------------
+
+    @staticmethod
+    def _promoted(node) -> bool:
+        """Whether a node is grounded by a promotion (0.24.7): its body holds the support the promotion wrote, a
+        `grounding span:` paragraph or an unchecked citation (`_promote_hypothesis_node`). A pin, a cliché, a
+        generated compression: a hypothesis that earned its grounding, which `--reexamine` may judge again."""
+        from .groundplan import grounding_spans
+        body = node.body or ""
+        return bool(grounding_spans(body)) or any(p.strip().startswith(CITATION_MARK) for p in body.split("\n\n"))
+
+    def _grounded_on_view(self, node, scrub) -> dict:
+        """What a grounded promotion rests on, for the grounder judging it again (0.24.7): each support span with
+        its file and the section around it, and any unchecked citation."""
+        from .groundplan import grounding_spans
+        spans = []
+        for span, fname in grounding_spans(node.body):
+            ctx = self._span_context(span, fname, scrub)
+            spans.append({"span": scrub(span), "source_file": fname or None, "context": ctx})
+        citations = [scrub(p.strip()[len(CITATION_MARK):]) for p in (node.body or "").split("\n\n")
+                     if p.strip().startswith(CITATION_MARK)]
+        return {"spans": spans, "citations": citations,
+                "rule": ("judged again on request: does this passage state the node itself, its mechanism and what "
+                         "makes it this claim? If so, ground it again. If not, and nothing else here does, a "
+                         "[diverge] pin's support is withdrawn (verdict unverified) and any other node is rejected")}
 
     # ---- passages across languages (0.24.6) ----------------------------------------------------------------
 
@@ -5994,7 +6126,8 @@ def _register(mcp, engine: KGEngine) -> None:
     def kg_ground(target_id: str, verdict: str, kind: str = "edge", note: str = "",
                   support_span: str = "", support_note: str = "", lead: str = "",
                   refuted_by: str = "") -> dict:
-        """Apply a grounding verdict (grounded|rejected|failed|obsolete) to an edge or node. Verdicts
+        """Apply a grounding verdict (grounded|rejected|failed|obsolete, or unverified to withdraw a pin's
+        grounding) to an edge or node. Verdicts
         applied via this tool are always attributed to the agent — a human verdict cannot be forged
         through the tool surface (§1.4). To PROMOTE a hypothesized edge OR node to grounded you MUST supply
         support, which upgrades its provenance: `support_span` (a verbatim source substring → span-present)
@@ -6027,7 +6160,14 @@ def _register(mcp, engine: KGEngine) -> None:
         needs_confirmation: true`. Report it as held, do not record the item unsupported, do not ground it
         again: kg_ground_plan queues it last, marked `confirm`, for a new grounder. That grounder's grounded
         verdict applies it (`confirmed: true`, and a line saying so in the notes or the body); recording it
-        unsupported, or another verdict, declines it."""
+        unsupported, or another verdict, declines it.
+
+        Withdrawing a pin's grounding (0.24.7): `verdict="unverified"` with kind='node' and a `note` saying what
+        the passage lacks, only for a grounded `[diverge]` pin that a promotion grounded, judged again with
+        `/burgess:kg-ground --reexamine <its id>` and found to rest on a neighbouring claim. The pin goes back to
+        unverified and hypothesized, its support paragraphs become a 'verdict (unverified): support withdrawn'
+        paragraph, and it is recorded unsupported, so it waits for a new source. A pin is never rejected for want
+        of support; any other node whose passage does not state it is rejected."""
         return engine.kg_ground(target_id, verdict, by="agent", kind=kind, note=note,
                                 support_span=support_span, support_note=support_note, lead=lead,
                                 refuted_by=refuted_by)
@@ -6108,7 +6248,8 @@ def _register(mcp, engine: KGEngine) -> None:
         until the sources or the pin change, or a focus names them. `reexamine=true` (the command's
         `--reexamine`) also queues the rejected hypothesized nodes the focus names, each item marked
         `"reexamine": true` and counted in `queue.reexamine`: a node rejected before 0.20.2 was judged without
-        source text. Every pass also queues, after everything new and marked `"reexamine": true`, the rejected
+        source text. With a focus it also queues the GROUNDED nodes a promotion grounded that the focus names
+        (0.24.7), to have their grounding judged again; never without a focus. Every pass also queues, after everything new and marked `"reexamine": true`, the rejected
         items a source changed under since they were judged (`queue.reexaminable`, the flags kg_context lists,
         all of them), leaving out those no usable source flagged (`queue.reexaminable_held`). A grounder's new
         verdict on such an item, whatever it is, answers its flag, so the item leaves the plan. Last come the
@@ -6147,7 +6288,9 @@ def _register(mcp, engine: KGEngine) -> None:
         of them: once per item against these sources, and recorded; asking again returns the first request's
         words and sections. A grounded verdict given after such a request is held for a second grounder
         (kg_ground answers `needs_confirmation`). An item with a held verdict gets `confirm`, the held passage
-        with its context and the rule, and refuses `terms`. Text is egress-scrubbed with the session's
+        with its context and the rule, and refuses `terms`. A grounded node a promotion grounded (0.24.7) gets
+        `grounded_on`: the support spans it was grounded on, each with its file and the section around it, any
+        unchecked citation, and the rule for judging it again. Text is egress-scrubbed with the session's
         placeholders. Read-only, except that a request is recorded."""
         return engine.kg_ground_item(target_id, kind, terms)
 

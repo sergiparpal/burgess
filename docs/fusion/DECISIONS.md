@@ -3047,3 +3047,41 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   stamped to the second: in the first smoke run, a pin recorded unsupported in the very second of its hold read as
   answered.
 - **Pinned in:** `tests/test_feat_grounder_search_terms.py`.
+
+## A grounding judged again on request, and a pin's support withdrawn rather than rejected (2026-11-24)
+
+- **Decision:**
+  - The grounder contract gains **What grounds a node**. A passage grounds a node only when it states the
+    mechanism AND what makes the node this claim (purpose, trigger, scope, object). Neighbouring claims do not
+    ground: the mechanism for another purpose, without its trigger, a narrower or weaker version, one
+    ingredient. A neighbouring claim leaves a pin unverified and recorded, a rejection for any other node, and
+    never `failed`.
+  - The contract also gains **A grounded node judged again**. The section is neutral: it names no field item
+    (0.18.1: an example naming a pending field pair primed its verdict).
+  - `kg_ground_plan(reexamine=True)` with a focus also queues the GROUNDED nodes a promotion grounded
+    (`KGEngine._promoted`: a `grounding span:` paragraph or an unchecked citation) that the focus names. Never
+    without a focus, so `--reexamine` alone keeps its 0.20.2 meaning.
+  - `kg_ground_item` gives such a node `grounded_on`: its spans, each with the section around it, and its
+    citations.
+  - `kg_ground(verdict="unverified")` routes to `_withdraw_support`, for a grounded node with the `[diverge]`
+    marker and a promotion's support, and with a note. It sets `unverified` and `hypothesized` and turns the
+    support paragraphs into one `verdict (unverified): support withdrawn (0.24.7): <note> It rested on …`
+    paragraph. It audits `grounded → unverified`, and records the pin unsupported through `_append_unsupported`,
+    now shared with `kg_record_unsupported`.
+  - Refusals: `withdraw-node-only`, `withdraw-needs-note`, `withdraw-not-allowed` (a cliché or a compression
+    takes `rejected`).
+- **What it answers:**
+  - The 0.24.6 field test (2026-11-24). The grounder of c2c recorded it unsupported because the Banu paper
+    states the quorum mechanism for another purpose.
+  - Two pins, c1l (H3) and c1j (Sentry), had been grounded on passages each grounder noted fell short.
+  - The user asked to look into judging them again («Sí, míralo»), then approved this design («Sí, prepárala»).
+- **Why `unverified` and not `rejected`:**
+  - The pin triage rule: a `[diverge]` pin without support waits for sources. A rejection is permanent
+    negative memory, and in the brief it would bury a novelty the user pinned.
+  - `obsolete` says the span left its source, which is not the case here.
+  - The withdrawal is the one tool path that writes `unverified`, and only from `grounded`. The reconciler's
+    guard against erasing a failure by a move to `unverified` (`_restore_erased_negative`) is untouched, and its
+    comment says so.
+- **Why on request only:** a grounding the user has seen and relied on should not change under them. A pass that
+  judged every grounding again would also spend a grounder per grounded node on every run.
+- **Pinned in:** `tests/test_feat_withdraw_support.py`.
