@@ -3146,5 +3146,15 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   0.24.7 run (6 of 6). A re-run of only the failed leg counts its latest attempt, so the gate opens once it passes.
 - **Shared posture:** the six plugin repositories share this gate, so they share the hole. Fixing the other five
   is a separate decision.
-- **Pinned in:** `tests/test_fix_ci_gate_every_leg.py`. It checks the step's configuration, and runs its script
-  with a stub `gh` for a passing leg set, a cancelled leg, a failed leg, a leg with no conclusion, and none.
+- **A passing API error is asked again.**
+  - On this fix's own PR (#154), a re-run of the gate met `gh: Server Error (HTTP 502)`. The step failed closed,
+    as designed, and blocked the merge on GitHub's hiccup.
+  - The step now asks up to five times (10, 20, 30 and 40 s apart, within the job's 5 minutes) before failing.
+  - The same PR also showed two re-run habits of GitHub. «Re-run failed jobs» skips a leg that timed out, which
+    counts as cancelled, not failed. A leg cut by its timeout does show in `needs.*.result`; one that never got a
+    runner does not.
+- **Pinned in:** `tests/test_fix_ci_gate_every_leg.py`. It checks the step's configuration, and runs its script as
+  GitHub does (`bash -eo pipefail`, with a stub `gh` and `sleep`) for these cases:
+  - a passing leg set, a cancelled leg, a failed leg, a leg with no conclusion, and none;
+  - an API that fails twice and then answers;
+  - an API that never answers.
