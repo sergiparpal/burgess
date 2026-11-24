@@ -263,6 +263,8 @@ waiting item was not judged against wakes it only when the file was found for it
 (`KGEngine._new_source_wakes`, the paragraph rule above, with three shared words since 0.24.4), where through
 0.23.1 any such file woke every waiting item.
 
+**A grounding judged again (0.24.7).** A node a promotion grounded (`KGEngine._promoted`: a `grounding span:` paragraph or an unchecked citation in its body) can be judged again on request: `/burgess:kg-ground --reexamine <its id>` queues it (only with a focus), and its grounder gets `grounded_on`, the passage it rests on. The grounder contract says what grounds a node: its mechanism and what makes it this claim, never a neighbouring one (the mechanism for another purpose, a narrower version, one ingredient). A `[diverge]` pin found to rest on a neighbouring claim has its support withdrawn (`kg_ground(verdict="unverified")`, `_withdraw_support`): it goes back to unverified and hypothesized, audited, recorded unsupported, with its old support kept in the body as a `verdict (unverified): support withdrawn` paragraph. It is the one tool path that writes `unverified`, and only from `grounded`, so the reconciler's guard against erasing a failure (`_restore_erased_negative`) is untouched.
+
 **Passages across languages (0.24.6).** Every excerpt `kg_ground_item` hands a grounder is chosen by the item's own
 words, so a source in another language matches it only through words both languages spell alike. Two views bridge
 that, and the language work stays in the language layer:

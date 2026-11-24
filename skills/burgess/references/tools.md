@@ -250,6 +250,23 @@ leaves both as they are, so they record who put the edge in its state and when. 
 still appended, and the audit log records the call. Note: the return `key` for a node verdict is
 `node:<id>`; for an edge it is the edge id.
 
+**Withdrawing a pin's grounding (0.24.7, `KGEngine._withdraw_support`).** `verdict="unverified"`, `kind="node"`, with
+a `note` saying what the passage lacks. It is not a verdict state: the one path back from `grounded` for a
+`[diverge]` pin, which a grounder never rejects for want of support. It is accepted only for a grounded node that
+carries the `[diverge] pinned` marker and a promotion's support (a `grounding span:` paragraph or an unchecked
+citation). Otherwise it answers `withdraw-not-allowed`, and `withdraw-node-only` for an edge, which has `rejected`
+for the same case. `withdraw-needs-note` is the answer without a note.
+- The state goes back to `unverified`, and the provenance to `hypothesized`.
+- The support paragraphs leave the claim and are kept as one paragraph, `verdict (unverified): support withdrawn
+  (0.24.7): <note> It rested on «<span>» (<file>).` A verdict paragraph never counts as the node's words.
+- The transition is audited (`grounded` → `unverified`), so the reconciler sees a legitimate change.
+- The pin is recorded unsupported against the current sources, as `kg_record_unsupported` would record it, so
+  the plan leaves it out until a new source comes.
+- The answer is `{ok, key, from: "grounded", to: "unverified", by, withdrawn: true, recorded_unsupported}`.
+
+Through 0.24.6 nothing could take a grounding back. Two field pins rested on passages their own grounders had
+noted fell short of the idea, and the only verdicts on offer would have rejected them.
+
 **Held for a second grounder (0.24.6, `KGEngine._hold_or_confirm`).** A `grounded` verdict that brings support
 (`support_span` or `support_note`), on an item whose grounder asked `kg_ground_item` for passages with its own
 `terms` against the sources as they are now (§1.22), is checked like any other and then held. Nothing is written
@@ -1018,6 +1035,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   is, is counted in `queue.reexaminable_held`. A `failed` item is not queued: an adversarial grounder refuted it
   with a counter-edge, whose span a new source does not remove. Through 0.22.3 the command's Stage 0c asked the
   orchestrator, which never calls `kg_ground`, to re-check these items itself.
+- **A grounding judged again (0.24.7):** with `reexamine=True` AND a focus, the plan also queues the grounded nodes
+  a promotion grounded (`KGEngine._promoted`) that the focus names, marked `reexamine: true` and counted in
+  `queue.reexamine`. Never without a focus: `--reexamine` alone judges no grounding again.
 - **`queue.confirm` (0.24.6):** the items with a grounded verdict held for a second grounder, because its support
   came after the grounder's own search (§1.4, §1.22). Each is queued only this way, last, in batches of their own
   as `{id, kind, confirm: true}`, so no grounder judges its own hold in the same launch. It leaves the plan once a
@@ -1179,6 +1199,9 @@ a `terms` request is recorded (0.24.6).
     come up to 3 more from external copies, so a source registered for a node is never crowded out by the
     notes. Since 0.22.0 the index holds only usable files under the policy (the notes too: below a required
     level they are left out), and every section carries `source`, its label.
+- `grounded_on` (0.24.7) — for a grounded node a promotion grounded: `{spans, citations, rule}`, each span with
+  its `source_file` and `context` (the section around it, as an edge's span gets). It is what its grounder judges
+  when the user asks for the grounding to be judged again.
 - **Across languages (0.24.6), for either kind.** Every excerpt above is chosen by the item's own words, so a
   source in another language matches it only through words both languages spell alike. Through 0.24.5 that was
   all a grounder had, and an English source found for a Spanish pin could keep its key paragraph out of view.

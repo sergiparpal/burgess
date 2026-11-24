@@ -318,7 +318,8 @@ class Reconciler:
 
         The verdict monopoly polices out-of-band edits *into* a groundable state (a forged verdict).
         But a `failed`/`rejected` edge hand-edited in canon *out* to `unverified` is equally anomalous:
-        no legitimate tool path ever writes `unverified` (VALID_VERDICTS excludes it) and the §1.4/§1.7
+        no legitimate tool path ever writes `unverified` over a failure (VALID_VERDICTS excludes it; the one
+        path that writes it, the 0.24.7 withdrawal of a pin's grounding, starts only from `grounded`) and the §1.4/§1.7
         merge precedence makes failure states sticky, so a re-proposal can never demote one either. Such
         an edit ERASES negative memory — it drops the item from `failure_ids`, so the boundary stops
         quarantining re-proposals of the refuted claim. Restore the prior verdict rather than accept the
