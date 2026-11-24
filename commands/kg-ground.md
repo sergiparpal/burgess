@@ -263,8 +263,10 @@ is a new grounder, and that is the point. The engine cannot tell grounders apart
 
 After the last wave returns, take the hub candidates from the **last progress probe** (its `hubs[]`, computed
 once the claims are verdicted, so a rejected claim no longer counts) plus any Stage 0 advisory nodes not in
-its `attacked_hubs`. If there are none, skip this stage and say why: no node has 3 live claims, or every one
-that has was attacked with nothing grounded since (it is in `attacked_hubs`). Otherwise launch the
+its `attacked_hubs`, and the **ideas to attack**, its `pin_attacks` (0.25.0): `[diverge]` pins a registered
+source was found against. If there are none of either, skip this stage and say why: no node has 3 live claims,
+or every one that has was attacked with nothing grounded since (it is in `attacked_hubs`), and no source was
+found against an idea. Otherwise launch the
 `kg-adversarial-grounder` over them. For each hub it
 constructs the strongest counter-edges and falsifying questions, types each counter-edge by the weapon its
 span states (`attacked_by`: a more specific claim defeats a vaguer one; `confounded_by`: a confound biases a
@@ -280,7 +282,12 @@ Task(
   subagent_type: "kg-adversarial-grounder",
   description: "Attack hub candidates",
   prompt: """
-    Hub candidates: <the last probe's hubs[] ids, plus the advisory nodes>.
+    Hub candidates: <the last probe's hubs[] ids, plus the advisory nodes; "none" when there are none>.
+    Ideas to attack: <the last probe's pin_attacks ids; "none" when there are none>. For each idea, follow your
+    contract's "Attacking an idea": judge it on kg_ground_item's against_context; refute it only when a passage
+    shows its own mechanism failing for its purpose or states its contrary, then write the counter-edge and call
+    kg_ground(failed, refuted_by) on the idea, which the engine holds for a second grounder; when the passage only
+    limits it or refutes a neighbouring claim, record the attack with kg_record_attack instead.
     Source files to search for counter-spans: <the plan's source.files>, in <source.path>.
     Registered external sources, also searchable: <the plan's evidence.files with their levels>, in
     <evidence.path> (write "none" when the list is empty). The notes' levels and whether each may refute:
@@ -304,10 +311,16 @@ Task(
     Respect the per-run attack cap. A `failed` edge is negative information (§1.7): never pruned,
     surfaced later as a falsification counter. Report: counter-edges written, edges failed, the failed
     verdicts the engine refused (the disputes), each hub you attacked without a counter-edge and whether
-    you recorded it, and the contradictions no single span states.
+    you recorded it, the contradictions no single span states, and each idea: held as refuted (its edge and
+    span) or recorded as limited (what the passage does to it).
   """
 )
 ```
+
+**A refuted idea is confirmed in a later wave (0.25.0).** The engine holds every refutation of an idea, so after
+Stage 2 call the plan again: each held idea appears marked `confirm`, in a batch of its own. Launch it to a new
+`kg-grounder` exactly as Stage 1's held items, with the item written `(node, confirm)`. It confirms the refutation
+or declines it. Never give it to the adversarial grounder that found it.
 
 `failed` and `rejected` edges are NEGATIVE INFORMATION (§1.7) — never pruned, and surfaced in `kg_context` as
 falsification counters. That is the whole point of the memory-of-failures layer: falsification grounds trust
@@ -336,6 +349,10 @@ Grounding pass complete.
 
 For each hub attacked without a counter-edge, give its falsifying question: it is for a human, and its
 record keeps the hub out of the next plan until the hub gains a newer grounded claim.
+
+List every idea attacked (0.25.0) apart: refuted (held, then confirmed by a second grounder, and now `failed` for
+good), declined by the second grounder, or recorded as limited by the passage, each with what the passage does to
+it. A held refutation still unanswered when the pass ends is waiting for its second grounder: say so.
 
 List every grounding judged again with `--reexamine` (0.24.7), each re-confirmed or withdrawn, with the reason the
 grounder gave: a withdrawn pin is back among the waiting pins, recorded unsupported, and its old support stays in

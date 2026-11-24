@@ -164,7 +164,9 @@ def test_an_ordinary_proposal_cannot_be_hidden_from_the_queue(rig):
 
 def test_a_verdicted_pin_cannot_be_recorded(rig):
     engine, t, _ = rig
-    assert engine.kg_ground("idea-brief-c1", "failed", kind="node", note="refuted for the test").get("ok", True)
+    # a refutation of a pin is held, then confirmed by a second grounder (0.25.0)
+    assert engine.kg_ground("idea-brief-c1", "failed", kind="node", note="refuted for the test").get("held")
+    assert engine.kg_ground("idea-brief-c1", "failed", kind="node", note="confirmed").get("confirmed")
     out = _record(t, "idea-brief-c1")
     assert out["ok"] is False and "unverified" in out["error"]
 

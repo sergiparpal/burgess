@@ -144,10 +144,27 @@ def already_attacked(marks: "list[tuple[str, str | None]]", newest_claim: "str |
     return (newest_claim or "") <= max(at or "" for _, at in marks)
 
 
-def attack_record(hub: str, at: str, reason: str, question: str) -> str:
+def attack_record(hub: str, at: str, reason: str, question: str, sources: "list[str] | None" = None) -> str:
     """One ledger line (0.10.0): the hub, when the attack was recorded, why it wrote no counter-edge
-    (`ATTACK_REASONS`), and the falsifying question it ended with."""
-    return json.dumps({"hub": hub, "at": at, "reason": reason, "question": question}, ensure_ascii=False)
+    (`ATTACK_REASONS`), and the falsifying question it ended with. For a `[diverge]` pin (0.25.0) also the sources
+    found against it that the attack answered, so a source registered later is one it did not answer."""
+    rec = {"hub": hub, "at": at, "reason": reason, "question": question}
+    if sources:
+        rec["sources"] = sorted(sources)
+    return json.dumps(rec, ensure_ascii=False)
+
+
+def attack_sources(lines) -> "dict[str, set[str]]":
+    """hub id -> every source an attack record says it answered (0.25.0), from the ledger's lines."""
+    out: "dict[str, set[str]]" = {}
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and isinstance(rec.get("hub"), str) and isinstance(rec.get("sources"), list):
+            out.setdefault(rec["hub"], set()).update(str(x) for x in rec["sources"])
+    return out
 
 
 def attack_records(lines) -> "dict[str, list[str]]":

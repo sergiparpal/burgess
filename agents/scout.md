@@ -74,7 +74,9 @@ primaries: a review, a survey), **tertiary** (summarizes without the origin: an 
      drop it unread, and do not propose the summary in its place.
 6. **Say what the passage shows, and only that**: `supports` (it states what the claim says), `refutes` (it states
    the contrary), `related` (on the topic without stating it), or `none`. Never claim more than the passage says:
-   the verdict is the grounder's, later, on the registered copy.
+   the verdict is the grounder's, later, on the registered copy. Since 0.25.0 `refutes` sends the item to be attacked once the user
+   registers the source: use it only for a passage that states the contrary of the claim or shows its mechanism
+   failing for its purpose. A passage that only limits the claim is `related`.
 7. **Propose a level and a role** with a one-line reason, from the `level_hint`, the venue and the metadata. When
    unsure between two levels, propose the higher number and say so.
 8. **Log the item** once, with `mcp__plugin_burgess_burgess__kg_source_record_search(item_id, searches, proposed,

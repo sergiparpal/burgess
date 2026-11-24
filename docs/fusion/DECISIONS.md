@@ -3085,3 +3085,42 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Why on request only:** a grounding the user has seen and relied on should not change under them. A pass that
   judged every grounding again would also spend a grounder per grounded node on every run.
 - **Pinned in:** `tests/test_feat_withdraw_support.py`.
+
+## A source found against an idea leads to an attack, and a refutation is confirmed by a second grounder (2026-11-24)
+
+- **Decision:**
+  - The evidence record gains `found_against`. `KGEngine._found_items` splits the ledger's matches by proposal
+    stance: an item whose matching proposals all say `refutes` was found against, and any other match was found
+    for. `kg_source_add(against_items=…)` names them by hand, the caller's lists win over the ledger, and one id in
+    both is refused (`item-for-and-against`). The answer gives `found_against` and, when the copy is usable,
+    `to_attack`. An item found against is not woken to be grounded on the copy.
+  - `kg_ground_plan` gains `pin_attacks` (`_pin_attacks`): live `[diverge]` pins with a usable source found
+    against them that no attack has answered. An attack record (`groundplan.attack_record(…, sources)`) and a
+    held refutation store the sources they answered, so a later source is a new one whatever the clock says. The
+    first version compared timestamps, and a test registering a source in the second of the last attack missed
+    it.
+  - `kg_ground_item` gives `against_context`: `_search_context(…, against=True)` over the sources found against.
+  - `kg_ground(failed)` on a `[diverge]` pin is always held (`_hold_refutation`, `verdict: "failed"`). The
+    second grounder's `failed` confirms it; an unsupported record or a new grounding declines it. Held verdicts
+    are queued to be confirmed whatever the item's state, so a grounded pin's held refutation is queued too.
+  - The adversarial contract gains "Attacking an idea", with what refutes an idea and Output A or
+    `kg_record_attack`. The grounder contract gains the confirmation of a refutation. The scout contract says
+    `refutes` now sends the item to be attacked. `/burgess:kg-ground` gives the ideas to Stage 2 and their
+    confirmations to a later wave.
+- **What it answers:**
+  - The user asked whether the loop works end to end (2026-11-24). It did for support, but a source found
+    against an idea led nowhere. The scout of 2026-11-23 had proposed Brett et al. 2012 (level 1) with the
+    stance `refutes` for c2e.
+  - The engine already accepted `failed` on a pin (`_claim_side` of a span-less hypothesis is `none`, so the
+    level veto lets a usable source fail it). What was missing was the routing and the rules.
+  - The user approved the five parts («Sí, prepárala»).
+- **Why held, always:** a refutation is permanent negative memory, and in the divergence brief it seals the
+  idea. Only an adversarial grounder, which goes looking for a refutation, gives one. A second grounder who did
+  not choose the attack is the same safeguard 0.24.6 gave support found by a grounder's own search.
+- **Fusion tests touched:** `tests/fusion/test_materialization.py` and `test_fix_ground_unsupported_pins.py`
+  failed a pin in one call. They now hold and confirm it (`_refute`), and what they check (the fate flowing back
+  to the brief, a verdicted pin not recordable) is unchanged.
+- **Pinned in:** `tests/test_feat_attack_ideas.py`.
+- **Also settled the same day:** the user kept the strict reading of what grounds a node (0.24.7). A pin is
+  grounded only when a source states the whole idea; partial support stays in the withdrawal or unsupported
+  notes.

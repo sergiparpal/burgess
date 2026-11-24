@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.25.0 — 2026-11-24
+
+A source found against an idea now leads somewhere. The idea is attacked, and a refutation, confirmed by a
+second grounder, marks it refuted for good.
+
+### Added
+
+- **A source found against an idea is recorded as such.**
+  - `/burgess:kg-sources find` searches for and against every idea, and each scout records what a passage does:
+    supports, refutes, or is only related. Until now, registering a source a scout had proposed against an idea
+    simply woke the idea to look for support in it.
+  - Now such a source is recorded as found against the idea, and so is one you register with `against_items`.
+    The answer of `/burgess:kg-sources add` lists the ideas it will attack.
+- **The ideas found against are attacked.**
+  - The ordinary grounder may not refute an idea from `/burgess:kg-diverge`. The adversarial grounder attacked
+    only the graph's hubs, and an idea never is one, so nothing ever attacked an idea.
+  - Now the plan of `/burgess:kg-ground` lists these ideas beside the hubs. The adversarial grounder judges each
+    on the passages of the source found against it, found with the scout's own "against" words.
+- **What refutes an idea is written down.**
+  - A passage refutes an idea only when it shows the idea's own mechanism failing for the idea's purpose, or
+    states the contrary of the idea.
+  - A passage that only limits the idea, or refutes a neighbouring one, does not refute it. That attack is
+    recorded, and the idea keeps waiting for a source that supports it.
+- **A refutation is confirmed before it counts.**
+  - Refuted is permanent: the idea joins the memory of failures, which is never pruned, and leaves the waiting
+    list for good.
+  - So the engine holds every refutation of an idea, and a new grounder confirms or declines it in a batch of its
+    own, as with the support a grounder finds by its own search (0.24.6).
+
+### Upgrading
+
+- Nothing to do. `pyproject.toml` changes only its version line, so the venv is not rebuilt.
+
 ## 0.24.7 — 2026-11-24
 
 A grounding can now be judged again on request. An idea found to rest on a passage that falls short of it
