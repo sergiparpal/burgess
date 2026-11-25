@@ -3192,3 +3192,74 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Not done:** a source registered before 0.25.1 keeps no authors, and registering the same text again is
   refused (`already-registered`).
 - **Pinned in:** `tests/test_fix_authors_from_the_page.py`.
+
+## Three findings of an end-to-end run: the eval sample, the judge's controls, two `kg-sources` rules (2026-11-25)
+
+- **What it answers:** on 2026-11-25 the user asked for an end-to-end test of every command. It ran headless on
+  their Windows install (0.25.1, Claude Code 2.1.331), in a scratch project built from the demo plus two short
+  sections. `/kg-eval` and `/kg-experiment` were run in WSL on a copy of that canon, because of the read block
+  below. It cost $17.81 in 24 calls. Most commands worked as designed. Three findings had small fixes, and the
+  user approved them as 0.25.2 («Sí, prepárala»).
+- **Decision 1: the Stage 4 sheet leaves out proposals.**
+  - What `f4_probe.py sheet` did: it kept every edge whose `confidence` is not `EXTRACTED`. A proposal of
+    `/kg-generate` or `/kg-perturb` carries `INFERRED` like an extracted edge.
+  - What the run showed: after both commands ran, 17 of the 34 sampled edges were proposals still in the
+    hypothesized lane. The annotators marked 13 of them fabricated, and PRECISION read 0.47. `harness writers`
+    gave the extractor's own edges as 15 of 15 correct.
+  - What follows: in a development checkout, a precision under 0.70 would have sent the command iterating on the
+    pack and the extractor, and nothing there can change a proposal. `/kg-ground` judges proposals. Field
+    measurements were exposed too: the field graph has had 100+ generated edges since 2026-11-14.
+  - The change: the sheet drops `provenance: hypothesized` before its seeded shuffle and prints how many it
+    dropped. A graph with no proposals samples exactly as before. `--include-hypothesized` keeps them.
+  - `summary` splits its judged count into proposals and the extraction to sample. The Stage 7 sheets follow the
+    same rule.
+  - A proposal the grounding promoted to span-present stays in the sample: it is a grounded claim of the graph.
+    `edge_writer` reads it as an extraction, as before.
+- **Decision 2: `judge-check SOURCE` before the judge.**
+  - What `check_controls` requires: a positive control that cites two or more figures or names of the source,
+    from at least two documents. A name is a capitalised word that does not open a sentence and whose lowercase
+    form is outside the source's 400 commonest lowercase words.
+  - Why that failed on the demo: it is one document of 254 distinct lowercase words, so nearly every word counts
+    as common.
+  - What the run showed: `/kg-experiment --judge` on the demo, the corpus its 12 default prompts are written for,
+    wrote its controls twice. `judge-packets` refused them twice (exit 3), and only then did the command skip
+    the judge.
+  - The change: `judge.control_capacity` applies those same rules to the source as a whole, and the new harness
+    command prints the result as JSON, always with exit 0 (`judge_possible`, `problems`, a few examples per
+    document). It reads at most 50 distinct terms per document, with a bounded look-behind. The 9-document
+    field corpus takes 0.5 s.
+  - `/kg-experiment` runs it in Step 0's existing block, so no new shell call is added. With `--judge` and
+    `judge_possible` false, the command tells the user before Step 1, writes no controls, skips Step 3b, and logs
+    the judge as not measured.
+  - It is a necessary condition only. Each prompt's controls are still checked by `judge-packets`.
+- **Decision 3: one rule for a level in doubt, one definition of `interest`.**
+  - The scout proposes "the higher number" (the weaker level) when unsure between two levels. The `add` step of
+    `/kg-sources` said "the lower one". On the run, the scout chose 3 between 2 and 3, and `add` chose 3 between
+    3 and 4. The command now says "the higher number, the weaker level, as the scout does".
+  - The command's list of marks and `evidence.py` define `interest` as "the author gains if the claim holds: a
+    vendor about its product". The `add` step said to mark it when an author speaks "about its own product,
+    method or result", which every primary study does. Twice the step followed the narrow reading and gave a
+    reason the broad sentence did not admit: on the field run of 2026-11-24, and on this run.
+  - The step now points at the definition: a vendor or a company about its own product, service or method, and
+    not a study for reporting its own result. The mark is informational only (not in `UNUSABLE_MARKS`).
+    Registered records keep their marks; `set <name> marks=` changes one.
+- **Not done, offered separately** (larger, or a decision for the user):
+  - **The read block.** The user's Windows settings set `permissions.blockReadsOutsideWorkingDirectories`. Under
+    it, every Bash block of `/kg-eval` (4 denials on the run, no measurement), `/kg-perturb` Step 1 (2 denials;
+    the agent classified the path by hand) and, by the same first block, `/kg-experiment` asks the person
+    before it runs. Those blocks read the plugin's cache and data folders, outside the project, and use
+    `$(…)`, `${…}` or `case`, which Claude Code's parser does not analyse. The fix is to move those steps into
+    the engine, as 0.5.0 and 0.7.0 did for `/kg-build` and `/kg-ground`.
+  - **An edited section is never extracted again.** A section counts as `covered` once any span-present edge
+    quotes it (`kg_build_plan`). So a claim added to a section that was already built is never extracted, and
+    no argument changes that. The fix would record each section's text digest at extraction and plan a section
+    again when its text changes.
+  - **Agents disagree on two grounded edges.** The annotators labeled `wrong_type` a counter-edge built on a
+    limitation, and a lead that turned the author's italic *grounds* into `enables` by the pack's definition.
+    Which one decides, the author's relation word or the pack's definition, and whether a limitation counts as
+    an attack, is the user's call.
+  - Minor: field names and plan sections shown to the user; perturb's table showing "§9"; a same-wave duplicate
+    concept never offered for a merge; a passing TLS failure on law.cornell.edu (the same fetch worked minutes
+    later from the same Python).
+- **Pinned in:** `tests/test_fix_eval_sample_leaves_out_proposals.py`, `tests/test_fix_judge_check.py`,
+  `tests/test_fix_sources_rules_agree.py`.

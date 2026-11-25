@@ -2000,10 +2000,15 @@ python scripts/f4_probe.py score   labels.csv                  # precision / ast
 
 - **`summary <graph.json>`** — prints node/edge counts, nodes by `file_type`, edges by `confidence`
   (`EXTRACTED|INFERRED|AMBIGUOUS`), top relations, the `INFERRED` `confidence_score` distribution
-  (min/median/max), and the count of *judged* edges (`INFERRED+AMBIGUOUS`) — the precision-relevant slice.
+  (min/median/max), and the count of *judged* edges (`INFERRED+AMBIGUOUS`), split into the hypothesized
+  proposals among them and the extraction to sample — the precision-relevant slice.
 - **`sheet <graph.json> --n <N> --out <csv>`** — random-samples (seed 42) up to `N` non-`EXTRACTED` edges into
   a CSV with columns `edge_id, source_label, target_label, relation, confidence, confidence_score,
   source_file, verdict, span_found, notes`. Add `--include-extracted` to also sample deterministic edges.
+  - Since 0.25.2 it leaves out the edges whose `provenance` is `hypothesized`: the proposals of
+    `/burgess:kg-generate` and `/burgess:kg-perturb` carry `INFERRED` like an extraction, but the grounding
+    judges them and the extractor did not write them. It prints how many it left out; `--include-hypothesized`
+    samples them too.
   An annotator then labels every row:
   - `verdict` ∈ **`correct | fabricated | vague | wrong_type`** (the only allowed labels).
   - `span_found` ∈ **`y | n`** (the span-present check).
@@ -2185,9 +2190,21 @@ Checks that the kg-evaluator wrote its two drafts in order, beside `outputs`:
 Otherwise `problems` names what failed: a missing or unreadable draft, an answer that changed, or the files
 out of order. It prints JSON and always exits 0; `/burgess:kg-experiment` logs a failure as a caveat.
 
-#### `judge-packets <outputs> <prompts> <source> <controls> <out_dir>` and `judge-aggregate <judge_dir> [outputs]` (0.13.0)
+#### `judge-check <source>` (0.25.2), `judge-packets <outputs> <prompts> <source> <controls> <out_dir>` and `judge-aggregate <judge_dir> [outputs]` (0.13.0)
 
 The deterministic half of `/burgess:kg-experiment --judge`, in `scripts/kg_engine/judge.py`.
+
+**`judge-check`** prints, as JSON, whether the source can hold a positive control at all, and always exits 0.
+- `judge_possible`, `documents`, `documents_with_names`, `names_and_figures` (distinct ones found, at most 50
+  looked for per document), `examples` (up to 5 per document, for up to 10 documents) and `problems`.
+- The rules are the controls' own: a positive control cites two or more figures or names of the source, drawn
+  from at least two documents. A name is a capitalised word that does not open a sentence and whose lowercase
+  form is not one of the source's 400 commonest lowercase words; a figure has two digits or more.
+- A source of one document never holds one, and neither does a small one, where nearly every word is common.
+  The demo is both. `/burgess:kg-experiment` runs the check in Step 0 and, with `--judge`, skips the judge
+  before writing any control when it fails.
+- It is a necessary condition only: each prompt's positive control still has to find its names in that
+  prompt's passages, which `judge-packets` checks.
 
 **`judge-packets`** writes one packet per prompt to `out_dir/packets/NN.md`.
 - A packet holds every arm's idea and the two controls from `controls` (`{"decoys": [...], "positives": [...]}`),
@@ -2232,7 +2249,8 @@ Splits a filled f4_probe sheet two ways, reading each labeled edge in the projec
   - `extractor`: a `/burgess:kg-build` extraction;
   - `lead`: written by `/burgess:kg-build --leads` from a grounder's lead;
   - `counter-edge`: an adversarial pass of `/burgess:kg-ground`;
-  - `proposal`: `/burgess:kg-generate`.
+  - `proposal`: still hypothesized, from `/burgess:kg-generate` or `/burgess:kg-perturb`. The sheet leaves these
+    out since 0.25.2, so this row comes only from a sheet built with `--include-hypothesized`.
 - **By the grounding verdict** each edge holds now.
 
 It prints labeled / correct / precision per row, then lists the edges labeled other than `correct`, each
