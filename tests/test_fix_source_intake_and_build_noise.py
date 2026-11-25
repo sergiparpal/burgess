@@ -328,6 +328,8 @@ def test_a_file_written_in_the_verdicts_second_counts_as_changed_after_it(tmp_pa
 def test_the_commands_say_what_to_do():
     build = _flat((REPO / "commands" / "kg-build.md").read_text(encoding="utf-8"))
     assert "**`--all` as the first word** (0.23.1) plans every section" in build
-    assert "A section is to extract when it is neither covered, edgeless nor skipped." in build
+    # 0.26.0: a covered section whose text changed since its extraction is to extract again
+    assert ("A section is to extract when it is neither covered, edgeless nor skipped, or when it has "
+            "`changed`.") in build
     sources = _flat((REPO / "commands" / "kg-sources.md").read_text(encoding="utf-8"))
     assert "`fetch-blocked` (0.23.1): the site sent the engine a bot check" in sources

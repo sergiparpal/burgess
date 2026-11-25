@@ -26,7 +26,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from . import __version__, envconfig
-from .canon import EDGELESS_SECTIONS, GROUND_REQUESTS, HUB_ATTACKS, SOURCE_SEARCHES, UNSUPPORTED_PINS, Canon
+from .canon import (EDGELESS_SECTIONS, GROUND_REQUESTS, HUB_ATTACKS, READ_SECTIONS, SOURCE_SEARCHES,
+                    UNSUPPORTED_PINS, Canon)
 from .groundaudit import GroundAuditLog
 from .model import (
     AuthoredBy,
@@ -49,7 +50,8 @@ from .model import (
 )
 from .projector import BEARING_WORDS, Projector
 from .reconciler import GROUND_AUDIT, Reconciler
-from .buildplan import (edgeless_records, parse_arguments, related_nodes, resolve_subset, section_digest,
+from .buildplan import (WRITTEN_LIMIT, edgeless_records, parse_arguments, read_record, read_units,
+                        related_nodes, resolve_subset, section_digest, section_units, unit_digest,
                         vocabulary_digest)
 from .scrub import Scrubber, placeholders_in
 from .sources import SourceSet, plan_sections, split_sections
@@ -709,6 +711,9 @@ class KGEngine:
         # the build's orchestrator, which reads no section, offered to record 18 of them itself (field
         # report). Kept in memory like the write cache: after a restart a record waits for a new read.
         self._sections_read: "set[tuple[str, str]]" = set()
+        # The same pairs once the read ledger holds their record (0.26.0, `_record_reads_after_write`), so a
+        # second kg_write from one section's extractor does not append the same record again.
+        self._reads_recorded: "set[tuple[str, str]]" = set()
 
     # ---- source set (for span verification) — delegate to the shared resolver
     def source_set(self) -> SourceSet:
@@ -1276,6 +1281,9 @@ class KGEngine:
             out["details"] = refused + out["details"]
             out["dispositions"][Disposition.REJECTED.value] += len(refused)
             out["refused_hypotheses"] = len(refused)
+        if lane == "text-claim" and not rolled_back:
+            # 0.26.0: an extraction's write records the text of the sections it read (`_record_reads_after_write`)
+            self._record_reads_after_write(results)
         # Cache the response under the idempotency key (bounded LRU) so an exact retry replays it verbatim.
         # Do NOT cache a rolled-back batch: a rollback is a transient failure (e.g. an I/O error), and a
         # retry should be allowed to actually write, not replay the failure.
@@ -2584,9 +2592,21 @@ class KGEngine:
         heading included. An uncovered section carries ``edgeless`` (0.14.0, ``{at, note}``) when the ledger
         records an extraction of it that wrote no edge (``kg_record_edgeless_section``) and the section's
         text and the pack's types are still the ones that extraction read. ``sections_uncovered`` counts the
-        sections to extract, uncovered and not edgeless, and ``waves`` is theirs; ``sections_edgeless``
-        counts the others. Read-only and projection-free, like kg_status: it reads the canon spans, the
-        source and the ledger only, and section titles and notes leave through the egress scrub.
+        uncovered sections to extract, not edgeless, and ``sections_edgeless`` the others.
+
+        **A covered section whose text changed (0.26.0).** Through 0.25.2 a covered section was never extracted
+        again, so a claim added to it after its build never reached the graph (end-to-end run of 2026-11-25).
+        Each extraction now leaves a record of the units it read (``_record_reads``, ``canon.READ_SECTIONS``),
+        and a covered section holding a unit no record of its file holds carries ``changed`` (``{new_units, of,
+        since}``) and is extracted again, for what is new (``kg_section``'s ``changed``). ``sections_changed``
+        counts these, and ``waves`` covers them and the uncovered ones. ``--again`` marks every covered section
+        of the subset ``changed`` (``{again: true, units}``). A file the ledger holds no record of (built before
+        0.26.0, or the ledger lost) gets a ``baseline``: the plan records its covered sections' current text as
+        the text their extraction read, so an edit made before that moment goes unseen. That record is the only
+        thing the plan writes, with the non-blocking lease: a held lease leaves it for the next plan or the first
+        extraction (``baseline.not_recorded``). ``spans_gone`` (``_spans_gone``) counts the claims whose span no
+        longer verifies against these files. The plan is projection-free: it reads the canon spans, the source
+        and the ledgers, and section titles and notes leave through the egress scrub.
 
         ``ok: false`` means do not build, with ``error`` (and ``problems`` for a subset that reaches past
         the configured source) saying why: nothing configured, nothing readable, or a subset naming files
@@ -2635,18 +2655,33 @@ class KGEngine:
             skipped = [p.name for p in declared if p.name not in texts]
         if args.leads:
             return self._scrub_egress(self._leads_plan(out, names, texts, wave))
-        named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
+        edges = [e for n in self.canon.all_nodes() for e in n.edges]
+        named, anywhere = self._span_groups(edges, texts)
         records, vocabulary = self._edgeless_sections(), vocabulary_digest(self.pack)
+        reads = self._read_sections()
         from .buildplan import skip_reason
-        files, total, uncovered, edgeless, left_out = [], 0, 0, 0, 0
+        files, total, uncovered, edgeless, left_out, changed = [], 0, 0, 0, 0, 0
+        baseline: "dict[str, list]" = {}
         for name in names:
             level, secs = plan_sections(texts[name])
             spans = named.get(name, set()) | anywhere
+            file_reads = reads.get(name)
             rows = []
             for s in secs:
                 norm = normalize_text(s.text)
                 row = {"section": s.index, "title": s.title or "(whole file)", "chars": len(s.text),
                        "covered": any(sp in norm for sp in spans)}
+                if row["covered"]:
+                    # 0.26.0: a covered section is offered again once it holds text no extraction read
+                    units = section_units(s.text)
+                    if args.again:
+                        row["changed"] = {"again": True, "units": len(units)}
+                    elif file_reads is None:
+                        baseline.setdefault(name, []).append(s)
+                    else:
+                        new = sum(1 for u in units if unit_digest(u) not in file_reads["units"])
+                        if new:
+                            row["changed"] = {"new_units": new, "of": len(units), "since": file_reads["at"]}
                 record = None if row["covered"] else records.get((name, section_digest(s.text), vocabulary))
                 if record:
                     row["edgeless"] = dict(record)
@@ -2660,6 +2695,7 @@ class KGEngine:
             uncovered += sum(1 for r in rows if not r["covered"] and "edgeless" not in r and "skipped" not in r)
             edgeless += sum(1 for r in rows if "edgeless" in r)
             left_out += sum(1 for r in rows if "skipped" in r)
+            changed += sum(1 for r in rows if "changed" in r)
             entry = {"file": name, "heading_level": level, "sections": rows}
             if level == 3:
                 entry["note"] = "the sections are this file's ### subsections: its only ## heading is its title"
@@ -2669,14 +2705,29 @@ class KGEngine:
         plan = {**out, "ok": True, "files": files, "sections_total": total,
                 "sections_uncovered": uncovered, "sections_edgeless": edgeless,
                 # left out by `buildplan.skip_reason` (0.23.1); `--all` as the first word plans them too
-                "sections_skipped": left_out, "waves": -(-uncovered // wave)}
+                "sections_skipped": left_out,
+                # covered sections holding text no extraction read, or every covered one under `--again` (0.26.0)
+                "sections_changed": changed, "waves": -(-(uncovered + changed) // wave)}
+        if args.again:
+            plan["again"] = True
+        if baseline:
+            # 0.26.0: a file whose covered sections were extracted before the read ledger existed. Their text
+            # now stands for the text their extraction read; an edit made before this moment goes unseen.
+            n = sum(len(v) for v in baseline.values())
+            if self._record_reads(baseline, "baseline", wait=False):
+                plan["baseline"] = {"sections": n, "files": sorted(baseline)}
+            else:
+                plan["baseline"] = {"sections": 0, "files": [], "not_recorded": n}
+        gone = self._spans_gone(set(names), edges)
+        if gone:
+            plan["spans_gone"] = gone
         if skipped:
             plan["skipped"] = skipped
             plan["note"] = "skipped files could not be read as UTF-8 text"
         return self._scrub_egress(plan)
 
     def kg_section(self, source_file: str, section: "int | str", leads: bool = False, *,
-                   construction: str | None = None, source=None) -> dict:
+                   construction: str | None = None, source=None, again: bool = False) -> dict:
         """One section of the configured source, cut and egress-scrubbed by the engine: what a
         `kg-extractor` launched by `/kg-build` extracts from (0.5.0). ``source_file`` is a basename and
         ``section`` a number, both from ``kg_build_plan``; the cut is ``sources.plan_sections``, the same
@@ -2698,7 +2749,13 @@ class KGEngine:
         writes a rejected claim's leads, not the section, so it never stands behind a record.
 
         ``construction`` and ``source`` (0.19.0, together, as on the kg_write calls that build it) serve a
-        section of `/kg-perturb`'s second construction instead: see ``_construction_section``."""
+        section of `/kg-perturb`'s second construction instead: see ``_construction_section``.
+
+        **A section read again (0.26.0).** A covered section that holds units (paragraphs, list items, table rows)
+        no read record of its file holds gets ``changed`` (``_changed_view``): ``new``, those units, and
+        ``written``, the claims already written from the section, so its extractor writes what is new.
+        ``again=True`` (`/kg-build --again`) hands every unit as new. An uncovered section gets no ``changed``:
+        it is extracted whole, as ever."""
         if construction or source is not None:
             if not construction or not source:
                 return {"ok": False, "error": "construction and source go together: name the second "
@@ -2706,7 +2763,13 @@ class KGEngine:
             if leads:
                 return {"ok": False, "error": "leads belong to the graph's own sources, not to a second "
                                               "construction: drop leads, or drop construction and source"}
+            if again:
+                return {"ok": False, "error": "again reads the graph's own sources again, not a second "
+                                              "construction: drop again, or drop construction and source"}
             return self._construction_section(construction, source, source_file, section)
+        if leads and again:
+            return {"ok": False, "error": "leads and again do not go together: a leads read writes the leads "
+                                          "grounders recorded, again reads the section's text again"}
         texts = self.source_set().texts
         name = SourceSet._key(source_file or "")
         if name not in texts:
@@ -2732,6 +2795,14 @@ class KGEngine:
         out.update(self._known_nodes(s.text))
         if leads:
             out["leads"] = self._section_leads(name, idx, texts)
+        else:
+            try:
+                view = self._changed_view(name, s, again=bool(again))
+            except Exception as e:  # noqa: BLE001 — the section text is what matters; serve it whole
+                logger.warning("changed view skipped (%s)", type(e).__name__)
+                view = None
+            if view:
+                out["changed"] = view
         return out
 
     def _construction_section(self, construction: str, source, source_file: str, section: "int | str") -> dict:
@@ -2754,6 +2825,163 @@ class KGEngine:
         out["construction"] = construction
         return out
 
+    # ---- the text an extraction read (0.26.0) ------------------------------------------------------------
+    def _read_sections(self) -> "dict[str, dict]":
+        """Per file, the digests of every unit the read ledger holds and its newest record's time
+        (`buildplan.read_units`). Fail-open like the edgeless ledger: a missing or unreadable ledger is no
+        record, so the next plan lays a new baseline, and a bad line only spoils itself. Never creates it."""
+        try:
+            with open(self.canon.root / READ_SECTIONS, encoding="utf-8", errors="replace") as f:
+                return read_units(f)
+        except OSError:
+            return {}
+
+    def _covered_spans(self, texts) -> "tuple[dict[str, set[str]], set[str]]":
+        """``_span_groups`` over the canon's edges, from the kg_write baseline cache (one parse per change)."""
+        return self._span_groups([e for n in self._canon_baseline().values() for e in n.edges], texts)
+
+    @staticmethod
+    def _read_line(name: str, s, by: str, at: str) -> str:
+        return read_record(name, s.index, s.title or "(whole file)", section_digest(s.text), section_units(s.text),
+                           at, by)
+
+    def _record_reads(self, sections: "dict[str, list]", by: str, *, wait: bool) -> bool:
+        """Append a read record for each ``(file -> [sections])``, recorded ``by`` (`buildplan.READ_BY`). A file
+        the ledger holds no record of yet first gets the baseline of its other covered sections: their text now
+        is taken as the text their extraction read. Without it, the first record of a file built before 0.26.0
+        would make every other covered section of it look changed in full, and the next build would read them
+        all again. False when the lease or the file could not be had (`_append_read_lines`)."""
+        reads = self._read_sections()
+        texts = self.source_set().texts
+        at, lines, groups = utcnow(), [], None
+        for name, secs in sections.items():
+            if name not in reads and name in texts and by != "baseline":
+                if groups is None:
+                    groups = self._covered_spans(texts)
+                spans = groups[0].get(name, set()) | groups[1]
+                taken = {s.index for s in secs}
+                for s in plan_sections(texts[name])[1]:
+                    if s.index not in taken and any(sp in normalize_text(s.text) for sp in spans):
+                        lines.append(self._read_line(name, s, "baseline", at))
+            lines += [self._read_line(name, s, by, at) for s in secs]
+        return self._append_read_lines(lines, wait=wait)
+
+    def _append_read_lines(self, lines: "list[str]", *, wait: bool) -> bool:
+        """Append ledger lines, fsync'd, under the writer lease: the bounded-blocking acquire when ``wait`` (an
+        extraction's write or record, which serializes with other writers anyway), the non-blocking one
+        otherwise (the plan's baseline, which never holds a plan up). False when the lease or the file was not
+        to be had: only the record is lost, and a section whose read went unrecorded is offered once more."""
+        from .atomicio import fsync_dir
+        if not lines:
+            return True
+        if not (self._try_writer_lease() if wait else self.canon.try_acquire_lock()):
+            return False
+        try:
+            path = self.canon.root / READ_SECTIONS
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("".join(line + "\n" for line in lines))
+                f.flush()
+                os.fsync(f.fileno())
+            fsync_dir(path.parent)
+            return True
+        except OSError as e:
+            logger.warning("read ledger not written (%s)", type(e).__name__)
+            return False
+        finally:
+            self.canon.release_lock()
+
+    def _record_reads_after_write(self, results) -> None:
+        """After a text-claim kg_write (0.26.0): record as read each section kg_section served this engine whose
+        current text a span of the write quotes. Under /kg-build an extractor reads its section with kg_section
+        and sends one kg_write, so that write is where its extraction ends; a crash before it records nothing,
+        and the section stays offered. Never fatal: a write is never refused or undone for its record."""
+        if not self._sections_read:
+            return
+        spans: "list[tuple[str, str]]" = []
+        for r in results:
+            item = getattr(r, "item", None)
+            span = getattr(item, "span", "") if r.kind == "edge" else ""
+            if span and span.strip():
+                spans.append((normalize_text(span), SourceSet._key(item.source_file) if item.source_file else ""))
+        if not spans:
+            return
+        try:
+            texts = self.source_set().texts
+            todo: "dict[str, list]" = {}
+            for name in sorted({n for n, _d in self._sections_read}):
+                mine = [sp for sp, f in spans if not f or f == name]
+                if name not in texts or not mine:
+                    continue
+                for s in plan_sections(texts[name])[1]:
+                    key = (name, section_digest(s.text))
+                    if key in self._sections_read and key not in self._reads_recorded:
+                        norm = normalize_text(s.text)
+                        if any(sp in norm for sp in mine):
+                            todo.setdefault(name, []).append(s)
+            if todo and self._record_reads(todo, "write", wait=True):
+                self._reads_recorded.update((n, section_digest(s.text)) for n, secs in todo.items() for s in secs)
+        except Exception as e:  # noqa: BLE001 — the record is bookkeeping; the write already landed
+            logger.warning("read of the written sections not recorded (%s)", type(e).__name__)
+
+    def _changed_view(self, name: str, s, *, again: bool) -> "dict | None":
+        """`changed` for kg_section (0.26.0): for a covered section that holds units no read record of its file
+        holds (or every unit, under ``again``), those units and the claims already written from the section,
+        so its extractor writes what is new. None for an uncovered section (a whole extraction, as ever), for a
+        section with nothing new, and for a file the ledger holds nothing of (the plan lays its baseline)."""
+        texts = self.source_set().texts
+        named, anywhere = self._covered_spans(texts)
+        norm = normalize_text(s.text)
+        if not any(sp in norm for sp in named.get(name, set()) | anywhere):
+            return None
+        reads = self._read_sections().get(name)
+        units = section_units(s.text)
+        if again:
+            new = units
+        elif reads is None:
+            return None
+        else:
+            new = [u for u in units if unit_digest(u) not in reads["units"]]
+        if not new:
+            return None
+        written = []
+        for n in self._canon_baseline().values():
+            for e in n.edges:
+                own = SourceSet._key(e.source_file) if e.source_file else ""
+                if e.span and e.span.strip() and own in ("", name) and normalize_text(e.span) in norm:
+                    written.append(e)
+        written.sort(key=lambda e: e.id)
+        scrub = lambda t: self.kg_scrub(t)["scrubbed"] if t else t  # noqa: E731 — the session scrub, as for text
+        return {"again": again, "since": reads["at"] if reads else None,
+                "new": [scrub(u) for u in new],
+                "written": [{"id": e.id, "source": e.source, "relation": e.relation, "target": e.target,
+                             "epistemic_state": e.epistemic_state.value, "span": scrub(e.span)}
+                            for e in written[:WRITTEN_LIMIT]],
+                "written_more": max(0, len(written) - WRITTEN_LIMIT)}
+
+    def _spans_gone(self, names, edges) -> "dict | None":
+        """The claims whose span no longer verifies against the plan's files (0.26.0): a sentence was deleted
+        or rewritten after they were written. ``grounded`` ones keep their verdict, and nothing re-examines them
+        yet; an ``unverified`` one is rejected by its grounder (`span_in_source` false) unless an extraction of
+        the new text writes it again with a span that holds. Counted so the build can say so; None when none."""
+        vs, grounded, unverified = None, [], 0
+        for e in edges:
+            if not (e.span and e.span.strip()) or e.epistemic_state not in (EpistemicState.GROUNDED,
+                                                                             EpistemicState.UNVERIFIED):
+                continue
+            own = SourceSet._key(e.source_file) if e.source_file else ""
+            if own and own not in names:
+                continue
+            vs = vs or self.verify_set()
+            if vs.verifies(e.span, e.source_file):
+                continue
+            if e.epistemic_state == EpistemicState.GROUNDED:
+                grounded.append(e.id)
+            else:
+                unverified += 1
+        if not grounded and not unverified:
+            return None
+        return {"grounded": len(grounded), "unverified": unverified, "grounded_ids": sorted(grounded)[:10]}
+
     def _edgeless_sections(self) -> "dict[tuple[str, str, str], dict]":
         """The sections the ledger records an extraction of that wrote no edge (`buildplan.edgeless_records`).
         Fail-open, like the attack ledger: a missing or unreadable ledger is no record, and a bad byte only
@@ -2770,8 +2998,15 @@ class KGEngine:
 
         ``source_file`` and ``section`` are the plan's, as for ``kg_section``; ``note`` is the extractor's
         sentence on why the section held nothing to write (a list of sources, a glossary, a checklist, or a
-        relation the canon already holds with a verdict, which ``kg_write`` quarantines). A section a
-        span-present edge already quotes is refused: it is covered, and the plan never offers it.
+        relation the canon already holds with a verdict, which ``kg_write`` quarantines). The result's
+        ``recorded`` says which record was made: ``edgeless`` for such a section.
+
+        **A covered section read again (0.26.0).** Through 0.25.2 a section a span-present edge already quoted
+        was refused here: the plan never offered it. The plan now offers a covered section again once it holds
+        text no extraction read (`changed`), and when that new text holds nothing new to write, its extractor
+        records it here all the same. Such a section is covered, so it never goes in the edgeless ledger: its
+        read goes in the read ledger (``canon.READ_SECTIONS``, ``recorded: "read"``), and the plan stops offering
+        it until its text changes again.
 
         **A record needs a read (0.14.1).** It is refused unless a ``kg_section`` call (not a leads read)
         served the section's current text since this engine started. A record says that a read of that text,
@@ -2822,9 +3057,16 @@ class KGEngine:
             named, anywhere = self._span_groups([e for n in self.canon.all_nodes() for e in n.edges], texts)
             norm = normalize_text(s.text)
             if any(sp in norm for sp in named.get(name, set()) | anywhere):
-                return {"ok": False, "error": "a span-present edge already quotes this section, so it is "
-                                              "covered and the plan does not offer it: nothing recorded",
-                        "source_file": name, "section": idx}
+                # 0.26.0: a covered section the plan offered again (`changed`) whose new text held nothing new
+                # to write. It is covered, so it never goes in the edgeless ledger; its read goes in the read
+                # ledger, and the plan stops offering it until its text changes again.
+                if not self._record_reads({name: [s]}, "record", wait=True):
+                    return {"ok": False, "error": "the read could not be recorded (the ledger beside the canon "
+                                                  "was not writable): nothing recorded",
+                            "source_file": name, "section": idx}
+                self._reads_recorded.add((name, digest))
+                return self._scrub_egress({"ok": True, "source_file": name, "section": idx, "title": title,
+                                           "recorded": "read", "covered": True})
             at = utcnow()
             path = self.canon.root / EDGELESS_SECTIONS
             line = edgeless_record(name, idx, title, digest, vocabulary_digest(self.pack), at, note)
@@ -2839,7 +3081,8 @@ class KGEngine:
                         "source_file": name, "section": idx}
         finally:
             self.canon.release_lock()
-        return self._scrub_egress({"ok": True, "source_file": name, "section": idx, "title": title, "at": at})
+        return self._scrub_egress({"ok": True, "source_file": name, "section": idx, "title": title, "at": at,
+                                   "recorded": "edgeless"})
 
     # ---- the /kg-ground plan (0.7.0) -------------------------------------------------------------------
     def kg_ground_plan(self, focus: "str | None" = "", configured_wave_size: "str | int | None" = None,
@@ -6388,10 +6631,18 @@ def _register(mcp, engine: KGEngine) -> None:
         and the `extract_wave_size` option as the command text carries it as `configured_wave_size`.
         An uncovered section marked `edgeless` had an extraction that wrote no edge from it
         (kg_record_edgeless_section), and its text and the pack's types are unchanged since: it is not
-        extracted again. `sections_uncovered` and `waves` count only the sections to extract.
+        extracted again. A covered section marked `changed` holds paragraphs, list items or table rows no
+        extraction read (text added or rewritten after it was built): it is extracted again, for what is new,
+        and `sections_changed` counts these. `sections_uncovered` counts the uncovered sections to extract, and
+        `waves` both. `--again <file>` first on the line marks every covered section of the named files
+        `changed`, to read them again whole. `baseline` (once per file) says the plan took the current text of
+        a file's covered sections, built before such records existed, as the text their extraction read.
+        `spans_gone` counts the claims whose span no longer verifies against these files (a sentence deleted
+        or rewritten after they were written), `grounded` ones by id.
         `ok: false` means do not build; `error`/`problems` say why. With `--leads` first on the line, the
         plan is `mode: "leads"`: `leads[]`, the sections holding the leads rejected claims carry, one
-        extractor per section. Read-only, projection-free."""
+        extractor per section. Projection-free; it writes nothing but a file's baseline in the ledger of
+        sections read."""
         return engine.kg_build_plan(arguments, configured_wave_size)
 
     @mcp.tool()
@@ -6626,7 +6877,7 @@ def _register(mcp, engine: KGEngine) -> None:
     @mcp.tool()
     @_tool_result
     def kg_section(source_file: str, section: int, leads: bool = False,
-                   construction: str | None = None, source: str | None = None) -> dict:
+                   construction: str | None = None, source: str | None = None, again: bool = False) -> dict:
         """The text of ONE section to extract, cut from the configured source and egress-scrubbed by the
         engine: `source_file` and `section` come from kg_build_plan. Returns `text` (the section's heading
         line and body, verbatim but for ⟦CAT:N⟧ placeholders), its `title`, `of` (how many sections the
@@ -6634,12 +6885,17 @@ def _register(mcp, engine: KGEngine) -> None:
         placeholders included — kg_write restores them to the original. `leads=true` (for
         `/burgess:kg-build --leads`) adds `leads`: the edges grounders found stated by spans of this section
         under claims they rejected, each with that span.
+        A section extracted before whose text has changed since adds `changed`: `new`, the paragraphs, list
+        items and table rows no earlier extraction read, and `written`, the claims already written from the
+        section. Write claims from `new` only, and none already in `written`. `again=true` (for
+        `/burgess:kg-build --again`) hands the whole section as `new`.
         `construction` + `source` (for /burgess:kg-perturb, the same two values as on every kg_write of that
         second construction) serve section `section` of that construction's source document instead
         (`source_file` is its basename), cut and scrubbed by the construction so its kg_write restores the
         placeholders, with `known_nodes` from the graph's own canon: write the same concept under the
         graph's id. Not with `leads`."""
-        return engine.kg_section(source_file, section, leads, construction=construction, source=source)
+        return engine.kg_section(source_file, section, leads, construction=construction, source=source,
+                                 again=again)
 
     @mcp.tool()
     @_tool_result
@@ -6651,8 +6907,10 @@ def _register(mcp, engine: KGEngine) -> None:
         section: refused unless kg_section served the section's current text since the engine started.
         `source_file` and `section` are the plan's, as for kg_section; `note` says in a sentence why.
         kg_build_plan then marks the section `edgeless` and leaves it out of the sections to extract, while
-        its text and the pack's types stay the same. Refused for a section a span-present edge already
-        quotes. Writes only the ledger beside the canon: no node, edge or verdict changes."""
+        its text and the pack's types stay the same. For a section kg_build_plan offered again as `changed`
+        (a span-present edge already quotes it) whose new text held nothing new to write, it records the read
+        instead (`recorded: "read"`), and the plan stops offering the section until its text changes again.
+        Writes only the ledgers beside the canon: no node, edge or verdict changes."""
         return engine.kg_record_edgeless_section(source_file, section, note)
 
     @mcp.tool()

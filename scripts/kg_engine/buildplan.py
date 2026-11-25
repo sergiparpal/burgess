@@ -1,6 +1,7 @@
 """The /kg-build plan's deterministic halves: reading the typed arguments and resolving a subset (0.5.0),
-the nodes already in the canon that a section names (0.6.0, `related_nodes`), and the record of a section an
-extraction wrote no edge from (0.14.0, `edgeless_records`).
+the nodes already in the canon that a section names (0.6.0, `related_nodes`), the record of a section an
+extraction wrote no edge from (0.14.0, `edgeless_records`), and the record of the text an extraction read
+(0.26.0, `section_units` and `read_units`).
 
 Through 0.4.6 `/kg-build` worked these out in its Step 0b Bash block and in the orchestrator's head. In
 auto mode Claude Code ignores a command's `Bash` permission (a tool-wide shell grant would let the model
@@ -41,12 +42,14 @@ class BuildArguments:
     is the typed wave size, ``""`` when none was typed. A non-empty ``problem`` means the line cannot be
     read as one subset, and the plan stops on it. ``leads`` is true for ``--leads``: write the leads
     grounders recorded instead of extracting the uncovered sections (0.9.0). ``every`` is true for ``--all``:
-    plan the sections `skip_reason` leaves out too (0.23.1)."""
+    plan the sections `skip_reason` leaves out too (0.23.1). ``again`` is true for ``--again``: read the covered
+    sections of the named files again, whole, as if each had changed (0.26.0)."""
     subset: str
     wave_size: str
     problem: str = ""
     leads: bool = False
     every: bool = False
+    again: bool = False
 
 
 # `--leads` first on the line: the /kg-build mode that writes the leads grounders recorded (0.9.0). Matched
@@ -55,6 +58,11 @@ _LEADS_FLAG = re.compile(r"--leads(?:\s+|$)", re.IGNORECASE)
 
 
 _ALL_FLAG = re.compile(r"--all(?:\s+|$)", re.I)
+# `--again` first on the line (0.26.0): read the covered sections of the named files again. It needs a subset:
+# with none it would launch one extractor per covered section of the whole source.
+_AGAIN_FLAG = re.compile(r"--again(?:\s+|$)", re.I)
+AGAIN_NEEDS_A_FILE = ("--again reads again the sections of the files it names: give one, as in "
+                      "/burgess:kg-build --again notes.md")
 
 # Sections a build leaves out unless `--all` asks for them (0.23.1, `skip_reason`): a reference list, the back
 # matter a publisher's page carries, and a section with no text below its heading. In the field's two Springer
@@ -111,16 +119,31 @@ def parse_arguments(raw: "str | None") -> BuildArguments:
       file, folder or glob.
     - ``--leads`` as the first word asks for the leads mode (0.9.0); the rest of the line reads as above.
     - ``--all`` as the first word (0.23.1) plans every section, the ones `skip_reason` leaves out included.
+    - ``--again`` as the first word (0.26.0) plans the covered sections of the subset's files again, whole. It
+      needs a subset, and it does not go with ``--leads``.
     """
     line = (raw or "").strip()
     m = _LEADS_FLAG.match(line)
     if m:
         rest = parse_arguments(line[m.end():])
-        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=True, every=rest.every)
+        problem = rest.problem or ("--leads and --again do not go together: --leads writes the leads grounders "
+                                   "recorded, --again reads sections again" if rest.again else "")
+        return BuildArguments(rest.subset, rest.wave_size, problem, leads=True, every=rest.every,
+                              again=rest.again)
     m = _ALL_FLAG.match(line)
     if m:
         rest = parse_arguments(line[m.end():])
-        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=rest.leads, every=True)
+        return BuildArguments(rest.subset, rest.wave_size, rest.problem, leads=rest.leads, every=True,
+                              again=rest.again)
+    m = _AGAIN_FLAG.match(line)
+    if m:
+        rest = parse_arguments(line[m.end():])
+        problem = rest.problem or ("" if rest.subset else AGAIN_NEEDS_A_FILE)
+        if not problem and rest.leads:
+            problem = ("--leads and --again do not go together: --leads writes the leads grounders recorded, "
+                       "--again reads sections again")
+        return BuildArguments(rest.subset, rest.wave_size, problem, leads=rest.leads, every=rest.every,
+                              again=True)
     if not line:
         return BuildArguments("", "")
     if line.isascii() and line.isdigit():
@@ -383,4 +406,97 @@ def edgeless_records(lines) -> "dict[tuple[str, str, str], dict]":
             continue
         if key not in out or at >= out[key]["at"]:
             out[key] = {"at": at, "note": note}
+    return out
+
+
+# ---- the text an extraction read (0.26.0) ----------------------------------------------------------------
+#
+# Through 0.25.2 a section counted as built once a span-present edge quoted it, and nothing kept the text its
+# extraction had read. A claim added to such a section later never reached the graph: the plan called the
+# section covered, and no argument read it again (end-to-end run of 2026-11-25: a sentence added to a built
+# section, `/kg-build` again, "nothing to build"). Now each extraction leaves a record of what it read, in a
+# ledger beside the canon (`canon.READ_SECTIONS`): the digest of every unit of the section's text, a unit being
+# a paragraph, a list item or a table row. The plan offers a covered section again when it holds a unit that no
+# record of its file holds, and `kg_section` hands that section's extractor the new units and the claims already
+# written from the section, so it writes what is new. The ledger is engine state, not canon: a lost or unreadable
+# one is replaced by a new baseline at the next plan, and an edit made before that baseline goes unseen.
+
+# A unit starts at a list item, a numbered item, a table row or a heading line, or after a blank line.
+_UNIT_START = re.compile(r"\s*(?:[-*+]\s|\d+[.)]\s|\||#)")
+
+# How many claims already written from a section `kg_section` hands a re-reading extractor at most, the same
+# cap as the known nodes: a section quoted by more than this is rare, and `written_more` counts the rest.
+WRITTEN_LIMIT = KNOWN_NODES_LIMIT
+
+
+def section_units(text: str) -> "list[str]":
+    """The units of a section's text, in order: each paragraph, list item and table row, verbatim, without the
+    section's heading line (its title, which states no claim of its own). A unit with no letter or digit (a
+    table's separator row, a rule) is left out. A paragraph re-wrapped over other lines is the same unit, since
+    `unit_digest` reads the normalized text."""
+    lines = (text or "").splitlines()
+    first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+    if first is not None and lines[first].lstrip().startswith("#"):
+        lines = lines[first + 1:]
+    units: "list[str]" = []
+    current: "list[str]" = []
+
+    def flush() -> None:
+        if current:
+            unit = "\n".join(current)
+            if _ANY_WORD.search(unit):
+                units.append(unit)
+            current.clear()
+
+    for line in lines:
+        if not line.strip():
+            flush()
+            continue
+        if current and _UNIT_START.match(line):
+            flush()
+        current.append(line)
+    flush()
+    return units
+
+
+def unit_digest(unit: str) -> str:
+    """What a record knows a unit by: the first 16 hex digits of the SHA-256 of its normalized text, enough to
+    tell apart the units of one file and small enough that a ledger line stays short."""
+    return hashlib.sha256(normalize_text(unit).encode("utf-8")).hexdigest()[:16]
+
+
+# Who wrote a read record: the extraction's own kg_write, its extractor's record that the section held nothing
+# (new) to write, or the plan's baseline for a file whose sections were built before any record existed.
+READ_BY = ("write", "record", "baseline")
+
+
+def read_record(file: str, section: int, title: str, text_digest: str, units: "Iterable[str]", at: str,
+                by: str) -> str:
+    """One line of the read ledger (0.26.0): the file and section, the section's title, the digest of its whole
+    text, the digests of its units (`unit_digest`), when, and who recorded it (`READ_BY`). Only the file and the
+    unit digests decide anything; the rest is for whoever reads the ledger."""
+    return json.dumps({"file": file, "section": section, "title": title, "text_sha256": text_digest,
+                       "units": [unit_digest(u) for u in units], "at": at, "by": by}, ensure_ascii=False)
+
+
+def read_units(lines) -> "dict[str, dict]":
+    """``file -> {"units": set of unit digests, "at": the newest record's time}`` over every record of the
+    ledger's lines. A unit any record of a file holds has been read; the plan offers a covered section again only
+    for a unit no record holds. A line that is not such a record (a torn last line, a hand edit) is skipped,
+    never an error."""
+    out: "dict[str, dict]" = {}
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        file, units, at = rec.get("file"), rec.get("units"), rec.get("at")
+        if not (isinstance(file, str) and file and isinstance(units, list) and isinstance(at, str) and at):
+            continue
+        entry = out.setdefault(file, {"units": set(), "at": at})
+        entry["units"].update(u for u in units if isinstance(u, str) and u)
+        if at > entry["at"]:
+            entry["at"] = at
     return out

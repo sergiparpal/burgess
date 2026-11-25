@@ -1,6 +1,6 @@
 ---
 description: Build the grounded knowledge graph from a source document — extract section-by-section into the canon (bounded parallel waves), then project.
-argument-hint: "[--leads] [subset] [wave_size]"
+argument-hint: "[--leads] [--again] [subset] [wave_size]"
 allowed-tools: Task, mcp__plugin_burgess_burgess__kg_build_plan, mcp__plugin_burgess_burgess__kg_status, mcp__plugin_burgess_burgess__kg_metrics, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__query_graph
 ---
 
@@ -39,6 +39,10 @@ Do not split that line yourself: pass it to `kg_build_plan` exactly as it appear
   (reference lists, publisher back matter, nearly empty sections): `/burgess:kg-build --all paper.md`.
 - **`--leads` as the first word** (0.9.0) writes the leads `/burgess:kg-ground` recorded instead of building: see
   **Leads mode**, below. The rest of the line still reads as a subset and a wave size: `/burgess:kg-build --leads 4`.
+- **`--again` as the first word** (0.26.0) reads again, whole, every section of the named files that is already
+  built: `/burgess:kg-build --again notes.md`. It needs a file, since without one it would read the whole source
+  again. A build already offers again a built section whose text changed after its extraction; `--again` is for
+  a file edited before 0.26.0, whose earlier text the engine never recorded.
 
 The two arguments:
 
@@ -93,21 +97,31 @@ never fall back to the demo corpus:
 mode**, below.)
 
 - `files[]`, one per file to build, in source order. Each has its `sections[]` (`section` number, `title`,
-  `chars`, `covered`, `edgeless` on a section recorded as holding no edge, and `skipped` on one the plan leaves
-  out), its `heading_level` and any `note`.
+  `chars`, `covered`, `edgeless` on a section recorded as holding no edge, `skipped` on one the plan leaves
+  out, and `changed` on a covered section whose text changed since its extraction), its `heading_level` and
+  any `note`.
   - `heading_level` is 2 for `## ` sections. It is 3 when the file's only `## ` heading is its title and its
     `### ` subsections carry the content (FALLO 4).
   - A file with no heading at that level is one section holding the whole file.
   - The text before a file's first heading (usually a title and a byline) is not a section.
 - `wave_size`, and `wave_size_from`: `argument`, `option` or `default`.
-- `sections_total`; `sections_uncovered`, the sections to extract; `sections_edgeless`, the ones recorded as
-  holding no edge; `sections_skipped` (0.23.1), the ones the plan leaves out; and `waves`, the number of waves
-  the sections to extract need.
+- `sections_total`; `sections_uncovered`, the uncovered sections to extract; `sections_changed` (0.26.0), the
+  covered ones to extract again; `sections_edgeless`, the ones recorded as holding no edge; `sections_skipped`
+  (0.23.1), the ones the plan leaves out; and `waves`, the number of waves the sections to extract need.
+- `again: true` when the line began with `--again`.
+- `baseline` (0.26.0), once per file: the plan took the current text of the file's built sections as the text
+  their extraction read, because nothing recorded it then (a file built before 0.26.0). `sections` counts them.
+- `spans_gone` (0.26.0), when claims quote text these files no longer hold: `grounded` and `unverified` counts,
+  and `grounded_ids`.
 - `skipped`, when a file of the folder could not be read as UTF-8 text.
 
 Tell the user in a line or two what you are about to build: the files, the number of sections, and the wave
 size and where it came from. A section whose `covered` is `true` already has span-present edges, from an
-earlier or interrupted build: skip it. A section with `edgeless` (0.14.0) was extracted before, and its
+earlier or interrupted build: skip it, unless it has `changed`. A section with `changed` (0.26.0) was
+extracted before, and its text changed since: `changed.new_units` of its `changed.of` paragraphs, list items
+or table rows hold text no extraction read. Its extractor writes what is new, and nothing it already wrote.
+Under `--again`, `changed.again` is true and the whole section is read again. Say how many sections changed. A
+section with `edgeless` (0.14.0) was extracted before, and its
 extractor wrote no edge from it and recorded that (`edgeless.note` says why). Its text and the pack's types
 are the ones that extraction read, so a new one would read the same text: skip it too, and say how many the
 plan holds. A section with `skipped` (0.23.1) is one no extractor needs to read: a reference list
@@ -117,8 +131,14 @@ followed at once by its subheadings. A short section is not one of them: a one-l
 the field's two papers such sections were 37 of the 117 a new copy holds, every one read in an earlier build
 and recorded as holding no edge.
 Skip it, and say how many the plan leaves out; `--all` as the first word of the arguments plans them too. A
-section is to extract when it is neither covered, edgeless nor skipped. When no section is, say so, launch
-nothing, and go on to step 2.
+section is to extract when it is neither covered, edgeless nor skipped, or when it has `changed`. When no
+section is, say so, launch nothing, and go on to step 2.
+
+When the plan has `baseline`, say in a sentence that from now on the engine notices a built section whose text
+changes, and that it could not see an edit made to these files before: `/burgess:kg-build --again <file>` reads
+a file the user edited since its build. When it has `spans_gone`, say how many claims quote a sentence the notes
+no longer hold. Unverified ones are rejected by `/burgess:kg-ground` unless this build writes them again from the
+new text. Grounded ones keep their verdict, and no command examines them again yet: name them (`grounded_ids`).
 
 **Changing `source_path`.** It is one value for every project: Claude Code keeps a plugin's options per user
 and ignores a project's settings for them. When the user wants another folder for THIS project only, the fix is
@@ -143,9 +163,10 @@ documented to pick up a new value.
 
 ### 1. Launch the `kg-extractor` subagent per section, in BOUNDED PARALLEL WAVES (Task)
 
-For **each section to extract in each file of the plan** (`covered` false and no `edgeless`), launch one
-extractor and tell it only where its section is: the file's basename as `source_file`, and the plan's
-`section` number and `title`. **Never paste section text into a prompt.** The extractor fetches its own with
+For **each section to extract in each file of the plan** (`covered` false and no `edgeless`, or `changed`),
+launch one extractor and tell it only where its section is: the file's basename as `source_file`, and the
+plan's `section` number and `title`, and `again: true` when the plan has `again`. **Never paste section text
+into a prompt.** The extractor fetches its own with
 `kg_section`: the engine cuts it from the source by the same rule the plan numbered by, and scrubs it on the
 way out. What the extractor reads is therefore the source's own text, which is what lets its spans verify. With
 a multi-file build the boundary verifies each span against **that file specifically** (R4 — a span attributed
@@ -153,7 +174,10 @@ to the wrong file is REJECTED `span-not-in-named-source`). The extractor reads i
 complete `kg_write` payload, and reports its dispositions back to you. When its section states no relation the
 pack's types can carry, it writes no edge and records the section with `kg_record_edgeless_section` (0.14.0),
 which takes it out of later plans. It records the section too when every relation the section states is an
-edge the canon already holds with a verdict, which `kg_write` quarantines (0.14.1).
+edge the canon already holds with a verdict, which `kg_write` quarantines (0.14.1). A changed section's extractor
+(0.26.0) gets from `kg_section` the text no extraction read (`changed.new`) and the claims already written from
+the section (`changed.written`), and writes only what is new. Its `kg_write` records the section's text as read,
+or, when the new text holds nothing new, its `kg_record_edgeless_section` does.
 
 **Only the extractor that read a section records it.** Never call `kg_record_edgeless_section` yourself, and
 never offer the user to: you read no section, and a record says that a read of the section's current text,
@@ -189,13 +213,19 @@ You are extracting ONE section of the source document into the canon via mcp__pl
 source_file: source.md      # basename of THIS section's file, from the plan — used as edge.source_file
 section: 1                  # the plan's section number
 title: "1. Compression and the cost of generality"
+again: false                # true only when the plan has `again` (/burgess:kg-build --again)
 
 Get the section's text with mcp__plugin_burgess_burgess__kg_section(source_file: "source.md", section: 1)
-and extract from that text only. It is the engine's verbatim, egress-scrubbed cut of the section: copy every
-span EXACTLY from it, ⟦CAT:N⟧ placeholders included. If the title it returns is not the one above, say so in
-your report. Its known_nodes are nodes other sections already wrote that your section names: reuse a known
-node's id only for the same concept, and never redeclare it in nodes[] unless it is marked untyped and your
-section defines it. Declare in nodes[] every other node your edges name.
+(adding again: true when the line above says so) and extract from that text only. It is the engine's verbatim,
+egress-scrubbed cut of the section: copy every span EXACTLY from it, ⟦CAT:N⟧ placeholders included. If the title
+it returns is not the one above, say so in your report. Its known_nodes are nodes other sections already wrote
+that your section names: reuse a known node's id only for the same concept, and never redeclare it in nodes[]
+unless it is marked untyped and your section defines it. Declare in nodes[] every other node your edges name.
+
+If kg_section returns `changed`, the section was extracted before and its text changed since (your contract, «A
+section read again»): write only the claims `changed.new` states, reading `text` for their context, and leave out
+every claim `changed.written` already holds. When `changed.new` states nothing new to write, record the section
+as below, with a note that says so.
 
 Follow your system contract: declared node_types (compression, primitive, claim, metric, operation, failure)
 and edge_types (grounds, attacked_by, reconciles_with, bridges, collapses_into, confounded_by, approximates,
@@ -235,9 +265,11 @@ extractor copied them.
 
 **Resume / progress probe (projection-free).** Between waves — or to recover after a transport hiccup or a
 cancelled request — call `kg_build_plan` again with the same two arguments. It reads the **canon** and the
-ledger of edgeless sections only (it never projects): its `covered` flags show which sections already carry a
-span-present edge, and `edgeless` which ones an extractor recorded as holding none. Re-launch only the sections
-still to extract (re-writes are idempotent anyway). A section stays to extract after its launch when its
+ledgers of edgeless and read sections (it never projects): its `covered` flags show which sections already carry
+a span-present edge, `edgeless` which ones an extractor recorded as holding none, and `changed` which covered
+ones still hold text no extraction read. Re-launch only the sections still to extract (re-writes are idempotent
+anyway). Under `--again` every covered section stays `changed`, so probe with the plan without `--again`, or
+count the extractors that reported back. A section stays to extract after its launch when its
 extractor wrote no span-present edge and recorded nothing (every edge REJECTED, or the record left out):
 re-launch such a section at most once, then report it instead of looping. `kg_status()` stays available for
 node and edge counts and the grounding queue.
@@ -273,6 +305,9 @@ Summarize the build back to the user:
   section still to extract at the end (with its extractor's reason).
 - **Edgeless sections** — `sections_edgeless` from the last plan: the sections this build or an earlier one
   recorded as holding no edge, which no build extracts again until their text or the pack's types change.
+- **Changed sections** (0.26.0) — how many built sections were read again because their text changed, and what
+  their extractors wrote from the new text. Say so plainly when the plan laid a `baseline`, and name the claims
+  of `spans_gone`, as in step 0.
 - **Dispositions** — summed across all section launches: ACCEPTED / DEMOTED / QUARANTINED / REJECTED, and for any
   REJECTED, the reason from `details[]` (`no-supporting-span`, `span-not-in-source`, `write-lane-hypothesis`,
   `self-loop`, `truncated-payload`, `schema-invalid`). For any QUARANTINED, its reason: an undeclared type
@@ -292,8 +327,8 @@ Summarize the build back to the user:
 
 A grounder that rejects a claim because its span states another relation (`wrong-relation`) or relates a
 narrower or broader concept than one of its nodes (`wrong-node`) records the edge the span does state, the
-**lead**, on the rejected edge. A build skips every section that already has edges, so this mode is the one
-path a lead takes into the canon. It writes each lead once, as an `unverified` claim with the same span, and
+**lead**, on the rejected edge. A build reads a section that already has edges again only when its text changed,
+and then only for the new text (0.26.0), so this mode is the one path a lead takes into the canon. It writes each lead once, as an `unverified` claim with the same span, and
 the next `/burgess:kg-ground` judges it like any other.
 
 1. **The plan** (`kg_build_plan` with the arguments as typed) is `mode: "leads"`:

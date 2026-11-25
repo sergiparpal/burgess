@@ -54,7 +54,7 @@ verdict path.
 | `advisory_geometry.py` | Advisory hybrid-descriptor DPP ordering over `kg_generate` candidates (behind `divergence.dpp`, default off) |
 | `pathing.py` | The grounded-only path algorithm behind `kg_explain_path` |
 | `waves.py` | Deterministic resolver for `/burgess:kg-build`'s extraction wave size |
-| `buildplan.py` | `/burgess:kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), the canon nodes a section names, for `kg_section`, and the digests and ledger lines of the sections an extraction wrote no edge from |
+| `buildplan.py` | `/burgess:kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), the canon nodes a section names, for `kg_section`, the digests and ledger lines of the sections an extraction wrote no edge from, and the units of a section and the ledger lines of the text an extraction read (0.26.0) |
 | `export.py` (+ `templates/graph_html.py`) | Render `graph.html` + `GRAPH_REPORT.md` from the derived layer |
 | `harness.py` | Deterministic measurement: agreement, specificity, ideation, convergence |
 | `backend.py` | Headless API-key extraction for CI (same boundary as the interactive flow) |
@@ -464,12 +464,17 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   first one (0.23.1), + the engine-resolved `source`), `kg_build_plan` (the `/burgess:kg-build` plan:
   files, sections at each file's heading level, per-section coverage, the sections an extraction
   recorded as holding no edge while their text and the pack's types are unchanged, the sections it leaves
-  out (0.23.1: a reference list, a publisher's back matter, an empty section; `--all` plans them), the wave size; it
+  out (0.23.1: a reference list, a publisher's back matter, an empty section; `--all` plans them), the
+  covered sections whose text changed since their extraction (0.26.0: `changed`, any paragraph, list item
+  or table row no record of the read-section ledger holds; `--again <file>` marks every covered section
+  of the file; a file built before the ledger gets a `baseline`, its current text taken as the text its
+  extraction read), the claims whose span the source no longer holds (`spans_gone`), the wave size; it
   reads the typed arguments and the option text it is handed, so the command needs no shell; with
   `--leads`, the sections holding the leads rejected claims carry), `kg_section`
   (one planned section, cut and egress-scrubbed for the extractor that asks for it, with the canon
-  nodes the section names, so the extractor can reuse their ids, and on request its pending leads
-  with their spans), `kg_ground_plan` (the `/burgess:kg-ground`
+  nodes the section names, so the extractor can reuse their ids, on request its pending leads
+  with their spans, and for a changed section the units no extraction read and the claims already written
+  from it; the extraction's `kg_write` then records the read), `kg_ground_plan` (the `/burgess:kg-ground`
   queue, every unverified edge and hypothesized node, as `{id, kind}` items in batches for parallel
   grounders, a queued node in one batch with the queued edges that touch it (0.17.1), plus the wave size and the hubs no adversarial pass has attacked since their last grounded
   claim, read from the `counter-edge (adversarial pass, hub <id>)` mark on each counter-edge and from the
@@ -507,8 +512,8 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   extractor's note on why, keyed by the digests of the section's text and of the pack's types, so the build
   plan stops offering it while both are unchanged; since 0.14.1 also a section whose every relation is an
   edge the canon already holds with a verdict, and only a section whose current text `kg_section` served
-  since the engine started; it refuses a covered section, writes only the edgeless-section ledger and sets
-  no state), `kg_record_generation` (0.17.0: one `/burgess:kg-generate` run, which advances the absorption
+  since the engine started; since 0.26.0 a covered section the plan offered again as `changed` records its
+  read in the read-section ledger instead; it writes only those two ledgers and sets no state), `kg_record_generation` (0.17.0: one `/burgess:kg-generate` run, which advances the absorption
   ledger's generation counter and tracks each node the run proposed at its live degree, so the command needs no
   shell; it writes only `derived/generations.json`, refuses a file it cannot read as a ledger, and sets no
   state), `kg_record_unsupported` (0.20.1: a `[diverge]` pin a grounder judged and left `unverified` for want
@@ -855,6 +860,7 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
   .kg-reconcile-state.json      reconciler cache (gitignored)
   .kg-hub-attacks.jsonl         attacks that wrote no counter-edge (gitignored engine state, 0.10.0)
   .kg-edgeless-sections.jsonl   build sections an extraction wrote no edge from (gitignored engine state, 0.14.0)
+  .kg-read-sections.jsonl       the text each build extraction read, unit by unit (gitignored engine state, 0.26.0)
   .kg-unsupported-pins.jsonl    [diverge] pins judged unsupported (gitignored engine state, 0.20.1)
   .kg-source-searches.jsonl     /burgess:kg-sources find searches, reads, proposals (gitignored engine state, 0.24.0)
   .kg-ground-requests.jsonl     grounders' own passage requests and the verdicts held for confirmation (gitignored engine state, 0.24.6)

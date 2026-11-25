@@ -3276,3 +3276,76 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     later from the same Python).
 - **Pinned in:** `tests/test_fix_eval_sample_leaves_out_proposals.py`, `tests/test_fix_judge_check.py`,
   `tests/test_fix_sources_rules_agree.py`.
+
+## A built section whose text changed is read again, for what is new (2026-11-25)
+
+- **What it answers:** the second finding of the end-to-end run of 2026-11-25, offered separately in the entry
+  above.
+  - On that run a sentence stating a new claim was added inside a section already built, and `/kg-build` said
+    all six sections were built and launched nothing.
+  - A section counted as `covered` once any span-present edge quoted it (`kg_build_plan`), nothing kept the text
+    its extraction had read, and no argument read a covered section again. A claim added to a built section
+    could never reach the graph.
+  - Edgeless sections did not have this gap: since 0.14.0 their record is keyed by the digest of the text, so an
+    edited one comes back.
+  - The user approved the design with its two recommendations («Sí, así»): a baseline plus `--again` for what was
+    built before, and the deleted-sentence case left for a separate change.
+- **Decision 1: each extraction records the text it read, unit by unit.**
+  - The ledger is `canon.READ_SECTIONS` (`.kg-read-sections.jsonl` beside the canon): engine state, git-excluded
+    and gitignored like the other ledgers. Each line holds a section's file, number, title and text digest,
+    the digests of its units, the time, and who wrote it.
+  - A unit (`buildplan.section_units`) is a paragraph, a list item, a table row or a heading line, without the
+    section's own heading line. Its digest (`unit_digest`, 16 hex digits) is of the normalized text, so a
+    re-wrapped paragraph is the same unit.
+  - Units, not the section's digest, so that the extractor can be handed only what is new. With one digest per
+    section a changed section would be read again whole, and an extractor reading old text again writes its own
+    variants of claims already there.
+  - The record is made where an extraction ends. Under `/kg-build` an extractor reads its section with
+    `kg_section` and sends one `kg_write`, so `kg_write` records each section `kg_section` served this engine
+    that one of its spans quotes (`by: "write"`). An extractor whose section held nothing new calls
+    `kg_record_edgeless_section`, which for a covered section now records the read (`by: "record"`) instead of
+    refusing.
+  - Not at the `kg_section` read itself: an extractor that read and then stopped would leave the new text
+    recorded as read, and nothing would offer it again.
+- **Decision 2: the plan offers a covered section again for any unit no record of its file holds.**
+  - The test is against every unit any record of the file holds, not against one earlier version of the section,
+    so a paragraph moved to another section, a split section or a merged one is not new.
+  - The row carries `changed` (`{new_units, of, since}`), `sections_changed` counts these, and `waves` covers
+    them with the uncovered ones.
+  - `kg_section` hands that section's extractor `changed.new`, the new units, and `changed.written`, the claims
+    already written from the section. The extractor contract («A section read again») has it write only what is
+    new.
+  - A claim written again dedups and keeps its state. An unverified claim whose old span is gone takes the new
+    span (0.23.1). A judged one comes back QUARANTINED, which is final.
+  - The pack's vocabulary does not count. The edgeless record is keyed by it, because a new type can make a
+    section with no relation writable. Here it would send every built section back after any pack change.
+- **Decision 3: what was built before has a baseline, and `--again` reads it.** This was the user's first choice,
+  the recommended one.
+  - A file the ledger holds no record of (built before 0.26.0, by the headless backend, or with the ledger lost)
+    gets one at its first plan. Its covered sections' current text is recorded as the text their extraction
+    read (`by: "baseline"`), and the plan reports it (`baseline`). An edit made before that moment goes unseen.
+  - The plan writes this record and nothing else, so it is no longer read-only. It takes the lease without
+    waiting: a held lease answers `not_recorded` and leaves the baseline to the next plan.
+  - The first record of a file lays the same baseline for the file's other covered sections (`_record_reads`).
+    Without that, a write landing in a file whose baseline the plan could not take would make every other built
+    section of the file look new in full, and the next build would read them all again.
+  - `/kg-build --again <file>` marks every covered section of the file `changed`, whole: for a file the user
+    edited before the update. It needs a file, since without one it would read the whole source again, and it
+    does not go with `--leads`.
+  - The alternative, no baseline, would have had the plan only count the sections without a record. Then nothing
+    built before 0.26.0 would ever be noticed until `--again` read it, at one extractor per section.
+- **Decision 4: a deleted or rewritten sentence is counted, not judged here.** This was the user's second choice.
+  - Facts first. An unverified claim whose span is gone is rejected by its grounder (`span_in_source` false),
+    unless an extraction of the new text writes it again first. A grounded one keeps its verdict and a span the
+    notes no longer hold, and nothing flags it.
+  - Changing that needs a verdict, and only `kg_ground` sets one, so it is a separate change: `/kg-ground` would
+    examine such a claim again, to mark it `obsolete` or ground it on the new passage.
+  - Until then the plan counts them (`spans_gone`: `grounded`, `unverified`, up to 10 grounded ids), and the build
+    names the grounded ones.
+- **Considered, not done:**
+  - A per-section baseline, for any covered section none of whose units a record holds. A one-paragraph section
+    with a sentence appended has exactly that shape, so the baseline would have hidden the commonest edit.
+  - Telling changed sections by the files' modification times. A time is per file, not per section, and edges
+    carry no time of writing.
+- **Pinned in:** `tests/test_fix_changed_sections.py`; the covered-section record in
+  `tests/test_fix_edgeless_sections.py`; the command texts in `tests/test_fix_source_intake_and_build_noise.py`.

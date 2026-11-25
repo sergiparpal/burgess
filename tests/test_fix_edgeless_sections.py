@@ -165,7 +165,8 @@ def test_a_note_leaves_the_plan_through_the_egress_scrub(eng):
 
 def test_the_record_is_one_ledger_line(eng):
     out = _record(eng, note=f"  {NOTE[:30]}\n   {NOTE[30:]}  ")
-    assert out == {"ok": True, "source_file": FILE, "section": 3, "title": "Fuentes", "at": out["at"]}
+    assert out == {"ok": True, "source_file": FILE, "section": 3, "title": "Fuentes", "at": out["at"],
+                   "recorded": "edgeless"}   # 0.26.0: `recorded` tells it from a covered section's read
     text = plan_sections(DOC)[1][2].text
     assert [json.loads(line) for line in _ledger(eng).read_text(encoding="utf-8").splitlines()] == [
         {"file": FILE, "section": 3, "title": "Fuentes", "text_sha256": section_digest(text),
@@ -189,12 +190,16 @@ def test_the_record_sets_no_state(eng):
     assert eng.kg_metrics() == before
 
 
-def test_a_covered_section_is_refused(eng):
+def test_a_covered_section_records_a_read_never_an_edgeless_section(eng):
+    # Through 0.25.2 this was refused: the plan never offered a covered section. Since 0.26.0 it offers one again
+    # once its text changes, and when the new text holds nothing new its extractor records it here: an edge
+    # quotes it, so it goes in the read ledger (tests/test_fix_changed_sections.py), never in the edgeless one.
     _cover(eng)
     assert eng.kg_section(FILE, 1)["ok"]
     out = eng.kg_record_edgeless_section(FILE, 1, NOTE)
-    assert not out["ok"] and "already quotes this section" in out["error"], out
+    assert out["ok"] and out["recorded"] == "read" and out["covered"] is True, out
     assert not _ledger(eng).exists()
+    assert _rows(eng.kg_build_plan("", ""))["Argumento"]["covered"] is True
 
 
 @pytest.mark.parametrize("source_file, section, note, error", [
@@ -312,7 +317,9 @@ def test_the_build_brief_asks_for_the_record_and_the_leads_brief_does_not():
 
 def test_the_build_launches_only_the_sections_to_extract():
     flat = _flat(CMD)
-    assert "For **each section to extract in each file of the plan** (`covered` false and no `edgeless`)" in flat
+    # 0.26.0 adds the covered sections whose text changed since their extraction
+    assert ("For **each section to extract in each file of the plan** (`covered` false and no `edgeless`, or "
+            "`changed`)") in flat
     assert "For **each uncovered section of each file in the plan**" not in flat     # through 0.13.6
     assert "`sections_edgeless`, the ones recorded as holding no edge" in flat
     report = _flat(CMD.split("### 3. Report", 1)[1].split("\n## ", 1)[0])
