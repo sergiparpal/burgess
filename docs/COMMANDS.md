@@ -253,6 +253,19 @@ it already holds with a verdict, so a new read has nothing to add. Only the extr
 records it, and the engine refuses a record no read of the section stands behind. To have the recorded
 sections extracted once more, delete `.kg-edgeless-sections.jsonl` from the project folder.
 
+**A section you edit after its build is read again.** Since 0.26.0 the engine keeps a record of the text each
+extraction read, paragraph by paragraph, in `.kg-read-sections.jsonl` in the project folder. When you add or
+rewrite a paragraph, a list item or a table row in a section that is already built, the next
+`/burgess:kg-build` offers that section again (`sections_changed`), and its extractor writes only the claims
+the new text states; claims already in the graph keep their state. A new heading, reordered paragraphs or a
+deleted one bring nothing new to extract. Through 0.25.2 such a section was never read again, so a claim you
+added to it never reached the graph. A project built before 0.26.0 has no record of the text its sections were
+read at: the first build after the update takes their text at that moment as the starting point, so an edit
+made before it goes unseen. `/burgess:kg-build --again <file>` reads a file you edited since its build again,
+whole. The plan also counts the claims whose sentence is no longer in your notes (`spans_gone`): an unverified
+one is rejected at the next `/burgess:kg-ground` unless the build writes it again from the new text, and a
+grounded one keeps its verdict for now.
+
 **The extractors start without your notes.** Since 0.14.2 an extractor starts without your CLAUDE.md files
 and without Claude Code's memory index, which a subagent gets by default, as the grounders have since
 0.13.4. What it writes rests on the section's text and on what `kg_write` answers. On 0.14.1 an extractor

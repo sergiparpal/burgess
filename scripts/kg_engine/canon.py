@@ -142,6 +142,12 @@ SOURCE_SEARCHES = ".kg-source-searches.jsonl"
 # request, until a second grounder confirms or declines them. Engine state, not canon, like the four above: a
 # clone without it only lets a grounder ask once more, and a held verdict waits to be found again.
 GROUND_REQUESTS = ".kg-ground-requests.jsonl"
+# The text each /kg-build extraction read (0.26.0), one JSON line per section read, appended after the
+# extraction's kg_write, after its extractor's kg_record_edgeless_section, and by the plan's baseline for a file
+# built before the ledger existed; read by `kg_build_plan` and `kg_section` (`buildplan.read_units`), which offer
+# a covered section again once it holds text no record holds. Engine state, not canon, like the five above: a
+# clone without it gets a new baseline at its next plan.
+READ_SECTIONS = ".kg-read-sections.jsonl"
 
 
 # --------------------------------------------------------------------------- git helpers
@@ -761,10 +767,11 @@ class Canon:
         # without it only offers those sections to one more extraction. The unsupported-pin ledger (0.20.1)
         # likewise: a clone without it only offers those pins to one more grounder. The source-search ledger
         # (0.24.0) likewise: a clone without it only searches those items once more. The grounder-request
-        # ledger (0.24.6) likewise: a clone without it only lets a grounder ask once more.
+        # ledger (0.24.6) likewise: a clone without it only lets a grounder ask once more. The read-section
+        # ledger (0.26.0) likewise: a clone without it gets a new baseline at its next build plan.
         patterns = [LOCK_NAME, f"{LOCK_QUEUE_DIRNAME}/", ".tmp-*", RECONCILE_STATE_NAME,
                     f"{GROUND_AUDIT}*", HUB_ATTACKS, EDGELESS_SECTIONS, UNSUPPORTED_PINS, SOURCE_SEARCHES,
-                    GROUND_REQUESTS]
+                    GROUND_REQUESTS, READ_SECTIONS]
         try:
             info.mkdir(parents=True, exist_ok=True)
             current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""

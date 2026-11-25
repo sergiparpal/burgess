@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.26.0 — 2026-11-25
+
+A section you edit after it was built is read again, for what is new.
+
+### Fixed
+
+- **`/burgess:kg-build` reads a built section again when its text changes.**
+  - A section counted as built once any claim quoted it, and nothing kept the text its extraction had read. A
+    claim you added to it later never reached the graph, and the build said there was nothing to build (the
+    end-to-end run of 2026-11-25).
+  - Now each extraction records the text it read, paragraph by paragraph, with list items and table rows on their
+    own, in `.kg-read-sections.jsonl` beside the canon.
+  - A built section holding a paragraph no extraction read is offered again (`changed`, counted in
+    `sections_changed`). Its extractor gets the new text and the claims already written from the section, and
+    writes only what is new. Claims already in the graph keep their state.
+  - A new heading, reordered paragraphs or a re-wrapped paragraph bring nothing new, and the section is not read
+    again.
+
+### Added
+
+- **`/burgess:kg-build --again <file>`** reads every built section of a file again, whole. It is for a file you
+  edited before 0.26.0, whose earlier text was never recorded, and it needs a file.
+- **The build counts the claims whose sentence is gone** (`spans_gone`): a sentence deleted or rewritten after the
+  claim was written.
+  - An unverified one is rejected at the next `/burgess:kg-ground` unless the build writes it again from the new
+    text.
+  - A grounded one keeps its verdict for now, and the build names it. Having `/burgess:kg-ground` examine those
+    again is the next change.
+
+### Upgrading
+
+- The first `/burgess:kg-build` after the update takes the current text of every built section as the text its
+  extraction read (`baseline` in its plan). From then on an edit is noticed; one made before that first build is
+  not. For a file you edited after building it, run `/burgess:kg-build --again <file>`.
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+
 ## 0.25.2 — 2026-11-25
 
 Three things an end-to-end run of every command found on 2026-11-25.

@@ -264,6 +264,29 @@ needed**. But the demo corpus (`examples/source.md`) is **pure prose**, so the i
 **every** edge here is `authored_by: agent` and **every** edge here needs a verbatim span from you. Do not mark
 prose edges `deterministic`.
 
+## A section read again (`/kg-build`, 0.26.0)
+
+A section an earlier build extracted comes back to an extractor when its text changed since, and `kg_section`
+says so with `changed`:
+
+- `changed.new`: the paragraphs, list items and table rows of the section that no earlier extraction read, the
+  text the author added or rewrote after the build. Under `/kg-build --again` (`again: true` in your brief, and
+  in your `kg_section` call) it is the whole section.
+- `changed.written`: the claims already written from the section, each with its `id`, `source`, `relation`,
+  `target`, `epistemic_state` and `span`. `changed.written_more` counts the ones past the list.
+
+Write the claims `changed.new` states, and nothing else. `text` is still the whole section: read it for the
+context a new paragraph leans on, and copy every span from it, as always (a unit of `changed.new` is in `text`
+verbatim). Leave out a claim `changed.written` already holds, the same relation between the same concepts, and
+reuse the ids of its ends. The one exception is a claim whose `span` is no longer in `text` because its sentence
+was rewritten: when a unit of `changed.new` states it, write it again with the new span. An unverified claim
+then takes the new span (0.23.1); a judged one comes back QUARANTINED, which is final. When `changed.new`
+states nothing new to write, write nothing and record the section as the next section says: the engine records
+your read, and the plan stops offering the section until its text changes again.
+
+(Through 0.25.2 a built section was never read again. On the end-to-end run of 2026-11-25 a claim added to a
+built section never reached the graph, and the build said there was nothing to build.)
+
 ## A section that states no relation (`/kg-build`, 0.14.0)
 
 Some sections state no relation the pack's types can carry: a list of sources, a glossary, a checklist, a
@@ -292,8 +315,8 @@ only a section you found nothing new to write in:
   rejected stayed unrecorded, and every plan offered it again.)
 - **Not in leads mode,** and not when you are building a second construction (`/kg-perturb`): neither extracts a
   section of the canon's build.
-- **The engine refuses a section an edge already quotes,** as covered. Report that refusal; nothing was
-  recorded and nothing needs fixing.
+- **A section read again** (`changed`, above) whose new text holds nothing new is recorded the same way. Edges
+  already quote it, so the engine records your read of it (`recorded: "read"`), not an edgeless section.
 - **The engine records only a section it served you** (0.14.1). A record says a read of the section's current
   text found nothing to write, so the engine refuses one for a section no `kg_section` call served since it
   started. Your record follows your own read. If the engine restarted in between, call `kg_section` for your
@@ -327,7 +350,9 @@ Put all of the section's leads in one payload, under the same retry policy as a 
 no other edge from the section, and no known node redeclared. The next `/kg-ground` judges what you wrote.
 
 ## Procedure
-1. Get your text. Under `/kg-build`: `kg_section(source_file, section)` → its `text` is your one section.
+1. Get your text. Under `/kg-build`: `kg_section(source_file, section)` → its `text` is your one section
+   (`again=true` when your brief says `again: true`). When it carries `changed`, write only what `changed.new`
+   states (**A section read again**, above).
    Under `/kg-perturb`: `kg_section(source_file, section, construction=…, source=…)`, one section at a time.
    Inline text in your prompt: that is your one section. Direct invocation with a path: `Read` the scrubbed
    source and note the section headers (`##`).

@@ -39,8 +39,10 @@ There is no `kg_build` / `kg_query` /
 
 Mutation tools (`kg_write`, `kg_propose`, `kg_ground`, `kg_rename`, `kg_merge`) write the **canon** (human-editable Markdown,
 the single source of truth) — `kg_propose` (§1.12) is the hypothesized write lane and `kg_operate` (§1.14) writes
-through it. `kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
-`kg_record_edgeless_section` (§1.24) only the edgeless-section ledger, never the canon, and
+through it. `kg_write` also records the sections an extraction read in the read-section ledger (0.26.0, §1.19).
+`kg_record_attack` (§1.23) writes only the attack ledger beside the canon, and
+`kg_record_edgeless_section` (§1.24) only the edgeless-section and read-section ledgers, never the canon,
+`kg_build_plan` (§1.19) only a file's baseline in the read-section ledger, and
 `kg_record_generation` (§1.25) only the absorption ledger in the derived dir, and `kg_source_add` /
 `kg_source_set` / `kg_source_policy` (§1.27, §1.29, §1.30) only the project's `evidence/` directory, and
 `kg_source_search` / `kg_source_probe` / `kg_source_record_search` (§1.32–§1.34) only the source-search ledger
@@ -882,8 +884,9 @@ section.
 The `/burgess:kg-build` plan (0.5.0): which files and sections to build, which are already covered, and the wave
 size. It is the build's Step 0, which through 0.4.6 ran as a Bash block; in auto mode Claude Code ignores a
 command's `Bash` permission, so that block could stop a build on a permission prompt, while an MCP tool the
-command declares runs without one. **Read-only and projection-free**: it reads the canon spans, the
-source and the edgeless-section ledger (§1.24) only.
+command declares runs without one. **Projection-free**: it reads the canon spans, the source, the edgeless-section
+ledger (§1.24) and the read-section ledger (0.26.0, below). The one thing it writes is a file's `baseline` in that
+ledger.
 
 - `arguments` — the command's typed `$ARGUMENTS`, **verbatim**; the engine splits it
   (`buildplan.parse_arguments`). Empty → the whole configured source. A trailing whole number after a space
@@ -938,8 +941,36 @@ source and the edgeless-section ledger (§1.24) only.
 - `edgeless` (0.14.0, `{at, note}`) — on an uncovered section the ledger records an extraction of that wrote
   no edge (§1.24), while the section's text and the pack's types are the ones that extraction read. A build
   does not extract it again.
-- `sections_uncovered` counts the sections to extract, neither covered nor edgeless, and `waves` is theirs
-  (÷ `wave_size`, rounded up): the work left, the resume signal. `sections_edgeless` counts the edgeless ones.
+- `changed` (0.26.0, `{new_units, of, since}`) — on a covered section that holds units (paragraphs, list items,
+  table rows: `buildplan.section_units`) no record of its file in the read-section ledger holds: text added or
+  rewritten after the section was extracted. A build extracts it again, for what is new (`kg_section`'s
+  `changed`, §1.20). `since` is the time of the file's newest record. A new heading, reordered or deleted
+  paragraphs and a re-wrapped paragraph bring nothing new and do not count.
+- `sections_uncovered` counts the uncovered sections to extract, neither edgeless nor skipped, and
+  `sections_changed` (0.26.0) the covered ones marked `changed`. `waves` is theirs together (÷ `wave_size`, rounded
+  up): the work left, the resume signal. `sections_edgeless` counts the edgeless ones.
+- **The read-section ledger** (0.26.0, `<project>/.kg-read-sections.jsonl`, engine state, never canon). One line
+  per section read: `{file, section, title, text_sha256, units: [16-hex digests], at, by}`.
+  - `by: "write"`: the extraction's `kg_write` quoted a section `kg_section` served it.
+  - `by: "record"`: its extractor recorded that the new text held nothing new (§1.24).
+  - `by: "baseline"`: see `baseline`, below.
+
+  An extractor that read its section and stopped before writing records nothing, so the section stays offered.
+  Through 0.25.2 a covered section was never extracted again, and a claim added to it never reached the graph
+  (end-to-end run of 2026-11-25).
+- `baseline` (0.26.0, `{sections, files}`) — the first plan that sees a file with covered sections and no record
+  (built before 0.26.0, or the ledger lost) records their current text as the text their extraction read. From
+  then on an edit is seen; one made before it is not, and `--again` (below) reads such a file. The plan takes the
+  lease without waiting: a held one gives `{"sections": 0, "files": [], "not_recorded": n}`, and the next plan,
+  or the file's first extraction record, lays it.
+- `spans_gone` (0.26.0, `{grounded, unverified, grounded_ids}`) — the claims whose span no longer verifies against
+  the planned files: a sentence deleted or rewritten after they were written. A grounded one keeps its verdict,
+  and no command examines it again yet. An unverified one is rejected by its grounder (`span_in_source` false)
+  unless an extraction of the new text writes it again with a span that holds (0.23.1). `grounded_ids` lists up
+  to 10.
+- **`--again` first on the line (0.26.0)** marks every covered section of the subset `changed`
+  (`{again: true, units}`), and the plan carries `again: true`. It needs a subset (else `ok: false`), and it does
+  not go with `--leads`.
 - `wave_size_from` — `argument`, `option`, or `default` (nothing usable at the chosen level: unset, an
   unfilled placeholder, not a whole number, below 1). Validation and clamping (1–10, default 6) are
   `waves.explain_wave_size`'s.
@@ -970,7 +1001,7 @@ edges (§1.4), for extractors to write. The rest of the line still reads as a su
 - `leads_unlocated` (+ `note`) — rejected edges whose span no longer verifies in any section: the claim has to be
   grounded again against the changed source first.
 
-### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section, leads=False, construction=None, source=None)`
+### 1.20 `mcp__plugin_burgess_burgess__kg_section(source_file, section, leads=False, construction=None, source=None, again=False)`
 
 One section of the configured source, **cut and egress-scrubbed by the engine**: what a `kg-extractor`
 launched by `/burgess:kg-build` extracts from (0.5.0). `source_file` is a basename and `section` a number, both from
@@ -1003,13 +1034,22 @@ launched by `/burgess:kg-build` extracts from (0.5.0). `source_file` is a basena
 - `leads` (0.9.0, only with `leads=True`) — the pending leads (§1.19) whose rejected edge's span lies in this
   section, as `{from_edge, head, relation, tail, head_known, tail_known, span}`. The span passes the session
   scrub, so it matches `text`'s placeholders; `head_known`/`tail_known` say whether the canon holds that node.
+- `changed` (0.26.0, never with `leads`) — on a covered section the plan marks `changed` (§1.19):
+  - `new`: the units no record of the file holds, verbatim and scrubbed, each in `text`;
+  - `written`: the claims already written from the section (`{id, source, relation, target, epistemic_state,
+    span}`, up to 60), and `written_more` counts the rest;
+  - `since` and `again`.
+
+  The extractor writes what `new` states and nothing `written` holds. `again=True` (`/burgess:kg-build --again`)
+  hands every unit as `new`. An uncovered section never carries it: it is extracted whole, as ever.
 
 `ok: false` with `error` for a file that is not a configured source file (`files[]` lists the configured
 basenames), or a section number that is not 1…`of`. The session scrub is serialized (a lock), so a wave of
 extractors asking at once keeps one placeholder per value.
 
 A read without `leads` is what lets its extractor record the section as edgeless (§1.24, 0.14.1): the engine
-keeps the digest of the text it served, in memory, until it stops.
+keeps the digest of the text it served, in memory, until it stops. The same read is what the extraction's
+`kg_write` records in the read-section ledger (0.26.0, §1.19).
 
 `construction` + `source` (0.19.0, both or neither, never with `leads`) serve a section of `/burgess:kg-perturb`'s
 second construction instead: the same two values the extractor passes on every `kg_write` of that construction,
@@ -1307,11 +1347,16 @@ under the current pack. After an engine restart, a record waits for a new `kg_se
 
 ```json
 {"ok": true, "source_file": "Fábricas de software.md", "section": 16, "title": "Fuentes",
- "at": "2026-11-13T10:30:00+00:00"}
+ "at": "2026-11-13T10:30:00+00:00", "recorded": "edgeless"}
 ```
 
 - It appends one fsync'd JSON line, `{file, section, title, text_sha256, vocabulary_sha256, at, note}`, to
-  `<project>/.kg-edgeless-sections.jsonl`, under the writer lease.
+  `<project>/.kg-edgeless-sections.jsonl`, under the writer lease. `recorded` (0.26.0) says which record it made.
+- **A covered section read again (0.26.0).** For a section a span-present edge already quotes, which the plan
+  offered again as `changed` (§1.19) and whose new text held nothing new to write, it records the read in the
+  read-section ledger instead, `by: "record"`, and answers `{"ok": true, …, "recorded": "read", "covered": true}`.
+  Such a section never goes in the edgeless ledger, and the plan stops offering it until its text changes again.
+  Through 0.25.2 a covered section was refused here, since the plan never offered one.
 - **What a record applies to:** the file, and the digests of the section's normalized text and of the pack's
   node and edge type names. A record follows its section to another number, and stops applying once the text
   says something else or the pack's types change: a new type can make a relation in the section writable.
@@ -1320,8 +1365,8 @@ under the current pack. After an engine restart, a record waits for a new `kg_se
   unreadable ledger only offers those sections again, and a damaged line is skipped. Deleting it re-offers
   every recorded section.
 - `ok: false` for a file that is not a configured source file, a section number that is not one of the file's,
-  an empty or overlong note, a section whose current text no `kg_section` call served (no read stands behind
-  the record), or a section a span-present edge already quotes (it is covered); nothing is written then.
+  an empty or overlong note, or a section whose current text no `kg_section` call served (no read stands behind
+  the record); nothing is written then.
 
 ### 1.25 `mcp__plugin_burgess_burgess__kg_record_generation(nodes=None)`
 
