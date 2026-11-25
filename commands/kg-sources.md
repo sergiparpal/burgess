@@ -79,8 +79,10 @@ Split it at the first space. The first word is the action, and the rest of the l
 2. From the preview (`title`, `authors`, `meta`: `citation_journal_title`, `citation_doi`, `og:site_name`, … ,
    `published`, the address and the `excerpt`), **propose** a level, a role and any marks, each with a
    one-line reason. Propose level 1 only when the preview shows peer review (a journal or conference in the
-   metadata, a DOI of a reviewed venue); a preprint server is level 4. Mark `interest` when the author speaks
-   about its own product, method or result. When unsure between two levels, propose the lower one and say so.
+   metadata, a DOI of a reviewed venue); a preprint server is level 4. Mark `interest` when the author gains if
+   the claim holds (the definition above): a vendor or a company about its own product, service or method. A
+   study is not one for reporting its own result: every primary source does. When unsure between two levels,
+   propose the higher number, the weaker level, as the scout does, and say so.
    Name the authors as the preview's `authors` gives them (0.25.1), or as the excerpt prints them; with neither,
    name none. Never from memory or from earlier notes: a name a session wrote down can be wrong.
 3. Show the proposal and **stop: ask the user to confirm or correct it.** Do not register before the user

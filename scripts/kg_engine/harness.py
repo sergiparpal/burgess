@@ -861,7 +861,9 @@ def edge_writer(edge) -> str:
 
     `counter-edge`: its notes open with the mark an adversarial pass of /kg-ground leaves.
     `lead`: its notes open with ``lead (from <edge-id>)``, written by `/kg-build --leads`.
-    `proposal`: still in the hypothesized lane, written by /kg-generate.
+    `proposal`: still in the hypothesized lane, written by /kg-generate or /kg-perturb. The f4_probe sheet
+    leaves these out since 0.25.2, so they reach this split only from a sheet built with
+    `--include-hypothesized`.
     Otherwise its `authored_by`, with `agent` read as `extractor` (a /kg-build extraction)."""
     from .groundplan import attacked_hub, lead_from  # lazy: `import kg_engine.harness` stays light
     if attacked_hub(edge.notes):
@@ -910,7 +912,8 @@ def sample_writers(rows: list[dict], edges: dict) -> dict:
 
 _WRITER_LEGEND = ("writer: extractor = a /burgess:kg-build extraction; lead = written by /burgess:kg-build --leads "
                   "from a grounder's lead; counter-edge = an adversarial pass of /burgess:kg-ground; "
-                  "proposal = /burgess:kg-generate")
+                  "proposal = still hypothesized, from /burgess:kg-generate or /burgess:kg-perturb "
+                  "(the sheet leaves these out unless built with --include-hypothesized)")
 
 
 def _print_writers(res: dict) -> None:
@@ -992,11 +995,11 @@ def _main(argv: list[str]) -> int:
     if not argv:
         print("usage: python -m kg_engine.harness "
               "{agreement|specificity|ideation|convergence|writers|legacy-log|rag-slices|"
-              "evaluator-order|judge-packets|judge-aggregate} [path...]\n"
+              "evaluator-order|judge-check|judge-packets|judge-aggregate} [path...]\n"
               "  specificity GRAPH [SOURCE]   ideation OUTPUTS [SOURCE]\n"
               "  writers LABELS.csv PROJECT   legacy-log PROJECT SOURCE\n"
               "  rag-slices PROMPTS SOURCE OUT_DIR [BUDGET_TOKENS]\n"
-              "  evaluator-order OUTPUTS\n"
+              "  evaluator-order OUTPUTS   judge-check SOURCE\n"
               "  judge-packets OUTPUTS PROMPTS SOURCE CONTROLS OUT_DIR   judge-aggregate JUDGE_DIR [OUTPUTS]\n"
               "  SOURCE is a file, or a folder of .md/.txt documents, read as the projector reads it",
               file=sys.stderr)
@@ -1201,6 +1204,11 @@ def _cmd_judge_aggregate(argv: list[str]) -> int:
     return cmd_aggregate(argv)
 
 
+def _cmd_judge_check(argv: list[str]) -> int:
+    from .judge import cmd_check
+    return cmd_check(argv)
+
+
 # command table (review-r5: a fifth metric used to mean copying a whole if-branch inside one long
 # _dispatch; now it is one _cmd_* function + one row here).
 _COMMANDS = {
@@ -1212,6 +1220,7 @@ _COMMANDS = {
     "legacy-log": _cmd_legacy_log,
     "rag-slices": _cmd_rag_slices,
     "evaluator-order": _cmd_evaluator_order,
+    "judge-check": _cmd_judge_check,
     "judge-packets": _cmd_judge_packets,
     "judge-aggregate": _cmd_judge_aggregate,
 }

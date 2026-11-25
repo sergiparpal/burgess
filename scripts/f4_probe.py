@@ -7,6 +7,12 @@ edges, labeling each against the source, and scoring. Also reports the astrology
 (fabricated+vague), the span-support rate, precision per relation type, and — if edges carry a
 numeric confidence — whether that confidence actually predicts correctness.
 
+The sample is the extraction (0.25.2): `sheet` leaves out the proposals still in the hypothesized lane.
+A /burgess:kg-generate or /burgess:kg-perturb proposal carries `INFERRED` like an extracted edge, so through
+0.25.1 it was sampled as one; /burgess:kg-ground judges proposals, and neither the pack nor the extractor
+prompt can change them. In an end-to-end run (2026-11-25) 17 of 34 sampled edges were proposals and the
+precision read 0.47, while the extractor's own edges were 15 of 15 correct.
+
 Usage:
   python f4_probe.py summary  graph.json
   python f4_probe.py sheet    graph.json --n 80 --out labels.csv
@@ -34,6 +40,7 @@ import tempfile
 from collections import Counter, defaultdict
 
 EXTRACTED, INFERRED, AMBIGUOUS = "EXTRACTED", "INFERRED", "AMBIGUOUS"
+HYPOTHESIZED = "hypothesized"   # the provenance of a proposal the grounding has not promoted (0.25.2)
 SHEET_COLS = [
     "edge_id", "source_label", "target_label", "relation",
     "confidence", "confidence_score", "source_file",
@@ -115,12 +122,16 @@ def summary(path):
         print(f"\nINFERRED confidence_score: n={len(scores)} "
               f"min={scores[0]:.2f} median={_median(scores):.2f} max={scores[-1]:.2f}")
 
-    judged = sum(1 for e in edges if e.get("confidence") in (INFERRED, AMBIGUOUS))
-    print(f"\njudged edges (INFERRED+AMBIGUOUS): {judged} / {len(edges)} "
-          f"({100*judged/max(len(edges),1):.0f}%) <- the precision-relevant part")
+    judged = [e for e in edges if e.get("confidence") in (INFERRED, AMBIGUOUS)]
+    proposals = sum(1 for e in judged if e.get("provenance") == HYPOTHESIZED)
+    extraction = len(judged) - proposals
+    print(f"\njudged edges (INFERRED+AMBIGUOUS): {len(judged)} / {len(edges)} "
+          f"({100*len(judged)/max(len(edges),1):.0f}%)")
+    print(f"  hypothesized proposals among them: {proposals} (the sheet leaves them out)")
+    print(f"  extraction to sample: {extraction} <- the precision-relevant part")
 
 
-def sheet(path, n, out, include_extracted):
+def sheet(path, n, out, include_extracted, include_hypothesized=False):
     # n<=0 would slice an empty/mis-sliced pool and write a 0-row sheet while exiting success
     # (finding harness-f4-3). Reject it loudly so the labeling run can't silently produce nothing.
     if n <= 0:
@@ -129,8 +140,15 @@ def sheet(path, n, out, include_extracted):
     pool = list(enumerate(edges))
     if not include_extracted:
         pool = [(i, e) for i, e in pool if e.get("confidence") != EXTRACTED]
+    # A proposal still in the hypothesized lane is not extraction (0.25.2, see the module docstring). It is
+    # left out before the seeded shuffle, so a graph with no proposals samples exactly as it did before.
+    left_out = 0
+    if not include_hypothesized:
+        kept = [(i, e) for i, e in pool if e.get("provenance") != HYPOTHESIZED]
+        left_out, pool = len(pool) - len(kept), kept
     if not pool:
-        sys.exit("no edges to label (try --include-extracted)")
+        hint = "--include-hypothesized" if left_out else "--include-extracted"
+        sys.exit(f"no edges to label (try {hint})")
     random.seed(SAMPLE_SEED)
     random.shuffle(pool)
     pick = pool[:n]
@@ -152,6 +170,9 @@ def sheet(path, n, out, include_extracted):
                 "verdict": "", "span_found": "", "notes": "",
             })
     print(f"wrote {len(pick)} edges to {out}")
+    if left_out:
+        print(f"left out {left_out} hypothesized proposals (/burgess:kg-generate, /burgess:kg-perturb): "
+              "/burgess:kg-ground judges them, and they are not extraction (--include-hypothesized samples them)")
     print("label every row (verdict: correct|fabricated|vague|wrong_type, span_found: y|n) in a JSON file, then:")
     print(f"  python f4_probe.py fill {out} <labels.json>")
     print(f"  python f4_probe.py score {out}")
@@ -350,6 +371,8 @@ def main(argv=None):
     sp.add_argument("--out", default="labels.csv", help="output CSV path (default labels.csv)")
     sp.add_argument("--include-extracted", action="store_true",
                     help="include EXTRACTED (deterministic) edges in the pool")
+    sp.add_argument("--include-hypothesized", action="store_true",
+                    help="include proposals still in the hypothesized lane (left out since 0.25.2)")
     sp = sub.add_parser("fill", help="fill a sheet's verdict/span_found/notes from an annotator's JSON labels")
     sp.add_argument("path", help="labels.csv written by `sheet`")
     sp.add_argument("labels", help='JSON object {"<edge_id>": {"verdict", "span_found", "notes"}, ...}')
@@ -360,7 +383,8 @@ def main(argv=None):
         if args.cmd == "summary":
             summary(args.path)
         elif args.cmd == "sheet":
-            sheet(args.path, args.n, args.out, include_extracted=args.include_extracted)
+            sheet(args.path, args.n, args.out, include_extracted=args.include_extracted,
+                  include_hypothesized=args.include_hypothesized)
         elif args.cmd == "fill":
             fill(args.path, args.labels)
         else:

@@ -80,8 +80,9 @@ echo "SRC=$SRC"   # the source: the annotator's prompt names it
 
 This prints node/edge counts, the nodes grouped by `file_type` (distinct from the `node_type` used in the
 §7.3 cross-check), the confidence mix (EXTRACTED | INFERRED | AMBIGUOUS), the top relations, and the count
-of *judged* edges (INFERRED+AMBIGUOUS) — that judged slice is the precision-relevant part. The deterministic
-EXTRACTED tier is span-present by construction, so the sheet excludes it by default.
+of *judged* edges (INFERRED+AMBIGUOUS), split into the hypothesized proposals among them and the extraction
+left to sample — that extraction is the precision-relevant part. The deterministic EXTRACTED tier is
+span-present by construction, so the sheet excludes it by default; it leaves out the proposals too (4.2).
 
 `legacy-log` prints nothing unless a `PROGRESS.md` at the top of the project is one of the source documents.
 Through 0.11.6 this command kept its log there. If it prints a note, pass it on to the user now and again at
@@ -101,6 +102,13 @@ EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 `edge_id, source_label, target_label, relation, confidence, confidence_score, source_file, verdict,
 span_found, notes`. The `verdict`, `span_found` and `notes` columns are empty; the annotator's labels fill
 them in 4.4.
+
+The sheet leaves out every proposal still in the hypothesized lane (0.25.2), and its last lines say how many.
+Stage 4 measures the extraction: a `/burgess:kg-generate` or `/burgess:kg-perturb` proposal is the generator's,
+`/burgess:kg-ground` judges it, and neither the pack nor the extractor prompt can change it. Through 0.25.1 the
+sheet sampled proposals as extraction: in an end-to-end run (2026-11-25) 17 of 34 sampled edges were
+proposals, and the precision read 0.47 while the extractor's own edges were 15 of 15 correct. A proposal the
+grounding promoted to span-present is a grounded claim of the graph, and the sheet keeps it.
 
 ### 4.3 Label the sheet (annotator subagent)
 
@@ -176,7 +184,8 @@ Capture from stdout:
     - `extractor`: a `/burgess:kg-build` extraction;
     - `lead`: written by `/burgess:kg-build --leads` from a grounder's lead;
     - `counter-edge`: written by an adversarial pass of `/burgess:kg-ground`;
-    - `proposal`: written by `/burgess:kg-generate`.
+    - `proposal`: still in the hypothesized lane, from `/burgess:kg-generate` or `/burgess:kg-perturb`. The
+      sheet leaves these out (4.2), so this row appears only for a sheet built with `--include-hypothesized`.
   - **by the grounding verdict** each edge holds now. An error the grounding already rejected is not a fact
     in the graph.
 
@@ -249,7 +258,7 @@ EVAL="${CLAUDE_PROJECT_DIR}/.kg/eval"; mkdir -p "$EVAL"
 ```
 
 `sheet` is deterministic (seed 42), so `labels_a.csv` and `labels_b.csv` cover the *identical* edge sample —
-exactly what α needs. Run two separate Task calls (one per file); do not let pass B read pass A's output.
+exactly what α needs. It is drawn by the same rule as 4.2, without the hypothesized proposals. Run two separate Task calls (one per file); do not let pass B read pass A's output.
 Each pass writes its own labels file:
 
 ```

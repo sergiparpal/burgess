@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.25.2 — 2026-11-25
+
+Three things an end-to-end run of every command found on 2026-11-25.
+
+### Fixed
+
+- **`/burgess:kg-eval` measures the extractor again, not the generator.**
+  - Its extraction precision labels a sample of the graph's edges. A proposal from `/burgess:kg-generate` or
+    `/burgess:kg-perturb` is marked like an extracted edge, so the sample took proposals for extraction.
+  - On the end-to-end run, 17 of the 34 sampled edges were proposals, and the precision read 0.47. The
+    extractor's own edges were 15 of 15 correct.
+  - Now the sample leaves out the proposals still waiting in the hypothesized lane, and says how many.
+    `/burgess:kg-ground` judges those, and nothing the pack or the extractor does can change them.
+  - A measurement taken after a `/burgess:kg-generate` run read too low until now. On a graph that never had
+    proposals, the sample is the same as before.
+- **`/burgess:kg-experiment --judge` says at once when the judge cannot run.**
+  - The blind judge needs control ideas built from names or figures found in at least two of the source's
+    documents. On a source of one document, or a small one, no control can pass.
+  - The demo that ships with the plugin is one document. On it the command wrote its controls twice, saw them
+    refused twice, and only then skipped the judge.
+  - Now it checks first. With `--judge` on such a source, it tells you before anything runs, and the rest of the
+    experiment goes on as usual.
+- **`/burgess:kg-sources add` follows the same rules as the scout.**
+  - Unsure between two levels, it now proposes the weaker one, as the scout already did.
+  - It marks `interest` only when the author gains if the claim holds, as with a vendor writing about its own
+    product. A study is not marked just for reporting its own result.
+
+### Upgrading
+
+- The engine's venv is rebuilt once, in the first session after the update. Since 0.25.1 `pyproject.toml` has
+  raised the minimum versions of two dependencies: pydantic to 2.14.4, and anthropic, used only by the backend
+  extra, to 2.11.0. That first session takes a little longer to connect.
+- A source registered before 0.25.2 keeps its marks. To change one, use `/burgess:kg-sources set <name> marks=…`.
+
 ## 0.25.1 — 2026-11-24
 
 Who wrote a source now comes from the source itself.

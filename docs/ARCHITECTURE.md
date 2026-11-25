@@ -914,6 +914,9 @@ and re-extracts (0.11.4).
     evidence, in a seeded order that rotates per prompt. The label mapping stays in `private/`.
   - Both controls are checked before any judge runs: the decoy must cite something the source lacks, and the
     positive control must carry real facts from two documents.
+  - `judge-check` (0.25.2) runs the same rules on the whole source first. Without two documents that each hold
+    a figure or name a control can cite, no positive control can pass. The demo is one document, so on it the
+    command skips the judge before writing any control.
   - The `kg-judge` verdicts are aggregated with the pilots' rules: V1–V3 first, then the pairs, decided on
     the judges' rankings by the sign test.
   - The judges score grounded and useful, never novelty (`docs/fusion/EXPERIMENT.md`, option D).
@@ -926,7 +929,9 @@ and re-extracts (0.11.4).
 - `scripts/f4_probe.py` — extraction-precision probe: sample edges, label them
   `correct | fabricated | vague | wrong_type` + `span_found` (the annotator writes its labels as JSON,
   which `fill` writes into the sheet), score against the advisory **0.70 precision gate**; also reports
-  the astrology rate (fabricated+vague) and confidence calibration.
+  the astrology rate (fabricated+vague) and confidence calibration. The sample is the extraction: since
+  0.25.2 it leaves out the proposals still in the hypothesized lane, which carry `INFERRED` like an
+  extracted edge but are the generator's (`--include-hypothesized` keeps them).
 - `python -m kg_engine.harness writers` — splits a labeled sample by who wrote each edge (an extraction,
   a lead pass, an adversarial pass) and by the verdict it holds now. The canon keeps edges from every
   build, so `/burgess:kg-eval` checks a refinement against the current contract before it recommends one.

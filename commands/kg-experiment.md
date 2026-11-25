@@ -84,6 +84,7 @@ EXP="${CLAUDE_PROJECT_DIR}/.kg/experiment"; mkdir -p "$EXP"
 "$PY" -m kg_engine.harness ideation 2>&1 | head -n 1   # smoke-test: harness importable
 "$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "$SRC"
 "$PY" -m kg_engine.lightrag_arm check                  # {"available": ..., "reason": ...}
+"$PY" -m kg_engine.harness judge-check "$SRC"          # {"judge_possible": ..., "problems": [...]}
 echo "RUN=$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
@@ -92,6 +93,16 @@ session, whose SessionStart hook builds it, and stop.
 
 `RUN` is this run's UTC timestamp. The run's files carry it in their names, so note it. `lightrag_arm check`
 says whether the optional `lightrag` arm can run (see below); note `available`.
+
+`judge-check` (0.25.2) says whether the source can hold the blind judge's controls; it matters only with
+`--judge`. A positive control must cite two or more of the source's figures or names, drawn from at least two
+documents, so a source of one document, or a small one, can never hold one. With `--judge` and
+`judge_possible` false, tell the user now, before Step 1, that the judge cannot run on this source and why (its
+`problems`), and that the rest of the experiment runs as usual. Then skip Step 3b, write no controls, and log the
+judge as "not measured: the source cannot hold a positive control (<the problems>)". The demo that ships with
+the plugin is one document, so `--judge` never runs on it. Through 0.25.1 the command learned this only at
+Step 3b: an end-to-end run on the demo (2026-11-25) wrote its controls twice, failed the check both times and
+skipped the judge.
 
 `legacy-log` prints nothing unless a `PROGRESS.md` at the top of the project is one of the source documents.
 Through 0.11.6 this command and `/burgess:kg-eval` kept their log there. If it prints a note, pass it on to the user
@@ -141,7 +152,8 @@ Otherwise the prompt set depends on the corpus.
 (`${CLAUDE_PLUGIN_ROOT}/examples/source.md`: compression, span/provenance, bridges/betweenness,
 memory-of-failures, canon/projection). Use them only when the configured source is that file. On any other
 corpus they ask about concepts the graph does not hold, every arm answers from the model's prior, and the
-verdict measures nothing.
+verdict measures nothing. The demo is one document, so the blind judge (`--judge`) cannot run on it (Step 0's
+`judge-check`).
 
 For any other corpus, **draft 12 prompts from the user's own graph** instead:
 
@@ -391,8 +403,9 @@ the rag passages. Log and report that, with the `problems`. It gates nothing (§
 
 ## Step 3b — the blind judge (only with `--judge`)
 
-Skip this step unless the arguments held `--judge`. It reads every idea the way a careful reader would, which
-the lexical score cannot. One judge per prompt sees that prompt's ideas from every arm, plus two controls, each
+Skip this step unless the arguments held `--judge`. Skip it too when Step 0's `judge-check` gave
+`judge_possible` false: the user has been told, and the log records the judge as not measured. It reads every
+idea the way a careful reader would, which the lexical score cannot. One judge per prompt sees that prompt's ideas from every arm, plus two controls, each
 idea with passages retrieved from the source for it. The judge scores each idea for **grounded** (its claims
 hold in its evidence) and **useful** (specific enough to test or apply), then ranks them.
 

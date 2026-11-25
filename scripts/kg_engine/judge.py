@@ -164,6 +164,63 @@ def check_controls(evidence: Evidence, decoys: list[str], positives: list[str]) 
     return results
 
 
+CAPACITY_SCAN = 50       # distinct names or figures `control_capacity` looks for per document before it stops
+CAPACITY_EXAMPLES = 5    # of those, how many it shows per document
+CAPACITY_DOCUMENTS = 10  # and for how many documents
+
+
+def control_capacity(evidence: Evidence) -> dict:
+    """Whether the source can hold a positive control at all (0.25.2), for `/kg-experiment` to check before a
+    run spends anything on the judge.
+
+    `check_controls` wants a positive control to cite two or more figures or names that the source holds and to
+    draw them from at least two documents. A name is a capitalised word whose lowercase form is not one of the
+    source's COMMON_WORDS commonest lowercase words; a figure has two digits or more. So a source of one
+    document holds no positive control, nor one whose names and figures all sit in one document, nor a small
+    one: the demo that ships with the plugin is one document of 254 distinct lowercase words, so nearly every
+    word of it counts as common. An end-to-end run on the demo (2026-11-25) wrote its controls twice, failed
+    the check both times and skipped the judge after paying for the controls.
+
+    A word counts here where it does not open a sentence, the way a control would cite it, by the same rule as
+    `Evidence.terms` (the look-behind is bounded, so a long source is read once). This is a necessary condition
+    only: each prompt's positive control still has to find its names in that prompt's passages."""
+    by_document: dict[str, list[str]] = {}
+    for name, text in evidence.documents.items():
+        found: list[str] = []
+        for m in _FIGURE.finditer(text):
+            if len(found) >= CAPACITY_SCAN:
+                break
+            figure = m.group(0).strip()
+            if len(re.sub(r"\D", "", figure)) >= 2 and figure not in found:
+                found.append(figure)
+        for m in _TOKEN.finditer(text):
+            if len(found) >= CAPACITY_SCAN:
+                break
+            word = m.group(0)
+            if word in found or len(word) < 2 or not word[0].isupper() or word.lower() in evidence.common:
+                continue
+            if _SENTENCE_START.search(text[max(0, m.start() - 40):m.start()]) and not word.isupper():
+                continue
+            found.append(word)
+        if found:
+            by_document[name] = found
+    terms = {t for found in by_document.values() for t in found}
+    problems = []
+    if not evidence.documents:
+        problems.append("the source holds no document")
+    elif len(evidence.documents) < 2:
+        problems.append("the source is one document, and a positive control draws its facts from at least two")
+    elif len(by_document) < 2:
+        problems.append("fewer than two of the source's documents hold a figure or a name a control can cite")
+    if evidence.documents and len(terms) < 2:
+        problems.append("the source holds fewer than two figures or names a control can cite")
+    shown = sorted(by_document.items())[:CAPACITY_DOCUMENTS]
+    return {"judge_possible": not problems, "documents": len(evidence.documents),
+            "documents_with_names": len(by_document), "names_and_figures": len(terms),
+            "examples": {name: found[:CAPACITY_EXAMPLES] for name, found in shown},
+            "problems": problems}
+
+
 def _render(k: int, n: int, prompt: str, order: list[str], texts: dict, evidence: Evidence, sizes: list) -> str:
     lines = [f"# Packet {k + 1} of {n}", "", "## Prompt", "", prompt, ""]
     for label, item in zip(_labels(len(order)), order):
@@ -323,6 +380,19 @@ def _load_outputs(path: str) -> dict:
     if not isinstance(blob, dict) or not isinstance(blob.get("outputs"), dict):
         raise ValueError('the outputs file must be a JSON object like {"outputs": {...}}')
     return blob["outputs"]
+
+
+def cmd_check(argv: list[str]) -> int:
+    """judge-check SOURCE (0.25.2): print, as JSON, whether the source can hold the judge's positive controls
+    (`control_capacity`). Exit 0 either way: the answer is the JSON's `judge_possible`, so the line can close a
+    command's first block without failing it."""
+    source = harness._positional_path(argv, 1)
+    if not source:
+        raise ValueError("usage: judge-check SOURCE")
+    if not SourceSet.resolve(source):
+        raise harness._LoadError(f"source path not found or holds no .md/.txt document: {source}")
+    print(json.dumps(control_capacity(Evidence(SourceSet(source).texts)), ensure_ascii=False, indent=1))
+    return 0
 
 
 def cmd_packets(argv: list[str]) -> int:
