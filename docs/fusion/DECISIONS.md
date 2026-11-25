@@ -3163,8 +3163,10 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The change: the step asks again, within the same five answers and spacing, while a leg has no conclusion and
     none has failed. A failed or cancelled leg ends the wait at once. A leg still without a conclusion on the fifth
     answer counts as not succeeded, so the gate still fails closed.
-  - Unblocking #156 needed the user's «Re-run failed jobs». It re-runs only `ci-complete`, and this WSL token
-    cannot re-run workflows (403).
+  - Unblocking #156 took a re-run by the user, since this WSL token cannot re-run workflows (403). The user re-ran
+    all jobs (eleven minutes); «Re-run failed jobs» would have re-run `ci-complete` alone. On that second attempt
+    the gate again started two seconds after the Windows leg ended (14:42:15Z, 14:42:17Z) and read its conclusion:
+    the race does not strike every time.
   - The other five plugin repositories share the gate, so they share this race. Fixing them stays a separate
     decision, as for the hole above.
 - **Pinned in:** `tests/test_fix_ci_gate_every_leg.py`. It checks the step's configuration, and runs its script as
