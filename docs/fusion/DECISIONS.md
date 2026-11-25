@@ -3145,8 +3145,6 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The user reported «un check cancelado en la CI», then approved the fix («Sí, prepáralo»).
 - **Checked against real runs:** by hand, the same logic fails the #153 run (1 of 6 legs cancelled) and passes the
   0.24.7 run (6 of 6). A re-run of only the failed leg counts its latest attempt, so the gate opens once it passes.
-- **Shared posture:** the six plugin repositories share this gate, so they share the hole. Fixing the other five
-  is a separate decision.
 - **A passing API error is asked again.**
   - On this fix's own PR (#154), a re-run of the gate met `gh: Server Error (HTTP 502)`. The step failed closed,
     as designed, and blocked the merge on GitHub's hiccup.
@@ -3167,8 +3165,6 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     all jobs (eleven minutes); «Re-run failed jobs» would have re-run `ci-complete` alone. On that second attempt
     the gate again started two seconds after the Windows leg ended (14:42:15Z, 14:42:17Z) and read its conclusion:
     the race does not strike every time.
-  - The other five plugin repositories share the gate, so they share this race. Fixing them stays a separate
-    decision, as for the hole above.
 - **Pinned in:** `tests/test_fix_ci_gate_every_leg.py`. It checks the step's configuration, and runs its script as
   GitHub does (`bash -eo pipefail`, with a stub `gh` and `sleep`) for these cases:
   - a passing leg set, a cancelled leg, a failed leg, a leg with no conclusion, and none;
