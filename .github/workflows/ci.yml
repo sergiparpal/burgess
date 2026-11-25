@@ -121,6 +121,10 @@ jobs:
       # leg of this run, the latest attempt of each, and fail unless each one concluded success. Finding no
       # leg at all fails too, so renaming the test job can never open the gate. The API can answer a passing
       # server error (a 502 on this very PR's re-run blocked it): ask up to five times, then fail closed.
+      # A leg that has just ended can read no conclusion yet ("none"): this job starts the moment the last leg
+      # ends, before the API has recorded it. On PR #156 (2026-11-25) the Windows leg ended at 13:43:12Z, read
+      # "none" at 13:43:16Z, and shut the gate with all six legs green. So ask again while a leg has none and
+      # none has failed; on the fifth answer a leg with none still counts as not succeeded.
       - name: Fail unless every test leg ran and succeeded
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,9 +132,13 @@ jobs:
           for attempt in 1 2 3 4 5; do
             if legs=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?filter=latest&per_page=100" \
                        --jq '.jobs[] | select(.name | startswith("engine tests")) | "\(.name)\t\(.conclusion // "none")"'); then
-              break
-            fi
-            if [ "$attempt" -eq 5 ]; then
+              waiting=$(printf '%s\n' "$legs" | awk -F'\t' '$2 == "none"' | grep -c . || true)
+              failed=$(printf '%s\n' "$legs" | awk -F'\t' 'NF && $2 != "success" && $2 != "none"' | grep -c . || true)
+              if [ "$waiting" -eq 0 ] || [ "$failed" -ne 0 ] || [ "$attempt" -eq 5 ]; then
+                break
+              fi
+              echo "$waiting test leg(s) have no conclusion yet; asking again"
+            elif [ "$attempt" -eq 5 ]; then
               echo "the API did not list this run's jobs after 5 attempts"
               exit 1
             fi
