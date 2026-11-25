@@ -3154,11 +3154,28 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - The same PR also showed two re-run habits of GitHub. «Re-run failed jobs» skips a leg that timed out, which
     counts as cancelled, not failed. A leg cut by its timeout does show in `needs.*.result`; one that never got a
     runner does not.
+- **Addendum (2026-11-25): a leg that has just ended is asked again.**
+  - What happened on PR #156 (0.25.2, run 45624514550): the Windows leg ended at 13:43:12Z and `ci-complete`
+    started at 13:43:14Z. Its query at 13:43:16Z still gave that leg no conclusion, so the step read `none`. All six
+    legs were green, and the gate shut.
+  - Why: `needs` releases the gate the moment the last leg ends, before the jobs API records that leg's
+    conclusion. The retry above covered API errors only.
+  - The change: the step asks again, within the same five answers and spacing, while a leg has no conclusion and
+    none has failed. A failed or cancelled leg ends the wait at once. A leg still without a conclusion on the fifth
+    answer counts as not succeeded, so the gate still fails closed.
+  - Unblocking #156 took a re-run by the user, since this WSL token cannot re-run workflows (403). The user re-ran
+    all jobs (eleven minutes); «Re-run failed jobs» would have re-run `ci-complete` alone. On that second attempt
+    the gate again started two seconds after the Windows leg ended (14:42:15Z, 14:42:17Z) and read its conclusion:
+    the race does not strike every time.
+  - The other five plugin repositories share the gate, so they share this race. Fixing them stays a separate
+    decision, as for the hole above.
 - **Pinned in:** `tests/test_fix_ci_gate_every_leg.py`. It checks the step's configuration, and runs its script as
   GitHub does (`bash -eo pipefail`, with a stub `gh` and `sleep`) for these cases:
   - a passing leg set, a cancelled leg, a failed leg, a leg with no conclusion, and none;
   - an API that fails twice and then answers;
-  - an API that never answers.
+  - an API that never answers;
+  - since the addendum: a leg with no conclusion twice and then green, one that never concludes, a failed leg
+    beside a pending one (no wait), and a server error followed by a pending leg and then green.
 
 ## Who wrote a work comes from the page or the catalogue, never from memory (2026-11-24)
 
