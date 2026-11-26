@@ -243,7 +243,8 @@ dated entry to `.kg/PROGRESS.md` (never overwriting), written from the saved res
 the best Stage-4 pass with the number of passes, Stage 7's α and the gate. `iterations` is the one thing only
 you know: the refinements made in a development checkout, or recommended in an installed copy (checked as 4.4
 says), or just `none` when there were none (the entry already says the precision and how many passes ran).
-`entry` is the text appended.
+The engine records a text that begins with `none` as that word alone: your reasons go to the user, as the
+next paragraph says. `entry` is the text appended.
 
 Then print a one-line summary to the user:
 `precision <p> (best/<K>) · α <alpha> (<reliable?>) · specificity gate <on|off>` — and remind them the

@@ -3522,3 +3522,14 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   `tests/test_fix_perturb_second_reading.py`, `tests/test_fix_eval_sample_leaves_out_proposals.py`,
   `tests/test_fix_command_names_and_judge_cost.py` (the log header's exemption moves to the engine) and the 47-tool
   count in `tests/fusion/test_diverge_surface.py`.
+- **Addendum (2026-11-26, 0.28.1): the live runs answered the question of the skill's `references/`.**
+  - In WSL (Claude Code 2.1.316, the plugin loaded with `--plugin-dir`), the setting denied a `Read` of
+    `references/tools.md`.
+  - On Windows (2.1.332, the installed plugin, the user's own settings), a `Read` and a `Grep` of the installed copy
+    went through. The same session saw a `Read` and a Bash `ls` of a folder outside the project denied.
+  - So nothing changes for an installed plugin. The two runs differ in both the version and the way the plugin is
+    loaded, and no run separated the two: a development checkout loaded with `--plugin-dir` may still be refused.
+  - The Windows runs of the three commands met no denial and no tool error, and every file their agents read or
+    wrote lay inside the project. They also found two small faults, fixed in 0.28.1: the session's reasons written
+    into the entry's `iterations` line, and two stale counts of the tools
+    (`tests/test_fix_eval_iterations_and_tool_count.py`).

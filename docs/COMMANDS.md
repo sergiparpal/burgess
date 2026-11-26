@@ -1325,7 +1325,7 @@ measured on two field runs. That cost is why the judge is opt-in.
 
 ## Behind the commands
 
-The ten slash commands are a thin language layer over **40 MCP tools** exposed by the `burgess`
+The ten slash commands are a thin language layer over **47 MCP tools** exposed by the `burgess`
 server — the trust boundary where LLM work stops and the deterministic engine begins. Those tools
 have **no slash**. Just ask for them in plain words:
 
