@@ -379,6 +379,18 @@ def _calibration_line(cal) -> str:
     return f"gap {cal['gap']:+.2f} ({meaning})"
 
 
+def _iterations_text(iterations: str) -> str:
+    """The orchestrator's `iterations` text as the entry's one line holds it (0.28.1). Whitespace collapses to
+    single spaces, so a text of several lines cannot break the entry's shape, and a text that begins with the
+    word "none" is recorded as just `none`. Both field runs of 0.28.0 (2026-11-26) passed a sentence that began
+    "none (precision …". The Windows one came after the command had been changed to ask for "just `none`", and
+    made a 496-character line of reasons that the entry states already or the session's own summary gives."""
+    text = " ".join((iterations or "").split())
+    if not text or re.match(r"none\b", text, re.IGNORECASE):
+        return "none"
+    return text
+
+
 def render_eval_log(record: dict, agreement, specificity, iterations: str, *, folder: str, now=None) -> str:
     """The `/kg-eval` log entry, in the format the command's shell block wrote through 0.27.0, plus the run's
     folder."""
@@ -405,7 +417,7 @@ def render_eval_log(record: dict, agreement, specificity, iterations: str, *, fo
         ]
     else:
         lines.append("- PRECISION:                         not measured (no labels were scored)")
-    lines += [f"- iterations:                        {k} ({iterations.strip() or 'none'})",
+    lines += [f"- iterations:                        {k} ({_iterations_text(iterations)})",
               "",
               "Stage 7 — agreement + specificity"]
     if agreement:
@@ -426,7 +438,8 @@ def render_eval_log(record: dict, agreement, specificity, iterations: str, *, fo
 def eval_log(project, *, run: str, iterations: str = "", now=None) -> dict:
     """Step `log`: append the run's entry to `.kg/PROGRESS.md`, written from the saved results. `iterations`
     is what only the orchestrator knows: the refinements made (a development checkout) or recommended (an
-    installed copy), or "none"."""
+    installed copy), or "none"; `_iterations_text` keeps it on one line, and a text that begins with "none"
+    as just that."""
     folder = _eval_run_dir(project, run)
     record = _read_json(folder / "run.json") or {}
     text = render_eval_log(record, _read_json(folder / "agreement.json"), _read_json(folder / "specificity.json"),

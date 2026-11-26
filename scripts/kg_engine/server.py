@@ -7483,7 +7483,8 @@ def _register(mcp, engine: KGEngine) -> None:
         returns the specificity bridge-metric gate. `validate_pack` (a development checkout only) loads the
         pack and reports its coverage of the source. `log` appends the run's entry to `.kg/PROGRESS.md`,
         written from the saved results; pass `iterations`, what only you know (the refinements made in a
-        development checkout, or recommended in an installed copy, or "none"). In a development checkout,
+        development checkout, or recommended in an installed copy, or "none": a text that begins with "none"
+        is recorded as that word alone, so give your reasons to the user instead). In a development checkout,
         `sample` with the same `run` samples again after a rebuild (the next pass); `log` records the best
         pass. Writes only under the project's `.kg/`: never the canon, never a verdict."""
         return engine.kg_eval(step, run, graph, iterations)

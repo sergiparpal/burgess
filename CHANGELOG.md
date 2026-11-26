@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.28.1 — 2026-11-26
+
+Two small things the field runs of 0.28.0 found on 2026-11-26.
+
+### Fixed
+
+- **A `/burgess:kg-eval` entry says `none` when nothing was refined.**
+  - The command asks the session for just `none` in the entry's `iterations` line when it made or recommended
+    no refinement. In both field runs of 0.28.0 the session wrote its reasons after the word, and on Windows
+    the line ran to 496 characters: "1 (none (precision 0.94 >= 0.70, one pass). The only error, …)".
+  - Now the engine records a text that begins with the word `none` as that word alone. The reasons stay in the
+    session's reply to you. Any other text is kept on one line, so it cannot break the entry.
+- **The docs state the right number of the engine's tools.**
+  - The opening of the skill's `references/tools.md` said thirty-six graph tools, where its §1 says thirty-nine.
+  - `docs/COMMANDS.md` said 40 MCP tools. There are 47.
+  - A new test checks every count of the tools that the docs and the skill state against the tools the engine
+    registers, and that the skill names each one.
+
+### Upgrading
+
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- A session opened before the update keeps the old engine, so open a new one.
+
 ## 0.28.0 — 2026-11-26
 
 `/burgess:kg-eval`, `/burgess:kg-experiment` and `/burgess:kg-perturb` run without shell commands.

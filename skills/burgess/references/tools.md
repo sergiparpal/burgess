@@ -1,6 +1,6 @@
 # Reference: tools & CLIs
 
-Load on demand. The MCP **tool surface** — the thirty-six graph tools (§1), then the eight divergence-surface
+Load on demand. The MCP **tool surface** — the thirty-nine graph tools (§1), then the eight divergence-surface
 tools (§1B) — then the deterministic **CLI surface**
 (`f4_probe.py`, `kg_engine.pack`, `kg_engine.harness`, `kg_engine.divergence`). Every name, signature, and
 return shape below
@@ -1876,7 +1876,8 @@ the same seed, so a number is the command line's number on the same files.
   step 4.5).
 - `log` appends the run's entry to `.kg/PROGRESS.md`, written from the saved results: the best Stage-4 pass
   and the number of passes, α, the gate. `iterations` is the orchestrator's own text (the refinements made or
-  recommended, or "none"). Returns the `entry` appended.
+  recommended, or "none"), kept on one line; a text that begins with "none" is recorded as that word alone
+  (0.28.1). Returns the `entry` appended.
 
 A step that cannot run as asked answers `ok: false` with `error`; a `run` that is not the id a `sample` returned
 is refused before it names a folder.
