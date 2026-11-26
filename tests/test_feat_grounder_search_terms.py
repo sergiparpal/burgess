@@ -224,7 +224,9 @@ def test_the_ledger_is_engine_state(eng):
 
 def test_the_texts_state_the_rules():
     grounder = _flat(GROUNDER)
-    assert "you may call `kg_ground_item(target_id, kind, terms=\"…\")` once: at most 8 words" in grounder
+    # 0.28.2: the request is no longer optional before such an item is recorded unsupported
+    assert ("call `kg_ground_item(target_id, kind, terms=\"…\")` once, before you record the item unsupported: at "
+            "most 8 words") in grounder
     assert "Never confirm a verdict you were held on yourself." in grounder
     cmd = _flat(GROUND_CMD)
     assert "Never hand it back to the grounder that was held" in cmd

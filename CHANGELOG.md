@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.28.2 — 2026-11-26
+
+A grounder asks in the source's language before it leaves an idea waiting for a source.
+
+### Fixed
+
+- **An idea a source was found for is no longer left waiting without a search in the source's language.**
+  - `/burgess:kg-sources find` often pairs a Spanish idea with an English source. The grounder sees that source's
+    sections that share the idea's words or the scout's search words. Since 0.24.6 it could also ask once, in the
+    source's language, for passages with its own words, but asking was optional.
+  - In a test built for it on 2026-11-26, the source's three sections the grounder saw said nothing of the idea,
+    and a fourth stated it in other words. The grounder left the idea waiting without asking, twice.
+  - Now `kg_record_unsupported` refuses to record such an idea until the grounder has asked once against the
+    sources as they are. Support it finds after asking is held for a second grounder, as before.
+  - A second grounder that declines a held verdict is not asked to search: it may not.
+
+### Not changed
+
+- **A request finds only the sections that share two of its words.** In the same test on 0.28.2 the grounder
+  asked, as it now must, but its words shared only one with the fourth section, which the test had worded apart
+  from the idea's. So the request showed nothing, and the idea still waits. A passage that states an idea in other
+  words than the grounder asks with stays unseen.
+
+### Upgrading
+
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- An idea already waiting stays waiting. The rule applies the next time a grounder judges it.
+- A session opened before the update keeps the old engine, so open a new one.
+
 ## 0.28.1 — 2026-11-26
 
 Two small things the field runs of 0.28.0 found on 2026-11-26.

@@ -293,7 +293,10 @@ that, and the language work stays in the language layer:
 - `search_context`: a source found for the item, ranked by the words its scout searched with. They were chosen
   before any passage was judged, by someone who does not judge.
 - `requested_context`: one request per item (`terms`, at most 8 words in the source's language), recorded in
-  `.kg-ground-requests.jsonl`.
+  `.kg-ground-requests.jsonl`. Since 0.28.2 it is due before an item a usable source was found for is recorded
+  unsupported: `kg_record_unsupported` answers `terms-not-asked` until one is on record against the sources as
+  they are (`KGEngine._terms_not_asked`), except for an item with a held verdict open. Left to the grounder, the
+  request was never made in a run built for it.
 
 The ranking stays the engine's and deterministic; only the words come from a model. The new risk is a search run
 until something fits, which the verbatim-span check does not catch. So a grounded verdict with support given after a

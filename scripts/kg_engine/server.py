@@ -3950,12 +3950,44 @@ class KGEngine:
                                  "lies only in sources this project does not accept, or a hypothesis while the "
                                  "notes are below the required level can be recorded as unsupported; give any "
                                  "other item its verdict with kg_ground"}
+            missing = self._terms_not_asked(kind, item)
+            if missing is not None:
+                return {"ok": False, "item": item_id, "error": "terms-not-asked", **missing}
             at, problem = self._append_unsupported(kind, item_id, item, note)
             if problem:
                 return {"ok": False, "error": problem, "item": item_id}
         finally:
             self.canon.release_lock()
         return {"ok": True, "item": item_id, "kind": kind, "at": at}
+
+    def _terms_not_asked(self, kind: str, item) -> "dict | None":
+        """Why `kg_record_unsupported` may not record `item` yet (0.28.2), or None. An item a usable registered
+        source was found for (`found_for`) is recorded only after the grounder's own request against the sources
+        as they are (`kg_ground_item(..., terms=…)`, `_current_request`). Such a source is usually in another
+        language than the item, and the excerpts the grounder gets show a few sections only: the source's sections
+        ranked by the item's own words (which reach nothing across languages) and by the scout's words
+        (`search_context`), and the passage that states the item can sit in a section neither ranks. Through 0.28.1
+        the request was the grounder's choice. In the forced run of 2026-11-26 (Windows, 0.28.1) the grounder of a
+        Spanish pin saw an English source's three sections that matched the scout's words and none of the item, and
+        recorded the pin unsupported twice without asking, while the section that states it sat unseen.
+        None for an item with a hold open, whose second grounder declines it by recording it and may not search
+        (`terms-not-allowed`), and for an item no usable source was found for."""
+        from .groundplan import item_signature
+        if self._open_holds().get((kind, item.id)) is not None:
+            return None
+        files = sorted(r.name for r in self.evidence_registry().records.values()
+                       if item.id in (r.found_for or ()) and self._usable_file(r.name))
+        if not files:
+            return None
+        if self._current_request(kind, item.id, item_signature(kind, item)) is not None:
+            return None
+        return {"files": files, "max_terms": self.GROUND_TERMS_MAX,
+                "hint": (f"a usable source was found for this item ({', '.join(files)}), and you have made no "
+                         "request against the sources as they are: call kg_ground_item(target_id, kind, "
+                         f"terms=\"…\") once, with at most {self.GROUND_TERMS_MAX} words in the source's language "
+                         "naming what the item claims, and judge its `requested_context`. Then ground the item if "
+                         "a passage states it (the verdict is held for a second grounder), or record it "
+                         "unsupported again")}
 
     def _recordable(self, kind: str, item, marked: bool) -> bool:
         """Whether an unverified item may wait for new sources (`kg_record_unsupported`): a `[diverge]` pin
@@ -7227,7 +7259,9 @@ def _register(mcp, engine: KGEngine) -> None:
         Call it for each such item, with a `note` on what you looked for and did not find. `kg_ground_plan`
         then leaves it out (counted in `queue.unsupported_waiting`) until the sources, the policy or the item
         change, so the next pass does not judge it again for the same answer. Refused for any other item: it
-        gets its verdict from kg_ground. Writes only the ledger beside the canon: no node, edge or verdict
+        gets its verdict from kg_ground. For an item a registered source was found for, refused with
+        `terms-not-asked` until you have asked once in the source's language (`kg_ground_item` with `terms`)
+        and judged what that found. Writes only the ledger beside the canon: no node, edge or verdict
         changes."""
         return engine.kg_record_unsupported(target_id, kind, note)
 
