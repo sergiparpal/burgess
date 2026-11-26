@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.28.0 — 2026-11-26
+
+`/burgess:kg-eval`, `/burgess:kg-experiment` and `/burgess:kg-perturb` run without shell commands.
+
+### Fixed
+
+- **The three commands no longer stop on a permission question.**
+  - Their steps were shell commands that started the plugin's Python from the plugin's folder.
+  - With `permissions.blockReadsOutsideWorkingDirectories` in your settings, Claude Code asks you before every
+    such command, and in auto mode it cannot answer for you.
+  - In an end-to-end run (2026-11-25), `/burgess:kg-eval` was refused four times and measured nothing, and the
+    first step of `/burgess:kg-perturb` was refused twice.
+  - Now the engine runs those steps.
+- **What the measurement agents read stays inside your project.** The same setting blocks reading files outside
+  the project, and your source can lie outside it: the plugin's notes folder, or the copies that a project built
+  from registered sources keeps in the plugin's data folder. A `/burgess:kg-eval` run now copies into its folder
+  under `.kg/eval/` the documents its annotators read, and the plugin's contract that the session checks a
+  refinement against.
+- **A prompt file you name is read by the engine.** `/burgess:kg-experiment` saves it as the run's prompt set, so
+  no agent reads a file outside the project.
+
+### Added
+
+- **Three engine tools:** `kg_eval` (a step of `/burgess:kg-eval`), `kg_experiment` (a step of
+  `/burgess:kg-experiment`) and `kg_perturb_plan` (the argument of `/burgess:kg-perturb`, classified, with its
+  construction named).
+  - They use the same functions and seeds as the command lines, so the numbers are the same on the same files.
+  - They write only under `.kg/`: never the canon, never a verdict.
+- **Each `/burgess:kg-eval` run has its own folder,** `.kg/eval/<run>/`: the sheets, the labels, the saved results
+  and the two copies. Through 0.27.0 every run wrote the same files in `.kg/eval/`.
+- **The engine writes the log entries,** from the saved results and in the same format as before. The session
+  adds only what it alone knows: the refinements in `/burgess:kg-eval`, and where the prompts came from in
+  `/burgess:kg-experiment`. Before, it copied every number into a shell command by hand, about sixty of them for
+  an experiment.
+- `/burgess:kg-experiment` keeps each run's outputs and drafts under the run's name
+  (`ideation_outputs*-<run>.json`).
+- `/burgess:kg-perturb` says whether the second source is one of the graph's own sources. It stops before
+  building anything when its path names no file.
+
+### Changed
+
+- The optional LightRAG arm of `/burgess:kg-experiment` is the one step left that runs a shell command, on
+  purpose: it sends your whole source to OpenAI with your key and costs money, so Claude Code may ask you to
+  approve it.
+- `scripts/f4_probe.py` is now the command line over the engine's `kg_engine.evalsheet`. Its output is unchanged.
+- The annotator reads the run's copy of the source.
+
+### Upgrading
+
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- The files of earlier runs in `.kg/eval/` stay where they are, and new runs write in their own folders.
+- A session opened before the update keeps the old commands and engine, so open a new one.
+
 ## 0.27.0 — 2026-11-26
 
 A claim whose sentence you rewrite or delete is judged again.

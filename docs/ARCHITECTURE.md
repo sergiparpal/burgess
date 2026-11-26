@@ -16,7 +16,7 @@ One sentence resolves every design dispute: **embeddings measure dispersion, nev
 ## 1. Two layers, one boundary
 
 1. **Deterministic Python engine** — `scripts/kg_engine/`, exposed as the `burgess` MCP server
-   (44 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
+   (47 tools, namespaced `mcp__plugin_burgess_burgess__*`). `server.py` (the `KGEngine` facade +
    FastMCP tool surface) is the trust boundary. The engine is **never installed**: it resolves via
    `PYTHONPATH=<plugin>/scripts` (see `.mcp.json`), so engine edits need no rebuild; the
    provisioned venv holds only dependencies.
@@ -57,6 +57,8 @@ verdict path.
 | `buildplan.py` | `/burgess:kg-build`'s typed arguments and subset, resolved for `kg_build_plan` (no shell step), the canon nodes a section names, for `kg_section`, the digests and ledger lines of the sections an extraction wrote no edge from, and the units of a section and the ledger lines of the text an extraction read (0.26.0) |
 | `export.py` (+ `templates/graph_html.py`) | Render `graph.html` + `GRAPH_REPORT.md` from the derived layer |
 | `harness.py` | Deterministic measurement: agreement, specificity, ideation, convergence |
+| `evalsheet.py` | `/burgess:kg-eval`'s labeling sheet as data (0.28.0): the seeded sample, the fill from an annotator's JSON, the score; `scripts/f4_probe.py` prints it |
+| `measure.py` | The steps of `/burgess:kg-eval` and `/burgess:kg-experiment` run in the engine (0.28.0, `kg_eval`, `kg_experiment`): a run's folder under `.kg/`, the copies its agents read, the log entries written from the saved results |
 | `backend.py` | Headless API-key extraction for CI (same boundary as the interactive flow) |
 | `lightrag_arm.py` | Optional LightRAG comparison arm (experiment-only, opt-in) |
 | `dirlock.py` | Atomic-mkdir directory lock with heartbeat liveness (used by bootstrap) |
@@ -468,7 +470,7 @@ live compression node was already proposed over (at least half of the other memb
 already a node, in any state; `kg_generate` lists both in `compression_skipped`. On the field graph of
 2026-11-15 all four compression candidates were of these kinds.
 
-## 5. The MCP tool surface (44 tools)
+## 5. The MCP tool surface (47 tools)
 
 Full signatures and return shapes: `skills/burgess/references/tools.md`.
 
@@ -546,6 +548,14 @@ Full signatures and return shapes: `skills/burgess/references/tools.md`.
   the engine, verbatim passages, logged), `kg_source_record_search` (a scout's web searches and proposals). They
   write only the source-search ledger and set no state.
 - **Generative reads (2):** `kg_generate`, `kg_absorption`.
+- **The commands' own steps (3, 0.28.0):** `kg_eval` (a step of `/burgess:kg-eval`: `sample` copies into
+  `.kg/eval/<run>/` the documents the edges cite and the plugin's contract, and writes the seeded sheets;
+  `score`, `agreement`, `specificity`, `validate_pack`; `log` appends the entry written from the saved results),
+  `kg_experiment` (a step of `/burgess:kg-experiment`: `start`, `rag`, `score`, `judge_packets`, `judge_score`,
+  `log`) and `kg_perturb_plan` (`/burgess:kg-perturb`'s argument classified and its construction named). Through
+  0.27.0 these were Bash blocks that started the plugin's Python from the plugin's folder, which
+  `permissions.blockReadsOutsideWorkingDirectories` refuses without a person (§10). They write only under the
+  project's `.kg/` and set no state; only the opt-in LightRAG arm keeps a shell step.
 - **Divergence surface (8):** `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
   `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
   `kg_diverge_export` (0.19.6: writes every idea of the brief's current session, with the explanation it
@@ -894,8 +904,15 @@ in a bare dev launch without `KG_DATA` (`<project>/.kg-data`).
 
 Every metric measures; none gates the pipeline — verdicts run on their own advisory thresholds.
 
-The commands that drive these CLIs (`/burgess:kg-eval`, `/burgess:kg-experiment` and their subagents) run them with the
-engine's own interpreter, which `scripts/engine_python.mjs` prints by the launcher's own rule
+Since 0.28.0 the commands run these measurements in the engine, through `kg_eval` and `kg_experiment` (§5): the
+same functions, with the same seeds, so a number is the command line's number on the same files. Under the setting
+`permissions.blockReadsOutsideWorkingDirectories`, Claude Code asks the person before any Bash command that names
+a path outside the project or that its parser cannot analyse, and the auto mode's classifier may not answer for
+them; the same setting blocks `Read` and `Grep` outside the project, so a `/burgess:kg-eval` run copies the
+documents its annotators read and the contract into its folder under `.kg/eval/`. Only the opt-in LightRAG arm of
+`/burgess:kg-experiment` still runs a CLI from the shell. The command lines themselves stay for a development
+checkout and CI, run with the engine's own interpreter, which `scripts/engine_python.mjs` prints by the launcher's
+own rule
 (`_engine_resolve.mjs`: `KG_ENGINE_VENV`, else `<plugin data>/.venv`, else `<plugin root>/.venv`; the
 bootstrap pointer, else the platform's conventional path). A source argument may be one file or a folder of
 `.md`/`.txt` documents; the CLIs read it as `SourceSet(path).concat`, the projector's own input, so the
@@ -946,7 +963,7 @@ and re-extracts (0.11.4).
 - `python -m kg_engine.harness convergence` — promotes the mechanism-convergence tally from
   advisory to queue-reordering only if edges proposed by ≥2 mechanisms ground at a rate more than
   0.10 above single-mechanism edges (with enough samples per band).
-- `scripts/f4_probe.py` — extraction-precision probe: sample edges, label them
+- `scripts/f4_probe.py` — extraction-precision probe over `kg_engine.evalsheet` (0.28.0): sample edges, label them
   `correct | fabricated | vague | wrong_type` + `span_found` (the annotator writes its labels as JSON,
   which `fill` writes into the sheet), score against the advisory **0.70 precision gate**; also reports
   the astrology rate (fabricated+vague) and confidence calibration. The sample is the extraction: since

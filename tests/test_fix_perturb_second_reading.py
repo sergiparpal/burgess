@@ -362,8 +362,9 @@ def _flat(text: str) -> str:
 
 def test_the_perturb_command_reads_sections_with_the_graphs_ids_and_carries_passages():
     flat = _flat(PERTURB)
-    assert ('mcp__plugin_burgess_burgess__kg_section(source_file="<the basename of $SECOND_SOURCE>", '
-            'section=<n>, construction="$CONSTRUCTION", source="$SECOND_SOURCE")') in flat
+    # 0.28.0: the names come from the engine's plan of the argument (kg_perturb_plan), not a shell block
+    assert ('mcp__plugin_burgess_burgess__kg_section(source_file="<source_file>", '
+            'section=<n>, construction="<construction>", source="<second_source>")') in flat
     assert "copy each candidate's `passage` onto its edge unchanged" in flat
     assert "`passages`" in flat and "outside your sources" in flat
     assert "Read the whole file" not in flat and "`Read` the whole file" not in flat

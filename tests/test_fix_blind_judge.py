@@ -301,11 +301,12 @@ def test_the_command_runs_the_judge_only_when_asked():
     step = _flat(text[text.index("## Step 3b"):text.index("## Step 4")])
     assert "Skip this step unless the arguments held `--judge`" in step
     assert 'Task(subagent_type: "kg-judge"' in step
-    assert "judge-packets" in step and "judge-aggregate" in step
+    # 0.28.0: the engine builds the packets and aggregates the verdicts (kg_experiment), no shell step
+    assert 'step="judge_packets"' in step and 'step="judge_score"' in step
     # 0.13.3: the field's kg-judges, not the pilots' general-purpose judges (1.5 million), set the figure
     assert "about 0.8 million new tokens" in step and "1.3 million read back from the prompt cache" in step
     assert "1.5 million" not in step
-    assert "Never put anything from `$J/private/` into a judge's prompt" in step
+    assert "Never put anything from `<judge_dir>/private/` into a judge's prompt" in step
     assert "the judge's `verdict` is the headline" in body
 
 

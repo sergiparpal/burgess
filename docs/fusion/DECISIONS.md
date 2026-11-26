@@ -721,6 +721,9 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   - (b) *Keep the evaluator's `Grep` for the rag arm:* retrieval by the model is what made the arm unrepeatable, and reading the source for any other arm gives it context the comparison does not account for.
   - (c) *A fresh generator subagent per prompt, as the D1 run used, for real blindness:* it changes the method and costs twelve subagents. It belongs with the verdict decision.
   - (d) *Make `rag-slices` an MCP tool so its step needs no approval:* a new tool on the trust boundary for one measurement. The command already runs shell steps, and this adds one.
+    - *Addendum (2026-11-26):* reversed. Under `permissions.blockReadsOutsideWorkingDirectories` a shell step that
+      names the plugin's folder needs a person every time, and the auto mode cannot answer for them; see "The
+      measurement commands run their steps in the engine" (2026-11-26).
   - (e) *Stem or lemmatize for retrieval:* language-specific, and the `rag` arm is meant to be naive.
 - **Checked:** on copies of the field data, read-only.
   - The new harness flags the field run: 140 of 143 probes passed, and utility had no marker.
@@ -3443,3 +3446,79 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   `tests/test_kg_ground_plan.py`, `tests/test_fix_changed_sections.py` and
   `tests/test_fix_node_scope_and_counters.py` (the grounder brief no longer says that `span_in_source` false means
   a rejection).
+
+## The measurement commands run their steps in the engine, and their agents read only inside the project (2026-11-26)
+
+- **What it answers:** the third finding of the end-to-end run of 2026-11-25, "the read block", offered separately
+  in that day's entry. The user chose it from the open items and approved the design with its three
+  recommendations («Sí, así»).
+  - Facts first, read from the Claude Code 2.1.332 binary and the run's transcripts:
+    - Under `permissions.blockReadsOutsideWorkingDirectories`, a Bash command that names a path outside the working
+      directories asks the person, and so does one the shell parser cannot analyse: a `case`, a `${…}`, a `$(…)`,
+      quoted text. The answer is a `safetyCheck` with `classifierApprovable: false` (circuit breaker
+      `outsideReadsBlocked`), so the auto mode's classifier cannot give it; in a `-p` run it is a denial.
+    - Every Bash block of /kg-eval, /kg-experiment and /kg-perturb named the plugin's folder (`engine_python.mjs`,
+      `PYTHONPATH`) or used those constructs. On the run, /kg-eval was refused four times and measured nothing (the
+      session then tried PowerShell, refused the same way), and /kg-perturb's Step 1 twice, its path classified by
+      hand. /kg-experiment's first block is the same.
+    - The setting also blocks the file tools outside the working directories (`outsideFileToolReadsBlocked`). Two
+      such reads remained once the shell was gone. The annotators read the source, which is the `content/` copy in
+      the plugin's data folder for a project built from registered sources (`kg_engine.paths source`), and the
+      plugin's option or `examples/source.md` otherwise. And /kg-eval's contract check read
+      `${CLAUDE_PLUGIN_ROOT}/agents/extractor.md` and its siblings.
+- **Decision 1: three engine tools run the steps** (the first recommendation): `kg_eval(step, run, graph,
+  iterations)` and `kg_experiment(step, run, prompts, prompt_source, judge_note)`, one step per call, and
+  `kg_perturb_plan(arguments)`. The server goes from 44 tools to 47; one tool per command, not one per step.
+  - The functions the command lines print, with their seeds. `kg_engine.evalsheet` holds `f4_probe.py`'s sample,
+    fill and score as data (the script is its command line now, its output unchanged). `kg_engine.measure` calls
+    `harness` and `judge` as their `_cmd_*` do, on the path `kg_engine.paths source` gives (`paths.write_content`,
+    shared). The tests compare each step with the command line on the same files.
+  - Nothing prints: an MCP stdio server speaks its protocol on stdout.
+  - They write only under `<project>/.kg/`, never the canon or a verdict; `sample` re-projects, as any read does.
+    A `run` must match `RUN_RE` before it names a folder.
+  - This reverses the 2026-11-10 rejection (d), "a new tool on the trust boundary for one measurement". Its premise
+    was that a shell step costs an approval at worst; under the read block it costs a person at every step. The
+    tools carry no new capability: they read what the server reads already, and write scratch under `.kg/`.
+- **Decision 2: the LightRAG arm keeps its Bash step** (the second recommendation). It is opt-in (`KG_LIGHTRAG=1`,
+  the package, `OPENAI_API_KEY`), sends the whole source to OpenAI with the user's key and costs money: the
+  approval the read block asks for is worth having there, and moving it would put a third-party upload inside the
+  trust boundary. `start` reports its availability from the engine's environment, which the launcher passes whole,
+  as the `KG_DIVERGE_*` knobs need.
+- **Decision 3: the annotators read a copy** (the third recommendation). `sample` copies into
+  `.kg/eval/<run>/source/` the documents of the verification set, so every document an edge can cite, exactly as the
+  engine reads them, and into `contract/` the running plugin's three contract files. Not passages served by the
+  engine: the annotator's method, whole documents searched for a verbatim span, stays as it was and independent of
+  the engine's retrieval.
+- **Decision 4: a run has its own folder, and the engine writes the log.**
+  - `.kg/eval/<run>/` holds the three sheets of one seeded sample, the labels, the saved results and `run.json`. A
+    `sample` naming the run is a development checkout's next pass: it removes the run's labels, so a pass never
+    scores an earlier pass's file, which the flat `.kg/eval/` of 0.27.0 allowed. The log records the best pass.
+  - The entries are rendered from the saved results in the shell blocks' format, with a `run:` line added. The
+    `/kg-eval` header keeps the bare name, the one exemption since 0.13.3, now held by `measure.py`. The model
+    supplies only `iterations` (kg-eval) or `prompt_source` and `judge_note` (kg-experiment); through 0.27.0 it
+    copied every number into shell variables by hand, about sixty for an experiment.
+  - /kg-experiment's score step keeps the outputs and their drafts as `ideation_outputs*-<run>.json` (`copy2`, so
+    the order check's times hold), which the field run of 2026-11-11 did by hand.
+- **Decision 5: /kg-perturb's argument is planned by the engine.** `kg_perturb_plan` takes `$ARGUMENTS` verbatim,
+  strips its quotes, resolves a relative path against the project and refuses a path that names no file. That
+  keeps the guard of the old `__SECOND__` slot: an argument left unfilled names no file, so it never passes for "no
+  second source". The construction is named by the block's rule (lowercased, each other run a hyphen, `second`
+  when nothing is left), and `own_source` says whether the file is one of the graph's own sources.
+- **Considered, not done:**
+  - A tool per step, fourteen in all: the same work, with a surface every session lists.
+  - Narrower or simpler Bash: any command that names the plugin's folder asks under the read block, whatever its
+    shape.
+  - Advising `/add-dir` for the plugin's folders: it would open every read there to every agent, and the settings
+    are the user's.
+  - Having the annotators read `evidence/` in place: only registered copies live there, and the notes can lie
+    outside the project.
+- **Not changed:** the skill's `references/` are read from the plugin's folder; whether Claude Code lets a skill read
+  its own folder under the setting is for a live run to show. A development checkout's iteration (4.5) still edits
+  the plugin's pack, outside the project.
+- **Pinned in:** `tests/test_fix_commands_without_shell.py`; updated pins in `tests/test_fix_command_arguments.py`
+  (perturb's path classified by the engine; the Bash runner helpers removed), `tests/test_fix_eval_log_and_annotator.py`,
+  `tests/test_fix_field_eval_experiment.py`, `tests/test_fix_experiment_measurement.py`,
+  `tests/test_fix_evaluator_order.py`, `tests/test_fix_judge_check.py`, `tests/test_fix_blind_judge.py`,
+  `tests/test_fix_perturb_second_reading.py`, `tests/test_fix_eval_sample_leaves_out_proposals.py`,
+  `tests/test_fix_command_names_and_judge_cost.py` (the log header's exemption moves to the engine) and the 47-tool
+  count in `tests/fusion/test_diverge_surface.py`.

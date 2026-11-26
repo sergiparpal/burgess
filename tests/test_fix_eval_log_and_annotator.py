@@ -27,10 +27,7 @@ import importlib.util
 import json
 import os
 import re
-import shutil
 import stat
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -75,14 +72,23 @@ def test_nothing_points_the_log_at_the_top_of_the_project(path):
 
 @pytest.mark.parametrize("path", [EVAL, EXPERIMENT], ids=lambda p: p.name)
 def test_both_commands_append_their_log_under_dot_kg(path):
+    # 0.28.0: the engine writes the entry (step `log`); no shell block of either command appends anything
     text = _read(path)
-    assert "${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md" in text
-    appends = re.findall(r'>>\s*"([^"]+)"', "\n".join(_bash_blocks(text)))
-    assert appends, "no block appends to the log"
-    for target in appends:
-        assert target in ('${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md', '$PROGRESS'), target
-    if path == EXPERIMENT:
-        assert 'PROGRESS="${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md"' in text
+    assert ".kg/PROGRESS.md" in text and 'step="log"' in text
+    assert not [b for b in _bash_blocks(text) if ">>" in b]
+
+
+def test_the_engine_appends_the_log_under_dot_kg_and_never_overwrites(tmp_path):
+    from kg_engine import measure
+
+    log = measure._append_log(tmp_path, "\n## first entry\n")
+    assert log == tmp_path / ".kg" / "PROGRESS.md"
+    # /kg-experiment's header opens a NEW file only; an entry is never written over another
+    measure._append_log(tmp_path, "\n## second entry\n", header="# Experiment log\n\n")
+    assert log.read_bytes() == b"\n## first entry\n\n## second entry\n"
+    assert measure._append_log(tmp_path / "other", "\n## x\n", header="# Experiment log\n\n").read_text(
+        encoding="utf-8") == "# Experiment log\n\n\n## x\n"
+    assert not (tmp_path / "PROGRESS.md").exists()
 
 
 def test_a_log_at_the_top_of_a_source_folder_is_a_document_and_one_under_dot_kg_is_not(tmp_path):
@@ -129,16 +135,28 @@ def test_legacy_log_is_silent_when_no_old_log_is_a_source_document(tmp_path, cap
     assert _legacy([project, tmp_path / "missing"], capsys) == (0, "")
 
 
-def test_both_commands_check_for_an_old_log_in_their_first_block():
-    call = '"$PY" -m kg_engine.harness legacy-log "${CLAUDE_PROJECT_DIR}" "$SRC"'   # the project's source, 0.23.0
-    for path in (EVAL, EXPERIMENT):
-        # the first block that runs the harness (since 0.23.0 the block template itself runs "$PY" for GRAPH)
-        first = next(b for b in _bash_blocks(_read(path)) if '"$PY" -m kg_engine.harness' in b)
-        assert call in first, path.name
-    assert "pass it on to the user now and again at the end, and go on" in _flat(_read(EVAL))
-    assert "If it prints a note, pass it on to the user and stop" in _flat(_read(EXPERIMENT))
+def test_both_commands_check_for_an_old_log_in_their_first_step():
+    # 0.28.0: the first engine step of each command answers `legacy_log` (kg_engine.measure.legacy_note)
+    eval_step0 = _flat(_read(EVAL)[_read(EVAL).index("## Step 0"):_read(EVAL).index("## Stage 4")])
+    exp_text = _read(EXPERIMENT)
+    exp_step0 = _flat(exp_text[exp_text.index("## Step 0"):exp_text.index("### The optional `lightrag` arm")])
+    assert 'kg_eval(step="sample")' in eval_step0 and "`legacy_log`" in eval_step0
+    assert 'kg_experiment(step="start")' in exp_step0 and "`legacy_log`" in exp_step0
+    assert "pass it on to the user now and again at the end, and go on" in eval_step0
+    assert "If it holds a note, pass it on to the user and stop" in exp_step0
     for path in (EVAL, EXPERIMENT):
         assert "Don't move or delete the file" in _flat(_read(path)), path.name
+
+
+def test_the_first_step_names_an_old_log_the_source_reads(tmp_path):
+    from kg_engine import measure
+
+    (tmp_path / "doc.md").write_text("# A\nbody\n", encoding="utf-8")
+    (tmp_path / "PROGRESS.md").write_text("\n## /kg-eval — 2026-11-10T16:02:05Z\n", encoding="utf-8")
+    note = measure.legacy_note(tmp_path, tmp_path)
+    assert note and str(tmp_path / "PROGRESS.md") in note and "never moves or deletes" in note
+    assert str(tmp_path / ".kg" / "PROGRESS.md") in note
+    assert measure.legacy_note(tmp_path, None) is None              # the notes are not built: no old log is read
 
 
 # --------------------------------------------------------------------------- the annotator has no shell
@@ -160,24 +178,22 @@ def test_the_annotator_writes_one_labels_file_that_fill_reads():
     sample = json.loads(re.search(r"```json\n(.*?)```", _read(ANNOTATOR), re.S).group(1))
     assert all(set(v) == {"verdict", "span_found", "notes"} for v in sample.values())
     assert all(v["verdict"] in f4_probe.VALID_VERDICTS for v in sample.values())
-    assert "f4_probe.py fill" in text and "never edit the file" in text
+    assert "The engine fills the sheet from this file" in text and "never edit the file" in text
     assert "do not open any other `labels*.csv` or `labels*.json`" in text  # Stage 7 stays blind
 
 
 def test_kg_eval_has_every_pass_write_its_own_labels_file_and_fills_before_reading():
+    # 0.28.0: the run's folder holds one labels file per pass, and the engine fills each sheet before it reads
+    # one (test_fix_commands_without_shell runs both steps)
     text = _read(EVAL)
-    assert "${CLAUDE_PROJECT_DIR}/.kg/eval/labels.json" in text
-    assert "labels = labels_a.json" in text and "labels = labels_b.json" in text
-    blocks = _bash_blocks(text)
-    score = next(b for b in blocks if 'score "$EVAL/labels.csv"' in b)
-    fill = 'fill "$EVAL/labels.csv" "$EVAL/labels.json" || exit 1'
-    assert fill in score and score.index(fill) < score.index('score "$EVAL/labels.csv"')
-    alpha = next(b for b in blocks if "label_sets.json" in b)
-    for p in ("a", "b"):
-        line = f'fill "$EVAL/labels_{p}.csv" "$EVAL/labels_{p}.json" || exit 1'
-        assert line in alpha and alpha.index(line) < alpha.index("label_sets.json")
-    assert "Never write or change a label yourself" in _flat(text)
-    assert "Annotators get `Read`, `Grep` and `Write`, and no shell" in _flat(text)
+    flat = _flat(text)
+    assert "write your labels to <labels.labels>" in flat
+    assert "labels = labels.labels_a" in text and "labels = labels.labels_b" in text
+    assert 'kg_eval(step="score", run="<run>")' in flat
+    assert "It fills the sheet from the annotator's labels and scores it" in flat
+    assert 'kg_eval(step="agreement", run="<run>")' in flat and "It fills each sheet from its pass's labels" in flat
+    assert "Never write or change a label yourself" in flat
+    assert "Annotators get `Read`, `Grep` and `Write`, and no shell" in flat
 
 
 # --------------------------------------------------------------------------- f4_probe fill
@@ -357,13 +373,17 @@ def test_writers_refuses_a_project_with_no_canon_and_lays_none_out(tmp_path, cap
 
 
 def test_kg_eval_runs_writers_and_checks_a_refinement_against_the_current_contract():
+    from kg_engine import measure
+
     text = _read(EVAL)
-    score = next(b for b in _bash_blocks(text) if 'score "$EVAL/labels.csv"' in b)
-    assert '"$PY" -m kg_engine.harness writers "$EVAL/labels.csv" "${CLAUDE_PROJECT_DIR}"' in score
     flat = _flat(text)
+    assert "- **writers** — each labeled edge read in the canon" in text
     assert "Before you recommend a refinement, here or in 4.5, check it against the current plugin." in flat
-    for contract in ("agents/extractor.md", "pack/pack.yaml", "agents/adversarial-grounder.md"):
-        assert "${CLAUDE_PLUGIN_ROOT}/" + contract in text, contract
+    # 0.28.0: the run copies the contract into its folder, inside the project, and the orchestrator reads the copy
+    assert "Read the current contract, copied into Step 0's `contract.folder`" in flat
+    assert measure.CONTRACT_FILES == ("agents/extractor.md", "agents/adversarial-grounder.md", "pack/pack.yaml")
+    for contract in measure.CONTRACT_FILES:
+        assert f"`{Path(contract).name}`" in text, contract
     assert "the edge was written before the rule" in flat
     assert "Name the errors whose rule the current contract already states" in flat
 
@@ -379,19 +399,17 @@ def test_the_rules_the_field_run_recommended_are_in_the_extractor():
 
 # --------------------------------------------------------------------------- the log block keeps the text as written
 
-@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="needs a POSIX bash")
-def test_the_log_block_appends_the_models_text_as_written(tmp_path):
-    block = next(b for b in _bash_blocks(_read(EVAL)) if "/.kg/PROGRESS.md" in b)
-    group = block[block.index("{\n"):]  # the date line, the graph line and the quoted heredoc
-    filled = (group.replace("${CLAUDE_PROJECT_DIR}", str(tmp_path))
-                   .replace("${user_config.source_path}", "/src/docs")
-                   .replace('"<N>"', '"80"')
-                   .replace('<K> (<pack/extractor refinements made, or recommended in an installed copy, or "none">)',
-                            "1 (a precondition is `enables`, not `grounds`; $HOME stays as written)"))
-    (tmp_path / ".kg").mkdir()
-    # since 0.23.0 the block's earlier lines set GRAPH and SRC with kg_engine.paths
-    subprocess.run(["bash", "-c", 'GRAPH=/data/derived/graph.json\nSRC=/src/docs\n' + filled], check=True, timeout=30)
-    log = (tmp_path / ".kg" / "PROGRESS.md").read_text(encoding="utf-8")
+def test_the_log_keeps_the_models_text_as_written(tmp_path):
+    # 0.28.0: the engine writes the entry, so nothing the model supplies goes through a shell
+    from kg_engine import measure
+
+    best = {"pass": 1, "labeled": 80, "precision": 0.9, "astrology_rate": 0.05, "span_support_rate": 0.95,
+            "per_relation": [], "calibration": None, "writers": None}
+    record = {"graph": "/data/derived/graph.json", "source": "/src/docs", "passes": [best]}
+    text = measure.render_eval_log(record, None, None,
+                                   "a precondition is `enables`, not `grounds`; $HOME stays as written",
+                                   folder="/project/.kg/eval/20261126T101500Z")
+    log = measure._append_log(tmp_path, text).read_text(encoding="utf-8")
     assert "a precondition is `enables`, not `grounds`; $HOME stays as written" in log
     assert re.search(r"\n## /kg-eval — \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n", log)
     assert "graph: /data/derived/graph.json   (labeled n=80)\nsource: /src/docs\n" in log

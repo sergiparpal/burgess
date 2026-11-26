@@ -90,8 +90,9 @@ def test_the_current_docs_and_the_plugin_texts_name_every_command_in_full():
 
 
 def test_the_engine_names_commands_in_full_wherever_a_model_or_a_user_reads_them():
+    # the log header is the one exemption; since 0.28.0 the engine writes it (kg_engine.measure)
     short = [f"{p.relative_to(REPO)}:{line}: {m.group(0)}" for p in ENGINE for line, text in _engine_strings(p)
-             for m in SHORT.finditer(text)]
+             if LOG_HEADER not in text for m in SHORT.finditer(text)]
     assert short == []
 
 
@@ -114,11 +115,15 @@ def test_every_full_name_is_a_command_and_none_is_doubled():
 
 
 def test_only_the_kg_eval_log_header_keeps_the_short_form():
-    # the exemption is one line, the header /kg-eval writes; earlier log entries share it, and
-    # tests/test_fix_eval_log_and_annotator.py pins it
+    # the exemption is one string, the header a /kg-eval log entry opens with; earlier entries share it, and
+    # tests/test_fix_eval_log_and_annotator.py pins it. Through 0.27.0 the command's shell block printed it;
+    # since 0.28.0 the engine writes the entry, so no text a user or the model reads holds it.
     held = [(rel, line) for rel in TEXTS for line in (REPO / rel).read_text(encoding="utf-8").splitlines()
             if LOG_HEADER in line]
-    assert held == [("commands/kg-eval.md", "  printf '\\n## /kg-eval — %s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"")]
+    assert held == []
+    in_engine = [(str(p.relative_to(REPO)), line) for p in ENGINE for line, text in _engine_strings(p)
+                 if LOG_HEADER in text]
+    assert [rel for rel, _ in in_engine] == ["scripts/kg_engine/measure.py"], in_engine
 
 
 def _slug(heading: str) -> str:

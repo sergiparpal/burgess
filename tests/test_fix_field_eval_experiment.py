@@ -81,9 +81,18 @@ def test_no_development_paths(path):
 
 # The annotator ran its Python through Bash until 0.11.7, when it lost the shell (test_fix_eval_log_and_annotator),
 # and the evaluator until 0.11.8 (test_fix_experiment_measurement).
-@pytest.mark.parametrize("path", [EVAL, EXPERIMENT], ids=_rel)
+def test_kg_eval_runs_no_shell():
+    # 0.28.0: every step runs in the engine (kg_eval); under the user's blockReadsOutsideWorkingDirectories each
+    # Bash block that started the plugin's Python asked the person, and the auto mode could not answer for them
+    text = _read(EVAL)
+    assert not _bash_blocks(text)
+    assert "Bash" not in re.match(r"---\n(.*?)\n---\n", text, re.S).group(1)
+
+
+@pytest.mark.parametrize("path", [EXPERIMENT], ids=_rel)
 def test_every_bash_block_that_runs_python_resolves_it_first(path):
-    # Each Bash call is a fresh shell: a block that uses "$PY" resolves it itself, by the launcher's rule.
+    # Each Bash call is a fresh shell: a block that uses "$PY" resolves it itself, by the launcher's rule. Since
+    # 0.28.0 the one such block is /kg-experiment's opt-in LightRAG arm.
     blocks = [b for b in _bash_blocks(_read(path)) if '"$PY"' in b]
     assert blocks, f"{_rel(path)} runs no engine Python"
     for b in blocks:
@@ -93,14 +102,13 @@ def test_every_bash_block_that_runs_python_resolves_it_first(path):
 
 def test_kg_eval_reads_the_engine_graph_and_the_configured_source():
     text = _read(EVAL)
-    # since 0.23.0 the graph is the project's own and the source what its build reads (kg_engine.paths;
-    # tests/test_fix_per_project_sources.py)
-    assert 'GRAPH="$("$PY" -m kg_engine.paths graph "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}")"' in text
-    assert "query_graph(limit=1)" in text  # re-projects the project's derived layer first
-    assert '"$PY" -m kg_engine.harness specificity "$GRAPH" "$SRC"' in text
-    assert 'SRC="$("$PY" -m kg_engine.paths source "${CLAUDE_PROJECT_DIR}" "${CLAUDE_PLUGIN_DATA}" "${user_config.source_path}")"' in text
+    flat = " ".join(text.split())
+    # since 0.23.0 the graph is the project's own and the source what its build reads; since 0.28.0 the engine
+    # resolves both itself (kg_eval; tests/test_fix_commands_without_shell.py runs it)
+    assert 'kg_eval(step="sample")' in flat and "It re-projects the project's graph first" in flat
+    assert 'kg_eval(step="specificity", run="<run>")' in flat
     # the log moved under .kg/ in 0.11.7: at the top of the project it was a source document
-    assert "${CLAUDE_PROJECT_DIR}/.kg/PROGRESS.md" in text and "${CLAUDE_PROJECT_DIR}/.kg/eval" in text
+    assert "`.kg/PROGRESS.md`" in text and "`.kg/eval/<run>/`" in text
     assert "examples/source.md" not in text and ".kg-data" not in text
 
 
@@ -115,9 +123,9 @@ def test_kg_experiment_drafts_its_prompts_for_any_corpus_but_the_demo():
     text = _read(EXPERIMENT)
     front = re.match(r"---\n(.*?)\n---\n", text, re.S).group(1)
     assert "mcp__plugin_burgess_burgess__kg_agenda" in front  # drafting reads the graph's agenda
-    assert "Use them only when the configured source is that file" in text
+    assert "Use them only when Step 0's `demo_source` is true" in text      # the engine compares the source
     assert "draft 12 prompts from the user's own graph" in text
-    assert "${CLAUDE_PROJECT_DIR}/.kg/experiment/prompts-" in text
+    assert "`prompts_path`" in text
     # the demo corpus is only ever named as the plugin's own file, never as what the run reads
     starts = [m.start() for m in re.finditer(r"examples/source\.md", text)]
     prefix = "${CLAUDE_PLUGIN_ROOT}/"
@@ -126,8 +134,9 @@ def test_kg_experiment_drafts_its_prompts_for_any_corpus_but_the_demo():
 
 def test_kg_experiment_scores_and_retrieves_from_the_configured_source():
     text = _read(EXPERIMENT)
-    # since 0.23.0 "$SRC", what the project's build reads (tests/test_fix_per_project_sources.py)
-    assert '"$PY" -m kg_engine.harness ideation "$EXP/ideation_outputs.json" "$SRC"' in text
+    # since 0.23.0 what the project's build reads; since 0.28.0 the engine reads it to score, and only the opt-in
+    # LightRAG block is handed "$SRC" (tests/test_fix_per_project_sources.py)
+    assert 'kg_experiment(step="score", run="<run>")' in text
     assert '--source "$SRC"' in text
     assert "/tmp" not in text
 

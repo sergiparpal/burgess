@@ -126,7 +126,9 @@ def test_mcp_surface_is_forty_tools(engine):
     # mark a grounder leaves on a [diverge] pin it found no support for, so the plan stops re-queueing it,
     # and 0.21.0 kg_source_add, kg_source_list and kg_source_set, which register external sources with an
     # epistemic level so grounders can cite verbatim spans from them, and 0.22.0 kg_source_policy, the project's
-    # evidence policy (the worst level that may still support, the notes' level, whether the notes are built).
+    # evidence policy (the worst level that may still support, the notes' level, whether the notes are built),
+    # and 0.28.0 kg_eval, kg_experiment and kg_perturb_plan, which take the last shell steps of /kg-eval,
+    # /kg-experiment and /kg-perturb into the engine.
     mcp = FakeMCP()
     _register(mcp, engine)
     assert DIVERGE_TOOLS <= set(mcp.tools), sorted(mcp.tools)
@@ -134,9 +136,9 @@ def test_mcp_surface_is_forty_tools(engine):
             "kg_record_attack", "kg_record_edgeless_section", "kg_record_generation",
             "kg_record_unsupported", "kg_source_add", "kg_source_list", "kg_source_set",
             "kg_source_policy", "kg_source_find", "kg_source_search", "kg_source_probe",
-            "kg_source_record_search"} <= set(mcp.tools), \
+            "kg_source_record_search", "kg_eval", "kg_experiment", "kg_perturb_plan"} <= set(mcp.tools), \
         sorted(mcp.tools)
-    assert len(mcp.tools) == 44, sorted(mcp.tools)
+    assert len(mcp.tools) == 47, sorted(mcp.tools)
 
 
 def test_resolve_axes_source_paths(tmp_path, monkeypatch):

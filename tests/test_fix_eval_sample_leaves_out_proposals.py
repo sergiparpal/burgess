@@ -136,5 +136,6 @@ def test_the_command_and_the_reference_say_so():
     assert "The sheet leaves out every proposal still in the hypothesized lane (0.25.2)" in EVAL
     assert "17 of 34 sampled edges were" in EVAL
     assert "without the hypothesized proposals" in EVAL           # Stage 7 draws the same sample
-    assert "`--include-hypothesized`" in EVAL
+    # 0.28.0: the command samples through the engine, which always leaves them out; the command line keeps the flag
+    assert "The sheet leaves these out (4.2)" in EVAL
     assert "--include-hypothesized" in TOOLS and "Since 0.25.2 it leaves out" in TOOLS

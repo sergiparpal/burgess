@@ -17,7 +17,7 @@ call never crashes the session; success returns and domain `{ok:false}` results 
 
 A plugin-bundled MCP server's tools are namespaced `mcp__plugin_<plugin>_<server>__<tool>` — here both the
 plugin and the server are named `burgess`, so every tool is `mcp__plugin_burgess_burgess__<tool>`
-(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-six** are the **only**
+(use this exact form in agent `tools:` / command `allowed-tools:` grants). These **thirty-nine** are the **only**
 graph tools — the verify/read tools (§1.1–§1.11, including `kg_merge` §1.5b and the read-only egress
 `kg_explain_path` §1.10b) plus the four generative-layer tools (§1.12–§1.15)
 plus the read-only `kg_agenda` (§1.16), `kg_export` (§1.17), the projection-free `kg_status` (§1.18), and
@@ -32,8 +32,10 @@ outside texts with an epistemic level so grounders can cite verbatim spans from 
 `kg_source_policy` (§1.30), the project's evidence policy (0.22.0), and the four tools of
 `/burgess:kg-sources find` (0.24.0): `kg_source_find` (§1.31), the items waiting for a source; `kg_source_search`
 (§1.32), the scholarly catalogue searched through the engine; `kg_source_probe` (§1.33), a candidate page read by
-the engine; and `kg_source_record_search` (§1.34), the scout's web searches and proposals.
-The eight **divergence-surface** tools (§1B) complete the server's **forty-four**.
+the engine; and `kg_source_record_search` (§1.34), the scout's web searches and proposals; and the three that run
+the steps `/burgess:kg-eval`, `/burgess:kg-experiment` and `/burgess:kg-perturb` ran in Bash through 0.27.0
+(0.28.0): `kg_eval` (§1.35), `kg_experiment` (§1.36) and `kg_perturb_plan` (§1.37).
+The eight **divergence-surface** tools (§1B) complete the server's **forty-seven**.
 There is no `kg_build` / `kg_query` /
 `kg_project` MCP tool — those are slash commands (`/burgess:kg-build`, …) that *orchestrate* these tools.
 
@@ -46,7 +48,8 @@ through it. `kg_write` also records the sections an extraction read in the read-
 `kg_record_generation` (§1.25) only the absorption ledger in the derived dir, and `kg_source_add` /
 `kg_source_set` / `kg_source_policy` (§1.27, §1.29, §1.30) only the project's `evidence/` directory, and
 `kg_source_search` / `kg_source_probe` / `kg_source_record_search` (§1.32–§1.34) only the source-search ledger
-beside the canon. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
+beside the canon, and `kg_eval` / `kg_experiment` (§1.35, §1.36) only under the project's `.kg/` (a run's
+folder, its files and `.kg/PROGRESS.md`), never the canon or a verdict. Read tools (`get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `query_graph`, `kg_context`) and the
 generative reads (`kg_generate` §1.13, `kg_absorption` §1.15) read the **derived** layer; they call
 `_ensure_projected()` first, which reprojects only if `index.sqlite`/`graph.json` is missing or
 `projector.is_stale()` — a content-driven check (a cheap per-note `(name, size, mtime)` signature pre-gate,
@@ -1837,6 +1840,86 @@ Log for an item what the engine did not see (0.24.0): the scout's web searches a
   scouts with three items each ran no against search for any of the six, and the web search for two.
 - `item-not-found`, or a refusal naming the malformed search or candidate; nothing is written then.
 
+### 1.35 `mcp__plugin_burgess_burgess__kg_eval(step, run="", graph="", iterations="")`
+
+One step of `/burgess:kg-eval` (0.28.0), run in the engine so the command needs no shell. Through 0.27.0 the
+steps were Bash blocks that started the plugin's Python from the plugin's folder; under
+`permissions.blockReadsOutsideWorkingDirectories` Claude Code asks the person before any such command, and the
+auto mode's classifier may not answer for them, so the end-to-end run of 2026-11-25 measured nothing. The steps
+use the command line's functions (`kg_engine.evalsheet`, the one `f4_probe.py` prints; `kg_engine.harness`), with
+the same seed, so a number is the command line's number on the same files.
+
+- `sample` opens a run in `.kg/eval/<run>/` (`graph`: a graph.json the user named; by default the project's own,
+  re-projected first). It copies into the run's folder:
+  - `source/`: the documents the graph's edges can cite (the verification set: the notes and every registered
+    copy), exactly as the engine reads them. The annotators read these; the source itself may lie outside the
+    project (the plugin option, or the copies a project built from registered sources keeps in the plugin's
+    data folder), where the same setting blocks `Read`.
+  - `contract/`: `extractor.md`, `adversarial-grounder.md` and `pack.yaml` of the running plugin, for the
+    check before a refinement is recommended.
+
+  It writes three sheets of one seeded sample (seed 42, up to 80 edges, the hypothesized proposals left out):
+  `labels.csv` (Stage 4), `labels_a.csv` and `labels_b.csv` (Stage 7), and returns `run`, `folder`, `sheets`,
+  `labels` (the file each annotator writes), `source`, `contract`, `summary` (the graph's shape),
+  `sample` {rows, left_out_proposals, seed}, `copy` (`installed` inside a `plugins/cache` folder, else
+  `development`) and `legacy_log` (a note on a pre-0.11.7 log the source still reads, or null). With the `run`
+  of an earlier call it samples again for the next pass of a development checkout, and removes the run's
+  labels, so a pass never scores an earlier pass's file.
+- `score` fills `labels.csv` from `labels.json` and returns `score` (`precision`, `astrology_rate`,
+  `span_support_rate`, `verdicts`, `per_relation` for relations with 3 or more rows, `calibration`) and
+  `writers` (by writer, by the verdict each edge holds now, `not_correct`), plus `below_target` against 0.70.
+  A labels file that does not label the sheet row for row changes nothing: `ok: false` and `problems`.
+- `agreement` fills `labels_a.csv` and `labels_b.csv` and returns `krippendorff_alpha`, `reliable` (≥ 0.67),
+  `units` and `verdict`; `problems` is keyed by the sheet whose labels did not fit.
+- `specificity` returns the specificity bridge-metric gate over the run's graph and the source (§2.3).
+- `validate_pack` loads the plugin's pack and reports its coverage of the source (a development checkout's
+  step 4.5).
+- `log` appends the run's entry to `.kg/PROGRESS.md`, written from the saved results: the best Stage-4 pass
+  and the number of passes, α, the gate. `iterations` is the orchestrator's own text (the refinements made or
+  recommended, or "none"). Returns the `entry` appended.
+
+A step that cannot run as asked answers `ok: false` with `error`; a `run` that is not the id a `sample` returned
+is refused before it names a folder.
+
+### 1.36 `mcp__plugin_burgess_burgess__kg_experiment(step, run="", prompts="", prompt_source="", judge_note="")`
+
+One step of `/burgess:kg-experiment` (0.28.0), run in the engine for the same reason as §1.35. Only the opt-in
+LightRAG arm keeps a Bash step: it sends the whole source to OpenAI with the user's key and costs money, so the
+approval it asks for is kept.
+
+- `start` opens a run and returns `run`, `prompts_path` (where the run's prompt set lives), `prompts` (the
+  user's file, when `prompts` named one: read by the engine, saved at `prompts_path`), `demo_source` (whether
+  the source is the plugin's demo), `legacy_log`, `lightrag` {available, reason} (read from the engine's
+  environment), `judge` (`judge.control_capacity`: `judge_possible`, `problems`, …), `rag_dir`,
+  `outputs_path` and `judge_dir`.
+- `rag` writes the rag arm's passages into `rag-<run>/` (`harness rag-slices`).
+- `score` runs `harness ideation` on `ideation_outputs.json` against the source and `harness evaluator-order`,
+  saves both as `score-<run>.json`, keeps the outputs and their two drafts as `ideation_outputs*-<run>.json`,
+  and returns `ideation` and `evaluator_order`.
+- `judge_packets` checks the controls in `judge-<run>/private/controls.json` and writes one packet per prompt:
+  `judges` lists each packet with the verdict file its judge writes. `ok: false` with `failures` when a control
+  failed its check; no packet is written then.
+- `judge_score` aggregates the judges' verdicts (`harness judge-aggregate`), saved as `judge_score-<run>.json`.
+- `log` appends the run's entry to `.kg/PROGRESS.md` (an `# Experiment log` header opens a new file), written
+  from the saved scores: the table of arms, the verdicts, the support check, each caveat, the evaluator's
+  order and the judge. `prompt_source` says where the prompts came from; `judge_note` why a `--judge` run did
+  not judge.
+
+### 1.37 `mcp__plugin_burgess_burgess__kg_perturb_plan(arguments="")`
+
+Plan a `/burgess:kg-perturb` from its typed `$ARGUMENTS`, passed verbatim (0.28.0; through 0.27.0 a Bash block
+with a `case` classified the path, and the read block refused it). The engine strips the quotes and resolves a
+relative path against the project:
+
+- no argument → `mode: "degrade"` (ensemble degrades to `regroup`);
+- a `.json` file → `mode: "graph"`, `second_graph`;
+- any other file → `mode: "source"`, `construction` (the file's name without its extension, lowercased, each
+  run of other characters a hyphen, as the block named it), `second_source` (absolute), `source_file`,
+  `sections`, and `own_source` (whether the file is one of the graph's own sources).
+
+A path that names no file is refused (`ok: false`) before anything is built, so an argument left unfilled can
+never pass for "no second source". It reads only.
+
 ## 1B · The divergence surface (`kg_diverge_*`) — eight tools
 
 The divergence engine (`scripts/kg_engine/divergence/` — embedder, MAP-Elites archive, k-NN novelty, DPP
@@ -2078,7 +2161,9 @@ run that took ten permission prompts and about two hours).
 
 ## 2 · Deterministic CLI surface
 
-Run via Bash, with the engine's own interpreter. `scripts/engine_python.mjs` prints it, resolved the way the
+The commands no longer run these (0.28.0): `/burgess:kg-eval` and `/burgess:kg-experiment` run the same functions
+through `kg_eval` (§1.35) and `kg_experiment` (§1.36). The command lines stay for a development checkout and CI.
+Run them via Bash, with the engine's own interpreter. `scripts/engine_python.mjs` prints it, resolved the way the
 plugin's launcher resolves it (`.venv\Scripts\python.exe` on Windows, `.venv/bin/python` elsewhere); each Bash
 call is a fresh shell, so resolve it in the same call that uses it:
 
@@ -2443,7 +2528,10 @@ errors}`.
 | recall a brief's pins/discards/comparisons | `kg_diverge_recall(project)` |
 | carry pinned ideas, or mapped clichés, into the hypothesized lane | `kg_diverge_materialize(project, …)` |
 | save every idea of a diverge session to a file | `kg_diverge_export(project, brief)` |
-| score extraction precision | `f4_probe.py summary|sheet|fill|score` |
+| run a step of /burgess:kg-eval (sample, score, α, gate, log) | `kg_eval(step, run=?, …)` |
+| run a step of /burgess:kg-experiment (start, rag, score, judge, log) | `kg_experiment(step, run=?, …)` |
+| classify /burgess:kg-perturb's argument | `kg_perturb_plan(arguments)` |
+| score extraction precision from the command line | `f4_probe.py summary|sheet|fill|score` |
 | who wrote the sampled edges, and their verdicts | `kg_engine.harness writers` |
 | validate the pack / glossary coverage | `kg_engine.pack validate|coverage` |
 | inter-annotator agreement | `kg_engine.harness agreement` |
