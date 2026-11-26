@@ -262,9 +262,8 @@ deleted one bring nothing new to extract. Through 0.25.2 such a section was neve
 added to it never reached the graph. A project built before 0.26.0 has no record of the text its sections were
 read at: the first build after the update takes their text at that moment as the starting point, so an edit
 made before it goes unseen. `/burgess:kg-build --again <file>` reads a file you edited since its build again,
-whole. The plan also counts the claims whose sentence is no longer in your notes (`spans_gone`): an unverified
-one is rejected at the next `/burgess:kg-ground` unless the build writes it again from the new text, and a
-grounded one keeps its verdict for now.
+whole. The plan also counts the claims whose sentence is no longer in your notes (`spans_gone`), and the next
+`/burgess:kg-ground` judges each one again.
 
 **The extractors start without your notes.** Since 0.14.2 an extractor starts without your CLAUDE.md files
 and without Claude Code's memory index, which a subagent gets by default, as the grounders have since
@@ -431,6 +430,16 @@ sections of your sources that share the most of its words, rare words counting m
 source text at all, and could only search the passages other claims already cited. Through 0.6.1 the orchestrator pulled the whole
 queue at once, and on a large graph read it back with scripts, which in auto mode stopped on
 permission prompts.
+
+**A claim whose sentence you edited is judged again** (0.27.0). When you rewrite or delete the sentence a claim
+quotes, the next pass gives that claim to a grounder with the paragraphs of the file as they read now. If the
+new text still states the claim, the grounder grounds it on the new passage, and the claim cites that passage
+from then on; the old one stays in its notes. If nothing states it any more, the claim becomes `obsolete`: it
+leaves the graph's structure without counting as a refutation, and comes back to be judged if you restore the
+sentence or a build reads new text of that file about it. A claim whose file is no longer among your sources
+(moved, renamed, or a different notes folder) is not judged at all: the pass names the file instead, because
+that looks the same as every sentence of the file deleted. Through 0.26.0 a grounded claim kept resting on the
+deleted sentence, and an unverified one was rejected, which barred it for good.
 
 **A pinned idea that no source supports waits.** The grounder leaves it unverified rather than rejecting it,
 and records that, so later passes leave it out until you add or edit a source (0.20.1). Naming it as the focus

@@ -258,8 +258,11 @@ def test_multi_source_kg_write_verifies_per_file(vault, tmp_path):
 
 def test_re_grounding_clears_the_stale_flag(vault, tmp_path):
     """The only way the stale advisory changes is a re-grounding (it never mutates a verdict itself):
-    a grounded edge whose span the source lost is flagged; re-grounding it to `rejected` (the claim no
-    longer holds) drops it from the grounded/failed set, so the next projection clears the flag."""
+    a grounded edge whose span the source lost is flagged; re-grounding it drops it from the grounded/failed
+    set, so the next projection clears the flag. Since 0.27.0 that verdict is `obsolete` (the claim's passage
+    left its file: superseded, not refuted); through 0.26.0 it was `rejected`, which kg_ground now refuses for
+    a live claim whose passage is gone (`span-gone-not-rejected`). The edge names no file, and the source is one
+    file, so that file is its own (`KGEngine._own_file`)."""
     import os
     from pathlib import Path
     from kg_engine.server import KGEngine
@@ -283,8 +286,9 @@ def test_re_grounding_clears_the_stale_flag(vault, tmp_path):
     stale = eng.projector.kg_context()["advisory"]["stale_verdicts"]
     assert {s["edge_id"] for s in stale} == {eid}
 
-    # re-ground it to rejected; the next projection (source unchanged) re-filters it out -> cleared
-    eng.kg_ground(eid, "rejected", note="source no longer supports this")
+    # a rejection is refused; obsolete is the verdict, and the next projection (source unchanged) clears it
+    assert eng.kg_ground(eid, "rejected", note="source no longer supports this")["error"] == "span-gone-not-rejected"
+    assert eng.kg_ground(eid, "obsolete", note="the source no longer says this")["ok"]
     eng.projector.project()
     assert eng.projector.kg_context()["advisory"]["stale_verdicts"] == []
 

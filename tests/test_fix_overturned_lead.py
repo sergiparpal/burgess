@@ -110,12 +110,22 @@ def test_a_new_lead_replaces_the_withdrawn_one(eng):
     assert [x["lead"] for g in eng.kg_build_plan("--leads")["leads"] for x in g["leads"]] == [OTHER]
 
 
-@pytest.mark.parametrize("verdict", ["failed", "obsolete"])
+@pytest.mark.parametrize("verdict", ["failed", "grounded"])
 def test_any_change_of_state_withdraws_the_lead(eng, verdict):
+    # Through 0.26.0 this ran `obsolete` too. Since 0.27.0 `obsolete` never follows a rejection (a rejected claim
+    # is negative memory, and obsolete is for a live claim whose passage left its file, which never has a lead),
+    # so `grounded` stands in as the second change of state.
     _reject_with_the_lead(eng)
     out = eng.kg_ground(EDGE, verdict, note="t")
     assert out["ok"] and out["lead_withdrawn"] == OVERTURNED, out
     assert lead_of(_notes(eng)) is None
+
+
+def test_obsolete_never_follows_a_rejection(eng):
+    _reject_with_the_lead(eng)
+    out = eng.kg_ground(EDGE, "obsolete", note="t")
+    assert not out["ok"] and out["error"] == "obsolete-not-for-negative-memory", out
+    assert lead_of(_notes(eng)) == tuple(OVERTURNED.split())
 
 
 def test_a_change_of_state_with_no_lead_to_withdraw_adds_nothing(eng):

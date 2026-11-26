@@ -122,7 +122,11 @@ def test_read_units_reads_what_read_record_writes():
     got = read_units(["not json", "[1]", '{"file": 3}', good, later, '{"file": "x", "units": 1, "at": "t"}',
                       '{"file": "x", "uni'])
     assert got == {FILE: {"units": {unit_digest("Uno."), unit_digest("Dos."), unit_digest("Tres.")},
-                          "at": "2026-11-25T11:00:00+00:00"}}
+                          "at": "2026-11-25T11:00:00+00:00",
+                          # 0.27.0: the earliest record of each unit, when, by whom, and its audit mark
+                          "first": {unit_digest("Uno."): ("2026-11-25T10:00:00+00:00", "write", None),
+                                    unit_digest("Dos."): ("2026-11-25T10:00:00+00:00", "write", None),
+                                    unit_digest("Tres."): ("2026-11-25T11:00:00+00:00", "baseline", None)}}}
     assert json.loads(good)["by"] == "write"
 
 
@@ -316,7 +320,7 @@ def test_the_record_holds_the_digests_of_what_was_read(eng):
     (line,) = _lines(eng)
     assert line == {"file": FILE, "section": 1, "title": "Argumento", "text_sha256": section_digest(text),
                     "units": [unit_digest(f"{CLAIM}."), unit_digest(f"{SECOND}.")], "at": line["at"],
-                    "by": "write"}
+                    "by": "write", "audit_mark": 0}           # 0.27.0: the audit log's size then (none yet)
 
 
 # ---- claims whose sentence is gone -------------------------------------------------------------------

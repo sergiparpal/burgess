@@ -192,6 +192,18 @@ that recorded it (0.11.1): a verdict that changes the edge's state and records n
 `lead: none`, which withdraws it, so a lead whose rejection was overturned is never offered again. Every legitimate transition appends one record to the append-only audit
 ledger `<project>/.kg-ground-audit.jsonl` (with a `.ckpt` sidecar for O(1) recovery).
 
+**A claim whose passage left its file (0.27.0, `KGEngine._span_gone`).** An edge with a span of its own whose file
+is among the sources but no longer holds that span (a sentence deleted or rewritten) is judged again on the text
+as it reads now, and takes one of two verdicts. `grounded` with a `support_span`, the passage that states it now,
+which must lie in a file the graph is built from (`_reanchor`): its `span` and `source_file` move there, the old
+span stays in its notes as a `span was:` segment, and a grounded claim keeps its `verdict_at`. Or `obsolete`,
+superseded, which leaves live topology without becoming negative memory. A live claim whose passage is gone is
+never rejected (`span-gone-not-rejected`), since a rejection would bar it for good if the sentence came back;
+`obsolete` is refused on a claim whose span still verifies, on one with no span of its own, and on a rejected or
+failed claim. A claim whose file is not among the sources (`_own_file`: moved, renamed, another notes folder) takes
+no verdict but `failed`. A re-anchor is the only way a judged claim's span moves: a `kg_write` re-emit of it is
+quarantined (`collapses-into-known-verdict`, §3.3), and the reconciler polices states, not spans.
+
 **External sources (0.21.0, `evidence.py`).** Through 0.20.2 every verdict was judged against the configured
 sources, the user's own notes, so `grounded` meant "my notes say it", and the only outside support was a
 `support_note` the engine could not check. `kg_source_add` registers an outside text: the engine fetches the
@@ -323,7 +335,9 @@ source-payload hash so they refresh whenever the source set moves — neither ev
 (re-grounding stays a `kg_ground` decision); since 0.22.4 `kg_ground_plan` reads the second to queue its
 rejected items for a second look:
 - **R3 stale verdicts** (`stale_verdicts`) — a `grounded`/`failed` **span-present** edge whose stored
-  span no longer verifies against its source file (the evidence *shrank*).
+  span no longer verifies against its source file (the evidence *shrank*). Since 0.27.0 `kg_ground_plan` does
+  not read this list: it finds the live claims whose passage left their file itself (`span_gone`, §3.4), with
+  spans of any non-hypothesized provenance, and the obsolete ones that come back.
 - **R3-mirror re-examinable verdicts** (`reexaminable_verdicts`) — a `failed`/`rejected` item (nodes and
   **span-less** items included) that was judged against a source set which has since **grown or changed**
   (non-monotonic evidence), filtered to items whose text overlaps the changed source (`source_file_sigs`

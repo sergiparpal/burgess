@@ -73,7 +73,9 @@ Find what is actually pending before spending any subagent budget.
      queued again with `--reexamine`. `reexaminable` (0.22.4) counts the rejected items queued again because a
      source changed after they were judged (Stage 0c), and `reexaminable_held` those held back because no
      source that flagged them is usable. Each such item comes marked `"reexamine": true`: in a batch, list it as
-     `<id> (node, re-examine)` or `<id> (edge, re-examine)`.
+     `<id> (node, re-examine)` or `<id> (edge, re-examine)`. `spans_gone` (0.27.0) counts the claims whose passage
+     left their file (Stage 0b), each marked `"span_gone": true`: list it as `<id> (edge, span gone)`.
+     `obsolete_returned` counts the obsolete claims that come back, marked `"reexamine": true` like the others.
    - `wave_size` and `wave_size_from`: how many grounders run at once (the `extract_wave_size` option, else 6),
      and `waves`.
    - `hubs[]`: the candidates for Stage 2, the nodes with the most live claims (refuted edges and counter-edges
@@ -87,6 +89,8 @@ Find what is actually pending before spending any subagent budget.
      0.22.0) and the project's `required_level`. A source the policy accepts, registered or edited since the
      last pass, or a looser policy, brings back the items that were waiting for new sources; a source it does
      not accept, or a stricter policy, does not (0.22.1).
+   - `files_missing` (0.27.0): set when live claims cite a file that is not among the sources and no source holds
+     their spans, with how many per file (Stage 0b). Nothing judges them.
    - `blocked` (0.22.1): set when no source is usable under the project's policy, even when nothing was left
      out (0.22.2). Its `items` (the hypotheses: no source can ground them, and none may be rejected for its
      level) and `hubs` (an attack could fail nothing) are left out of the batches, which then hold only
@@ -100,8 +104,10 @@ Stop and report "queue empty — nothing to ground" **only if** the plan has **n
 no hub candidates; when `attacked_hubs` is not empty, add that every hub has been attacked and none has gained
 a grounded claim since, and when `queue.leads_pending` is not 0, that that many leads wait for
 `/burgess:kg-build --leads`. When `queue.unsupported_waiting` is not 0, say in either case that that many pinned
-ideas wait for sources that support them, and that naming one as the focus asks for a fresh look. Otherwise
-tell the user in a line what this pass covers: items, batches, waves and hubs.
+ideas wait for sources that support them, and that naming one as the focus asks for a fresh look. When
+`files_missing` is set, say in either case how many claims cite files that are not among the sources, name the
+files, and give its `hint`. Otherwise tell the user in a line what this pass covers: items, batches, waves and
+hubs.
 
 > **Alternative prioritization (optional).** `mcp__plugin_burgess_burgess__kg_agenda()`'s
 > `blocked_on_grounding[]` lane is a read-only structural shortlist of what grounding would unblock. You may
@@ -109,31 +115,32 @@ tell the user in a line what this pass covers: items, batches, waves and hubs.
 > distinct mechanisms that proposed the same edge) may be displayed, and only once the harness gate is ON may
 > it reorder which batch goes first; it **never** decides a verdict or lets an item skip grounding (G5).
 
-## Stage 0b — Drain stale verdicts (source-staleness advisory, R3)
+## Stage 0b — Claims whose passage left the notes (0.27.0)
 
-A grounded/`failed` **span-present** edge's stored `span` is a snapshot taken when it was verdicted. If the
-source was later edited so that span no longer appears, the verdict is now resting on text that is gone. The
-projector recomputes this off the hot path and surfaces it (read-only — it **never** mutates the verdict):
+A claim's `span` is the sentence of the notes it was extracted from. When the user deletes or rewrites that
+sentence, the claim rests on text that is gone: `kg_context`'s `advisory.stale_verdicts[]` lists the grounded and
+`failed` ones (`span-no-longer-in-source`, read-only).
 
-1. In Stage 0's `kg_context` advisory, read
-   `advisory.stale_verdicts[]`. Each entry is `{edge_id, reason: "span-no-longer-in-source"}`: a grounded or
-   `failed` edge whose stored span no longer verifies against its source file. (Empty when nothing diverged —
-   the common case; if so, skip to Stage 1.)
-2. Route these `edge_id`s to one extra `kg-grounder` launch (the Stage 1 template, with these ids as its batch
-   and a line saying they are stale verdicts) to **re-verify against the current source**. Searching the
-   configured source files for where the claim moved is the one step where the grounder reads a file:
-   - if the claim still holds but the span **moved to new text** → the stored span must be relocated, which is
-     a canon edit, so re-emit the edge with the new verbatim span via
-     `kg_write({"edges": [{"source": ..., "target": ..., "relation": ..., "span": "<the new verbatim span>"}]})`.
-     Do **not** use `kg_ground(..., support_span=...)` for this: `support_span` only supports promoting a
-     *hypothesized* item — it is ignored for a span-present edge, so the stored span never moves and the flag
-     would persist. The span edit re-opens the edge for grounding, and Stage 1 re-verdicts it against the live
-     text.
-   - if the source no longer supports it at all → `kg_ground(edge_id, verdict="rejected", note="source no
-     longer supports this span")`.
-   The advisory is a **heuristic, not a verdict**: the flag clears on the next projection once the edge leaves
-   the grounded/`failed` set (re-grounded to `rejected`, or re-opened by the span edit) **or** its stored span
-   verifies again — never by editing `epistemic_state` directly to silence it (§1.4/§1.8).
+1. **Do not route them yourself.** The plan already holds every grounded or unverified claim whose span left its
+   file, as items marked `"span_gone": true` (`queue.spans_gone`): the grounded ones after everything new, the
+   unverified ones in their usual place. Their grounders get the sections of the file as it reads now
+   (`kg_ground_item`'s `span_gone`) and give one of two verdicts: grounded on the passage that states the claim
+   now, which moves its span there, or `obsolete`, superseded. The engine refuses to reject such a claim: that
+   would be permanent negative memory for a sentence the user edited, and would bar the claim if the sentence
+   came back. Tell the user in a line how many come back for this, and why.
+2. Obsolete claims come back too (`queue.obsolete_returned`, marked `"reexamine": true`): those whose sentence is in
+   their file again, and those whose file a build has read new text of since their verdict that shares their
+   words. Say how many.
+3. `files_missing`, when set, counts the claims that cite a file no longer among the sources, per file: a file
+   moved or renamed, or another notes folder. Nothing judges them, because a configuration change looks the same
+   as every sentence of a file deleted at once. Tell the user, name the files, and give its `hint`.
+4. A `failed` claim whose span left its file stays as it is: an adversarial grounder refuted it with a
+   counter-edge, whose span still stands.
+
+Through 0.26.0 this stage launched one grounder over the stale verdicts and had it search the source files. A
+claim whose span had moved was to be written again with `kg_write`, which the engine quarantines as a claim already
+judged (`collapses-into-known-verdict`), so its span never moved and its flag stayed. One whose text was gone was
+rejected, and an unverified claim whose span was gone was rejected too.
 
 ## Stage 0c — Reconsider re-examinable verdicts (R3-mirror — source set changed since judged)
 
@@ -194,6 +201,7 @@ items:
 - idea-cold-brew-launch-c3 (node)
 - cliche-cold-brew-launch-o2 (node, re-examine)
 - e_cold-brew-launch__bridges__summer-menu (edge, re-examine)
+- e_summer-menu__grounds__cold-brew-launch (edge, span gone)
 
 For each item, call mcp__plugin_burgess_burgess__kg_ground_item(target_id: "<id>", kind: "<edge|node>") and
 judge it from what it returns: the edge and its span, span_in_source, its two nodes, and the context excerpt
@@ -215,17 +223,26 @@ An item marked re-examine that is not grounded was rejected before and is judged
 a node the user asked to have judged again, or an item a source changed under since its verdict, which then
 comes with reexamine, the sections of that source that share its words. Judge it on those as well, and stamp
 your verdict even though its `from` is that rejection: a rejection again is a verdict too, and it answers the
-re-examination. Then apply ONE verdict with
+re-examination. An item marked span gone has lost its passage: the user deleted or rewrote the sentence its span
+quotes, and kg_ground_item gives span_gone, the sections of its file as it reads now. If a passage there states
+the claim, ground it with that passage as support_span (the engine moves its span there); if nothing states it
+any more, mark it obsolete with a note on what the text says now. Never reject it for this, and stamp it even
+though its `from` may be grounded. An item marked re-examine that is obsolete came back because its sentence
+returned or new text of its file shares its words: judge it on its span when span_in_source is true, else on
+span_gone, the same way. Then apply ONE verdict with
 mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), per your contract:
   - grounded: span_in_source is true, the excerpt shows the span stating THIS relation in this direction,
     between what the two nodes name, as your contract's relation table defines it, and the relation is
     specific and falsifiable. A table row states a relation when the table's header says what its cells are.
-  - rejected: span_in_source is false; the span does not state the relation (a bare label, a cell its
+    For an item whose passage is gone, the passage you cite as support_span is the one that does this.
+  - rejected: the span does not state the relation (a bare label, a cell its
     header relates to nothing, or its opposite); it states another relation, such as a precondition
     (`enables`) filed as `grounds` (note reason `wrong-relation`); it states the relation for a concept
     narrower or broader than one of the nodes (`wrong-node`); or the edge is true only by being vague
     (`vague`). For `wrong-relation` and `wrong-node`, pass the edge the span does state as kg_ground's
-    `lead`: "<head-id> <relation> <tail-id>".
+    `lead`: "<head-id> <relation> <tail-id>". Never for an item whose passage is gone.
+  - obsolete: only for an item whose passage is gone (span_in_source false, with span_gone) that no passage
+    states any more, with a note on what the text says now.
   - a hypothesized item is grounded only with support (a support_span copied from the context, from
     shared_context's excerpts or from its passage, placeholders included, or a support_note); a
     [diverge]-pinned item without support stays unverified, and you record it with
@@ -247,7 +264,8 @@ full reproject because the reconciler re-attaches them (§1.8).
 
 **Progress probe.** Between waves, or after a hiccup, call `kg_ground_plan` again with the same two arguments:
 an item drops out of it once it has a verdict, so its `batches` are exactly the work left. Re-launch only
-those. A re-examined item drops out once a grounder has given it a new verdict, whatever it is (0.22.4). A
+those. A re-examined item drops out once a grounder has given it a new verdict, whatever it is (0.22.4), and an
+item marked span gone once its span has moved or it is obsolete (0.27.0). A
 `[diverge]` pin a grounder left `unverified` for want of support drops out of the plan once the
 grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`; since 0.22.0
 so does a claim whose only support lies below the project's required level. One it did not record stays in the
@@ -331,7 +349,7 @@ as much as confirmation (source §4).
 Both subagents have applied verdicts. Re-read the engine and present the delta — do NOT re-verdict anything.
 
 1. `mcp__plugin_burgess_burgess__kg_metrics()` → show the new `edges_by_epistemic_state`. Print a before/after diff
-   against the Stage 0 baseline for `unverified` (should drop), `grounded`, `rejected`, and `failed`.
+   against the Stage 0 baseline for `unverified` (should drop), `grounded`, `rejected`, `failed` and `obsolete`.
 2. `mcp__plugin_burgess_burgess__kg_context(query="$ARGUMENTS")` → read `falsification_counters` and report
    `falsification_counters.failed_or_rejected_edges` as the size of the negative-information memory. Also note
    `approx_tokens` vs `budget` if context was requested for downstream use. This read projects the pass's
@@ -342,7 +360,7 @@ Render a summary like:
 ```
 Grounding pass complete.
   queue drained : unverified  N → M
-  verdicts      : grounded +g, rejected +r, failed +f
+  verdicts      : grounded +g, rejected +r, failed +f, obsolete +o
   memory        : falsification_counters.failed_or_rejected_edges = K  (never pruned, §1.7)
   hubs attacked : <hub list> → C counter-edges, R recorded with none
 ```
@@ -353,6 +371,10 @@ record keeps the hub out of the next plan until the hub gains a newer grounded c
 List every idea attacked (0.25.0) apart: refuted (held, then confirmed by a second grounder, and now `failed` for
 good), declined by the second grounder, or recorded as limited by the passage, each with what the passage does to
 it. A held refutation still unanswered when the pass ends is waiting for its second grounder: say so.
+
+List every claim whose passage had left its file (0.27.0) apart: each one whose span moved, with the passage it
+now cites, and each one now obsolete, with what the grounder says the text says now. An obsolete claim is not a
+refutation, and it comes back if its sentence does. Name the files `files_missing` listed, if any.
 
 List every grounding judged again with `--reexamine` (0.24.7), each re-confirmed or withdrawn, with the reason the
 grounder gave: a withdrawn pin is back among the waiting pins, recorded unsupported, and its old support stays in
@@ -394,7 +416,7 @@ deliberate node-merge tool: it rewrites + dedups the colliding edges (negative i
 - It gives each grounder its item ids and nothing else: the rules are in the grounders' contracts, which every
   batch reads alike (0.8.1).
 - It uses only the declared vocabulary: the counter-edges' weapons `attacked_by`, `confounded_by` and
-  `collapses_into`, `epistemic_state` values `unverified|grounded|rejected|failed`, verdict reason `vague` for
+  `collapses_into`, `epistemic_state` values `unverified|grounded|rejected|failed|obsolete`, verdict reason `vague` for
   generality-confound rejections (§1.6).
 - An unfocused pass attacks each hub once until the hub gains a grounded claim: the counter-edges carry the
   hub's mark, and the plan leaves an attacked hub out of `hubs[]` (0.8.0). So the passes end; through 0.7.0
