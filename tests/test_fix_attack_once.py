@@ -136,6 +136,10 @@ def test_an_attacked_by_edge_without_the_mark_is_a_claim(eng):
 
 @pytest.mark.parametrize("state", sorted(NON_LIVE_STATE_VALUES))
 def test_a_dead_claim_does_not_count(eng, state):
+    if state == "obsolete":
+        # 0.27.0: obsolete is for a claim whose passage left its file, so the sentence goes first. The two other
+        # claims that quote it stay grounded, and live, until their own verdicts.
+        Path(eng.source_path).write_text(DOC.replace(f"{CENTRO}.\n\n", ""), encoding="utf-8")
     assert eng.kg_ground(edge_id("centro", "grounds", "a"), state, note="t")["ok"]
     assert _hubs(eng) == (["otro"], [])                         # centro is down to two live claims
 

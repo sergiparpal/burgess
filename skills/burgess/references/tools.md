@@ -252,6 +252,35 @@ leaves both as they are, so they record who put the edge in its state and when. 
 still appended, and the audit log records the call. Note: the return `key` for a node verdict is
 `node:<id>`; for an edge it is the edge id.
 
+**A claim whose passage left its file (0.27.0, `KGEngine._span_gone`).** An edge with a span of its own whose file
+is among the sources but no longer holds that span (a sentence deleted or rewritten) is judged again on the text
+as it reads now (`kg_ground_plan` marks it `span_gone`, §1.21; `kg_ground_item` gives `span_gone`, §1.22). It takes
+one of two answers:
+- **`grounded` with `support_span`**, the passage that states it now (`KGEngine._reanchor`), from whatever state:
+  a rejected claim judged again because its file changed moves the same way. The passage must
+  verify in a file the graph is built from, the notes or a registered source with `build`
+  (`passage-not-in-built-sources`), and the claim, once moved, must rest on usable support (`support-not-usable`).
+  Its `span` moves to the passage and its `source_file` to the file that holds it, its own file first. The old
+  span stays in the notes as the segment `span was: {"span": …, "source_file": …}` (`evidence.span_was_segment`),
+  and the return carries `"reanchored": {"source_file", "from_file"}` with `"support_source"`. A grounded claim keeps
+  its `verdict_at`, as any re-confirmation does, so a hub it belongs to is not reopened. Without a passage the
+  verdict is refused (`span-gone-needs-passage`).
+- **`obsolete`**, superseded: the claim leaves live topology, is not negative memory (no falsification counter
+  counts it), and stays in the canon. It comes back to `kg_ground_plan` when its span verifies again, or when a
+  build reads new text of its file that bears on it (§1.21).
+
+Such a claim is never rejected (`span-gone-not-rejected`): a rejection is permanent negative memory, and would bar
+the claim if the sentence came back. A refutation (`failed`) is about the claim, not its passage, and stays open.
+`obsolete` is refused on an edge whose span still verifies (`obsolete-span-still-present`), on one with no span of
+its own such as a proposal (`obsolete-needs-a-span`), and on a rejected or failed claim
+(`obsolete-not-for-negative-memory`). A claim whose span no source holds and whose file is not among the sources (a
+file moved or renamed, another notes folder, or a claim naming no file among several, `KGEngine._own_file`) gets no
+verdict but `failed` (`span-file-not-among-sources`): a configuration change looks the same as every sentence of a
+file deleted at once. A claim naming no file belongs to the one file the graph is built from, when there is
+exactly one. Nodes are unchanged. Through 0.26.0 a gone claim could be grounded again without a passage, its
+grounder rejected an unverified one as not in the source, `obsolete` was accepted on any edge, and the only way to
+move a judged claim's span, a `kg_write` re-emit, was quarantined (`collapses-into-known-verdict`).
+
 **Withdrawing a pin's grounding (0.24.7, `KGEngine._withdraw_support`).** `verdict="unverified"`, `kind="node"`, with
 a `note` saying what the passage lacks. It is not a verdict state: the one path back from `grounded` for a
 `[diverge]` pin, which a grounder never rejects for want of support. It is accepted only for a grounded node that
@@ -963,11 +992,13 @@ ledger.
   then on an edit is seen; one made before it is not, and `--again` (below) reads such a file. The plan takes the
   lease without waiting: a held one gives `{"sections": 0, "files": [], "not_recorded": n}`, and the next plan,
   or the file's first extraction record, lays it.
-- `spans_gone` (0.26.0, `{grounded, unverified, grounded_ids}`) — the claims whose span no longer verifies against
-  the planned files: a sentence deleted or rewritten after they were written. A grounded one keeps its verdict,
-  and no command examines it again yet. An unverified one is rejected by its grounder (`span_in_source` false)
-  unless an extraction of the new text writes it again with a span that holds (0.23.1). `grounded_ids` lists up
-  to 10.
+- `spans_gone` (0.26.0, `{grounded, unverified, grounded_ids}`) — the live claims whose span the planned files no
+  longer hold: a sentence deleted or rewritten after they were written. Since 0.27.0 the next `/burgess:kg-ground`
+  judges each one again (§1.4): grounded on the passage that states it now, which moves its span there, or
+  obsolete. An unverified one an extraction of the new text writes again with a span that holds takes that span
+  at the write (0.23.1). A claim whose file is not among the sources is not counted here (§1.21's
+  `files_missing`). `grounded_ids` lists up to 10. Through 0.26.0 a grounded one kept its verdict unexamined, and
+  an unverified one was rejected by its grounder.
 - **`--again` first on the line (0.26.0)** marks every covered section of the subset `changed`
   (`{again: true, units}`), and the plan carries `again: true`. It needs a subset (else `ok: false`), and it does
   not go with `--leads`.
@@ -1107,6 +1138,25 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
   verdict or an unsupported record answers it. With nothing usable, the held items are counted in `blocked`.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
   for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
+- **`queue.spans_gone` (0.27.0):** the claims whose passage left their file (`KGEngine._span_gone`: the file is
+  among the sources and no longer holds the span, a sentence deleted or rewritten), each item
+  `{id, kind: "edge", span_gone: true}`, in the focus like any item. A grounded one comes after everything new; an
+  unverified one stays in its usual place and is counted in `queue.edges` too. Its grounder grounds it on the
+  passage that states it now, which moves its span there, or marks it obsolete (§1.4). A held one is queued only
+  to be confirmed. With nothing usable they are counted in `blocked`, since the passage they may move to cannot be
+  checked for support. Through 0.26.0 the command's Stage 0b routed the R3 advisory's stale verdicts (§1.11) to a
+  grounder, whose remedies did not work: a moved claim was to be re-emitted with `kg_write`, which quarantines a
+  claim already judged, and one whose text was gone was rejected, as was every unverified claim whose span was gone.
+- **`queue.obsolete_returned` (0.27.0, `KGEngine._obsolete_returns`):** the obsolete claims judged again, marked
+  `reexamine: true`, after everything new: one whose span verifies again (a sentence restored, an edit undone), and
+  one whose own file a build read new text of since its verdict (a paragraph no read of that file held before,
+  `buildplan.read_units`' `first`) that shares `BEARING_WORDS` (3) of its words. A plan's baseline is not a read.
+  Any verdict answers it, so `obsolete` is not a one-way door.
+- **`files_missing` (0.27.0):** `null`, or `{grounded, unverified, files: [{file, claims}], hint}`: the live claims no
+  source holds whose file is not among the sources (a file moved or renamed, another notes folder; `file: null` for
+  claims that name no file when the graph is built from several). They are not queued, because a configuration
+  change looks the same as every sentence of a file deleted at once, and `kg_ground` takes no verdict on them but
+  `failed`. The whole canon's, whatever the focus.
 - **The order:** `[diverge] pinned` items first, then the other hypothesized ones, then the text edges their
   extractor marked weak (`confidence: AMBIGUOUS`, or a `confidence_score` under 0.5; counted in
   `queue.weak_edges`), then the other text edges. Inside each group the order is the source's (file, then the
@@ -1121,7 +1171,7 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
     grounder rejected the node while another grounded an edge into it.
 - **An item is `{id, kind}`:** an edge id already names its endpoints and relation
   (`e_<source>__<relation>__<target>`); the grounder fetches the rest with `kg_ground_item`. An item judged
-  again carries `reexamine: true` as well.
+  again carries `reexamine: true` as well, and a claim whose passage left its file `span_gone: true` (0.27.0).
 - `focus` — the command's typed `$ARGUMENTS`: keeps the items that touch a node it names (every content word
   of the focus among the node's id or label words, singular or plural, accents ignored). Empty = everything.
 - `configured_wave_size` — the `extract_wave_size` option as the command text carries it, the same channel as
@@ -1130,9 +1180,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 
 ```json
 {"ok": true, "focus": null,
- "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "reexamine": 0, "reexaminable": 0,
-           "reexaminable_held": 0, "confirm": 0, "extractor_nodes_not_queued": 399, "unsupported_waiting": 0,
-           "leads_pending": 0},
+ "queue": {"edges": 168, "weak_edges": 7, "nodes": 0, "spans_gone": 0, "obsolete_returned": 0, "reexamine": 0,
+           "reexaminable": 0, "reexaminable_held": 0, "confirm": 0, "pin_attacks": 0,
+           "extractor_nodes_not_queued": 399, "unsupported_waiting": 0, "leads_pending": 0},
  "batch_size": 12, "wave_size": 6, "wave_size_from": "default",
  "batches": [[{"id": "e_meta-radar__approximates__riesgo", "kind": "edge"}]],
  "waves": 3,
@@ -1189,6 +1239,16 @@ a `terms` request is recorded (0.24.6).
 
 - `span_in_source` — the engine's own check, now: does the span still verify against its file? `false` is a
   stale or broken span; `null` for a span-less (hypothesized) edge. Registered external copies count (0.21.0).
+- `span_gone` (0.27.0, `KGEngine._span_gone_view`) — for a claim whose passage left its file (`span_in_source`
+  false, its file among the sources) that is not failed: a live or obsolete one, or a rejected one judged again
+  because its file changed (§1.21's `queue.reexaminable`): `{span, source_file, terms, sections,
+  sections_total, elsewhere, also_present, rule}`. `span` and `source_file` are the old passage and its file.
+  `sections` holds up to 3 sections of that file as it reads now, ranked by the claim's words (its two ends' labels
+  and its old span) as a node's `source_context` is, whatever the file's level (`_file_context`): the passage that
+  states a claim is where it is stated, and its support is checked when it is grounded. `elsewhere` lists the other
+  files the graph is built from that hold the old span word for word, and `also_present` the `also stated:`
+  passages (0.23.1) that still verify, each with its `context`. `null` for every other edge. Its grounder grounds it
+  on the passage that states it now, as `support_span`, or marks it obsolete (§1.4).
 - `span_source` (0.21.0) — where the span lies: a configured source's label (`class: "own"`, `file`, its
   `level` and `level_name` from the policy, `role`, `marks`, `usable`), a registered external source's label
   (`class: "external"`, the same plus `title`, `url`, `published`, `build`), `{"class": "none"}` when no file holds

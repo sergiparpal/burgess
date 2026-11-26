@@ -137,8 +137,9 @@ section is, say so, launch nothing, and go on to step 2.
 When the plan has `baseline`, say in a sentence that from now on the engine notices a built section whose text
 changes, and that it could not see an edit made to these files before: `/burgess:kg-build --again <file>` reads
 a file the user edited since its build. When it has `spans_gone`, say how many claims quote a sentence the notes
-no longer hold. Unverified ones are rejected by `/burgess:kg-ground` unless this build writes them again from the
-new text. Grounded ones keep their verdict, and no command examines them again yet: name them (`grounded_ids`).
+no longer hold. The next `/burgess:kg-ground` judges each one again (0.27.0): it moves a claim's span to the
+passage that states it now, or marks the claim obsolete, which is not a refutation. An unverified one this build
+writes again from the new text takes its new span at once. Name the grounded ones (`grounded_ids`).
 
 **Changing `source_path`.** It is one value for every project: Claude Code keeps a plugin's options per user
 and ignores a project's settings for them. When the user wants another folder for THIS project only, the fix is

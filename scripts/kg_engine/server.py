@@ -58,7 +58,7 @@ from .sources import SourceSet, plan_sections, split_sections
 from .evidence import (CITATION_MARK, COUNTER_RELATIONS, NOTES_NONE, OWN, REFUTED_BY_MARK, VETO_HINTS as _VETO_HINTS,
                        EvidenceRegistry, Policy, evidence_dir, failed_veto, label as evidence_label,
                        level_unusable, load_policy, load_registry, note_label, registry_signature,
-                       support_segment, supports_of, unusable_reason)
+                       span_was_segment, support_segment, supports_of, unusable_reason)
 from .waves import explain_wave_size
 
 # Module logger. The engine had no logging seam, so silent `except Exception: pass` fallbacks were
@@ -1435,6 +1435,24 @@ class KGEngine:
         appended and the audit log records the re-verdict at its own time. `kg_ground_plan` reads
         `verdict_at` as when a claim was grounded, so a re-confirmed claim does not reopen a hub.
 
+        **A claim whose passage left its file (0.27.0, `_span_gone`).** An edge with a span of its own, whose file
+        is among the sources but no longer holds that span (a sentence deleted or rewritten), is judged again on
+        the text as it reads now, with two answers:
+        - `grounded` with `support_span`, the passage that states it now. Its span moves there, and its
+          `source_file` to the file of the graph's own sources that holds the passage, its own file first. The old
+          span stays in the notes as a `span was:` segment. A grounded claim keeps its `verdict_at`, as any
+          re-confirmation does. A rejected claim judged again because its file changed (0.22.4) and grounded on
+          a passage moves the same way; it may also be rejected again, and stays negative memory. Without a passage the verdict is refused (`span-gone-needs-passage`). The passage
+          must lie in a file the graph is built from (`passage-not-in-built-sources`), and the moved claim must
+          rest on usable support, as any grounding must.
+        - `obsolete`, superseded: the claim leaves live topology, is not negative memory, and stays in the canon.
+          It is refused on an edge whose span still verifies (`obsolete-span-still-present`), on one with no
+          passage of its own (`obsolete-needs-a-span`), and on a rejected or failed claim
+          (`obsolete-not-for-negative-memory`).
+        A live claim whose passage is gone is never rejected (`span-gone-not-rejected`). One whose file is not
+        among the sources (moved, renamed, another notes folder) gets no verdict but `failed`
+        (`span-file-not-among-sources`). Nodes are unchanged.
+
         **Levels of sources (0.21.0 external sources; 0.22.0 every source, under the project's policy).** Spans
         verify against the configured sources and the registered external copies, and the level decides only
         what may be used:
@@ -1487,6 +1505,7 @@ class KGEngine:
         promoted_to = None
         withdrawn = None   # the lead this verdict withdraws (0.11.1): edge verdicts only
         confirming = None  # the held verdict this one confirms (0.24.6), or None
+        reanchor, moved_from = None, ""   # a gone claim's new passage and its old file (0.27.0): edge verdicts only
         from .groundplan import item_signature
         # Lease-first read-modify-write; the full rationale (F17/L5, server-3,
         # writers-use-nonblocking-lock) lives once on _try_writer_lease.
@@ -1570,13 +1589,47 @@ class KGEngine:
                     refusal = self._failed_refusal("edge", edge, refuted_by)
                     if refusal:
                         return {"ok": False, **refusal}
+                # A claim whose passage left its file (0.27.0, `_span_gone`). Its verdict is judged again on the
+                # text as it reads now, with two answers: grounded on the passage that states it now, which moves
+                # its span there (`_reanchor`), or obsolete, superseded, which leaves live topology without
+                # becoming negative memory. A rejection would be permanent negative memory for a sentence the user
+                # edited, and would bar the claim if the sentence came back, so a live claim whose passage is gone
+                # is never rejected; a refutation (failed) is about the claim, not its passage, and stays open. A
+                # claim whose file is not among the sources is not judged at all: a moved file or another notes
+                # folder looks the same as every sentence of a file deleted at once. Through 0.26.0 a gone span
+                # was grounded again without a passage, rejected by its grounder as not in the source, and
+                # `obsolete` was accepted on any edge.
+                vs_now = self.verify_set()
+                lane = self._span_gone(edge, vs_now)
+                reanchor = None
+                live_claim = edge.epistemic_state in (EpistemicState.GROUNDED, EpistemicState.UNVERIFIED,
+                                                      EpistemicState.OBSOLETE)
+                if state == EpistemicState.OBSOLETE:
+                    refusal = self._obsolete_refusal(edge, lane)
+                    if refusal:
+                        return {"ok": False, **refusal}
+                elif lane == "unplaced" and live_claim and state != EpistemicState.FAILED:
+                    return {"ok": False, **self._unplaced_refusal(edge)}
+                elif lane == "gone" and state == EpistemicState.REJECTED and live_claim:
+                    return {"ok": False, "error": "span-gone-not-rejected",
+                            "hint": "this claim's span left its file, and a rejection is permanent negative "
+                                    "memory: ground it on the passage that states it now (support_span), or "
+                                    "mark it obsolete with a note on what the text says now"}
+                elif lane == "gone" and state == EpistemicState.GROUNDED:
+                    # whatever the state it comes from: a rejected claim a source changed under (0.22.4), judged
+                    # again and grounded on a passage of its file, moves to that passage too
+                    reanchor, problem = self._reanchor(edge, support_span, vs_now)
+                    if problem:
+                        return {"ok": False, **problem}
                 # Support counts only from a usable source (0.21.0; since 0.22.0 under the project's policy, for
                 # every source). A promotion is checked inside its gate below. An edge that already carries its
                 # span may be grounded on another passage instead (0.22.0): a `support_span` from a usable
                 # source, recorded beside the span it was extracted from. Under a strict policy that is how a
-                # claim the notes state is verified by a reviewed source.
+                # claim the notes state is verified by a reviewed source. A gone claim's `support_span` is the
+                # passage it moves to instead, checked above.
                 corroboration = None
-                if state == EpistemicState.GROUNDED and edge.provenance != Provenance.HYPOTHESIZED:
+                if (state == EpistemicState.GROUNDED and edge.provenance != Provenance.HYPOTHESIZED
+                        and reanchor is None):
                     if support_span and support_span.strip():
                         restore = self._restore_fn()
                         check = restore(support_span) if restore else support_span
@@ -1636,6 +1689,11 @@ class KGEngine:
                 edge.epistemic_state = state
                 if note:
                     edge.notes = self._append_note(edge.notes, note)
+                if reanchor:
+                    # the span it rested on stays in the notes; the claim now cites the passage that states it
+                    edge.notes = self._append_note(edge.notes, span_was_segment(edge.span, edge.source_file or ""))
+                    moved_from = edge.source_file or ""
+                    edge.span, edge.source_file = reanchor
                 if state == EpistemicState.FAILED and refuted_by.strip():
                     edge.notes = self._append_note(edge.notes, REFUTED_BY_MARK + refuted_by.strip())
                 if corroboration:
@@ -1680,6 +1738,10 @@ class KGEngine:
                 out["refuted_by"] = refuted_by.strip()
             if kind == "edge" and corroboration:
                 out["support_source"] = self._source_side(corroboration[1])
+            if kind == "edge" and reanchor:
+                # its span moved to the passage that states it now (0.27.0); the old one is in its notes
+                out["reanchored"] = {"source_file": reanchor[1], "from_file": moved_from or None}
+                out["support_source"] = self._source_side(self._edge_support(edge))
             if triple:
                 out["lead"] = " ".join(triple)
             if withdrawn:
@@ -2043,6 +2105,104 @@ class KGEngine:
             return {"error": code, "refuted_by": rid, "claim_source": claim, "refuting_source": refuting,
                     "hint": _VETO_HINTS.get(code, "")}
         return None
+
+    # ---- a claim whose passage left its file (0.27.0) ---------------------------------------------------------
+
+    @staticmethod
+    def _has_own_passage(edge) -> bool:
+        """Whether `edge` is a claim with a passage of its own: a span, and not a proposal (whose span the write
+        lane never keeps)."""
+        return edge.provenance != Provenance.HYPOTHESIZED and bool(edge.span and edge.span.strip())
+
+    @staticmethod
+    def _own_file(edge, vs: "SourceSet") -> str:
+        """The file a claim's passage belongs to (0.27.0): the file it names, when that is among the sources; for
+        a claim that names none (written before files were recorded), the one file the graph is built from, when
+        there is exactly one; else ``""``. A name that is not among the sources is never mapped to another file:
+        that is how a moved file or another notes folder looks."""
+        own = SourceSet._key(edge.source_file) if edge.source_file else ""
+        if own:
+            return own if vs.has_file(own) else ""
+        content = vs.content_names
+        return content[0] if len(content) == 1 else ""
+
+    def _span_gone(self, edge, vs: "SourceSet | None" = None) -> "str | None":
+        """Where a claim's passage stands now (0.27.0). None when the claim has no passage of its own (a proposal)
+        or its span still verifies (in its file, or anywhere when it names no file among the sources);
+        ``"gone"`` when its file (`_own_file`) no longer holds the span (a sentence deleted or rewritten);
+        ``"unplaced"`` when no source holds the span and it has no file among the sources (a file moved or
+        renamed, another notes folder, or a claim that names no file among several). A gone claim is judged again
+        by `/burgess:kg-ground`; an unplaced one is not, because a configuration change looks the same as every
+        sentence of a file deleted at once."""
+        if not self._has_own_passage(edge):
+            return None
+        vs = vs if vs is not None else self.verify_set()
+        if vs.verifies(edge.span, edge.source_file):
+            return None
+        return "gone" if self._own_file(edge, vs) else "unplaced"
+
+    @staticmethod
+    def _unplaced_refusal(edge) -> dict:
+        own = SourceSet._key(edge.source_file) if edge.source_file else ""
+        return {"error": "span-file-not-among-sources", "source_file": own or None,
+                "hint": (f"no source holds this claim's span, and its file {own!r} is not among the sources "
+                         if own else "no source holds this claim's span, and it names no file ")
+                        + "(moved, renamed, or another notes folder): nothing is judged until its file is back "
+                          "among the sources. Restore the file or the notes folder"}
+
+    def _obsolete_refusal(self, edge, lane: "str | None") -> "dict | None":
+        """None when `edge` may be marked obsolete, else the refusal (0.27.0). `obsolete` says a claim's passage
+        left its file: the claim is superseded, not refuted. So it takes a claim with a passage of its own whose
+        file is among the sources and no longer holds the span, and that is not negative memory: a rejected or
+        failed claim stays what it is."""
+        if not self._has_own_passage(edge):
+            return {"error": "obsolete-needs-a-span",
+                    "hint": "obsolete says a claim's passage left its file, and this edge has no passage of its own "
+                            "(a proposal): judge it grounded with support, or rejected"}
+        if edge.epistemic_state in FAILURE_STATES:
+            return {"error": "obsolete-not-for-negative-memory", "epistemic_state": edge.epistemic_state.value,
+                    "hint": "a rejected or failed claim is negative memory and stays so; obsolete is for a claim "
+                            "whose passage left its file"}
+        if lane is None:
+            return {"error": "obsolete-span-still-present",
+                    "hint": "its span still verifies against its file: judge the claim on that passage, grounded "
+                            "or rejected"}
+        if lane == "unplaced":
+            return self._unplaced_refusal(edge)
+        return None
+
+    def _reanchor(self, edge, support_span: str, vs: "SourceSet | None" = None) -> "tuple[tuple | None, dict | None]":
+        """The passage a grounded verdict moves a gone claim's span to (0.27.0): ``((span, file), None)``, or
+        ``(None, refusal)``. The passage is where the claim is stated now, so it must verify in a file the graph
+        is built from (the notes, or a source registered to be built), its own file first; and the claim, once
+        moved, must rest on usable support, as any grounding must (its `support:` segments count)."""
+        if not (support_span and support_span.strip()):
+            return None, {"error": "span-gone-needs-passage",
+                          "hint": "this claim's span left its file: ground it with the passage that states it now "
+                                  "as support_span (the engine moves its span there and keeps the old one in its "
+                                  "notes), or mark it obsolete with a note on what the text says now"}
+        vs = vs if vs is not None else self.verify_set()
+        restore = self._restore_fn()
+        check = restore(support_span) if restore else support_span
+        if not vs.verifies(check):
+            return None, {"error": "support-span-not-in-source"}
+        if len(normalize_text(check).replace(" ", "")) < MIN_SPAN_CHARS:
+            return None, {"error": "support-span-too-short"}
+        content = set(vs.content_names)
+        holders = [f for f in vs.files_containing(check) if f in content]
+        if not holders:
+            return None, {"error": "passage-not-in-built-sources",
+                          "hint": "the passage that states a claim must lie in a file the graph is built from (the "
+                                  "notes, or a source registered to be built); when none states it any more, mark it "
+                                  "obsolete"}
+        own = self._own_file(edge, vs)
+        holder = own if own in holders else holders[0]
+        moved = copy.copy(edge)
+        moved.span, moved.source_file = check, holder
+        held = self._edge_support(moved, vs)
+        if held is not None and not self._usable_file(held, vs):
+            return None, self._unusable_refusal(held, vs)
+        return (check, holder), None
 
     @staticmethod
     def _append_body(existing: str, addition: str) -> str:
@@ -2605,8 +2765,9 @@ class KGEngine:
         the text their extraction read, so an edit made before that moment goes unseen. That record is the only
         thing the plan writes, with the non-blocking lease: a held lease leaves it for the next plan or the first
         extraction (``baseline.not_recorded``). ``spans_gone`` (``_spans_gone``) counts the claims whose span no
-        longer verifies against these files. The plan is projection-free: it reads the canon spans, the source
-        and the ledgers, and section titles and notes leave through the egress scrub.
+        longer verifies against these files, which `/burgess:kg-ground` judges again since 0.27.0. The plan is
+        projection-free: it reads the canon spans, the source and the ledgers, and section titles and notes
+        leave through the egress scrub.
 
         ``ok: false`` means do not build, with ``error`` (and ``problems`` for a subset that reaches past
         the configured source) saying why: nothing configured, nothing readable, or a subset naming files
@@ -2841,9 +3002,17 @@ class KGEngine:
         return self._span_groups([e for n in self._canon_baseline().values() for e in n.edges], texts)
 
     @staticmethod
-    def _read_line(name: str, s, by: str, at: str) -> str:
+    def _read_line(name: str, s, by: str, at: str, mark: "int | None" = None) -> str:
         return read_record(name, s.index, s.title or "(whole file)", section_digest(s.text), section_units(s.text),
-                           at, by)
+                           at, by, mark)
+
+    def _audit_mark(self) -> "int | None":
+        """The grounding audit log's size now, for a read record (0.27.0, `read_record`'s ``audit_mark``); None when
+        it cannot be read, and the record then falls back to its time."""
+        try:
+            return self._audit_log.size()
+        except OSError:
+            return None
 
     def _record_reads(self, sections: "dict[str, list]", by: str, *, wait: bool) -> bool:
         """Append a read record for each ``(file -> [sections])``, recorded ``by`` (`buildplan.READ_BY`). A file
@@ -2853,7 +3022,7 @@ class KGEngine:
         all again. False when the lease or the file could not be had (`_append_read_lines`)."""
         reads = self._read_sections()
         texts = self.source_set().texts
-        at, lines, groups = utcnow(), [], None
+        at, lines, groups, mark = utcnow(), [], None, self._audit_mark()
         for name, secs in sections.items():
             if name not in reads and name in texts and by != "baseline":
                 if groups is None:
@@ -2862,8 +3031,8 @@ class KGEngine:
                 taken = {s.index for s in secs}
                 for s in plan_sections(texts[name])[1]:
                     if s.index not in taken and any(sp in normalize_text(s.text) for sp in spans):
-                        lines.append(self._read_line(name, s, "baseline", at))
-            lines += [self._read_line(name, s, by, at) for s in secs]
+                        lines.append(self._read_line(name, s, "baseline", at, mark))
+            lines += [self._read_line(name, s, by, at, mark) for s in secs]
         return self._append_read_lines(lines, wait=wait)
 
     def _append_read_lines(self, lines: "list[str]", *, wait: bool) -> bool:
@@ -2959,20 +3128,23 @@ class KGEngine:
                 "written_more": max(0, len(written) - WRITTEN_LIMIT)}
 
     def _spans_gone(self, names, edges) -> "dict | None":
-        """The claims whose span no longer verifies against the plan's files (0.26.0): a sentence was deleted
-        or rewritten after they were written. ``grounded`` ones keep their verdict, and nothing re-examines them
-        yet; an ``unverified`` one is rejected by its grounder (`span_in_source` false) unless an extraction of
-        the new text writes it again with a span that holds. Counted so the build can say so; None when none."""
+        """The live claims whose span the plan's files no longer hold (0.26.0): a sentence was deleted or
+        rewritten after they were written. Since 0.27.0 the next `/burgess:kg-ground` judges each one again
+        (`_span_gone`: its file is among the sources and no longer holds its span): grounded on the passage that
+        states it now, which moves its span there, or obsolete. An ``unverified`` one an extraction of the new
+        text writes again with a span that holds is re-anchored by that write instead (0.23.1). A claim whose file
+        is not among the sources is not counted here: the ground plan counts it in ``files_missing``. Through
+        0.26.0 a grounded one kept its verdict unexamined and an unverified one was rejected by its grounder.
+        Counted so the build can say so; None when none."""
         vs, grounded, unverified = None, [], 0
         for e in edges:
-            if not (e.span and e.span.strip()) or e.epistemic_state not in (EpistemicState.GROUNDED,
-                                                                             EpistemicState.UNVERIFIED):
-                continue
-            own = SourceSet._key(e.source_file) if e.source_file else ""
-            if own and own not in names:
+            if e.epistemic_state not in (EpistemicState.GROUNDED, EpistemicState.UNVERIFIED):
                 continue
             vs = vs or self.verify_set()
-            if vs.verifies(e.span, e.source_file):
+            own = self._own_file(e, vs)
+            if not (own and own in names):
+                continue
+            if self._span_gone(e, vs) != "gone":
                 continue
             if e.epistemic_state == EpistemicState.GROUNDED:
                 grounded.append(e.id)
@@ -3131,6 +3303,19 @@ class KGEngine:
         remove. Through 0.22.3 the command's Stage 0c asked the orchestrator to re-check these items, and the
         orchestrator never calls kg_ground.
 
+        Claims whose passage left their file (0.27.0, `_span_gone`: the file is among the sources and no longer
+        holds the span, a sentence deleted or rewritten) are judged again, each marked `"span_gone": true` and
+        counted in `queue.spans_gone`: a grounded one after everything new, an unverified one in its usual place
+        (counted in `queue.edges` too). Its grounder grounds it on the passage that states it now, which moves its
+        span there, or marks it obsolete. An obsolete claim comes back marked `"reexamine": true`, counted in
+        `queue.obsolete_returned`, when its span verifies again or a build read new text of its file that bears on
+        it since its verdict (`_obsolete_returns`). A live claim no source holds whose file is not among the
+        sources is not judged: `files_missing` counts such claims per file, the whole canon's whatever the focus,
+        because a moved file or another notes folder looks the same as every sentence of a file deleted at once.
+        Through 0.26.0 the command's Stage 0b routed the R3 advisory's stale verdicts to a grounder, which re-emitted
+        a moved claim with kg_write (quarantined as a claim already judged, so its span never moved) or rejected
+        one whose text was gone, and an unverified claim whose span was gone was rejected.
+
         `configured_wave_size` is the `extract_wave_size` option as the command text carries it (the same
         channel as `kg_build_plan`): how many grounders run at once. `batch_size` is the items per grounder,
         1–20, default 12.
@@ -3157,6 +3342,7 @@ class KGEngine:
         focus = (focus or "").strip()
         in_focus = {n.id for n in nodes if focus_matches(focus, n.id, n.label)}
         texts = self.source_set().texts
+        vs = self.verify_set()
         file_rank = {name: i for i, name in enumerate(texts)}
         sections: "dict[str, list[str]]" = {}
 
@@ -3181,6 +3367,12 @@ class KGEngine:
                                                   # (verdict_at; a re-confirmation keeps it, 0.10.2)
         attacks: "dict[str, list[tuple[str, str | None]]]" = {}   # hub -> (state, verdict_at) per counter-edge
         weak_edges = 0
+        # claims whose passage left its file (0.27.0): the grounded ones queued again, the obsolete ones to test
+        # for a return, and, per file not among the sources, the live claims that cite it
+        gone_grounded: "set[str]" = set()
+        obsolete: "list[Edge]" = []
+        missing: "Counter[str]" = Counter()
+        missing_states: "Counter[str]" = Counter()
         # Pins a grounder judged unsupported against these sources (0.20.1) wait for the sources to change.
         # A focus skips that memory, as it does for an attacked hub: naming a pin asks for a fresh look.
         unsupported = {} if focus else self._unsupported_pins()
@@ -3212,9 +3404,30 @@ class KGEngine:
                         degree[end] += 1
                         if e.epistemic_state == EpistemicState.GROUNDED and e.verdict_at:
                             newest_claim[end] = max(newest_claim.get(end, ""), e.verdict_at)
+                # A claim whose passage left its file (0.27.0, `_span_gone`): a grounded one is queued to be judged
+                # again after everything new, an unverified one where it always was, both marked `span_gone`. One
+                # whose file is not among the sources is not judged at all, only counted with its file.
+                lane = (self._span_gone(e, vs) if e.epistemic_state in (EpistemicState.GROUNDED,
+                                                                         EpistemicState.UNVERIFIED,
+                                                                         EpistemicState.OBSOLETE) else None)
+                if lane == "unplaced" and e.epistemic_state != EpistemicState.OBSOLETE:
+                    missing[SourceSet._key(e.source_file) if e.source_file else ""] += 1
+                    missing_states[e.epistemic_state.value] += 1
+                    continue
+                in_scope = not focus or slug(e.source) in in_focus or slug(e.target) in in_focus
+                if e.epistemic_state == EpistemicState.GROUNDED:
+                    if lane == "gone" and in_scope and ("edge", e.id) not in holds:
+                        items.append(((2, 1, 1, position(e), e.id), e.id, "edge:span_gone"))
+                        ends[e.id] = (slug(e.source), slug(e.target))
+                        gone_grounded.add(e.id)
+                    continue
+                if e.epistemic_state == EpistemicState.OBSOLETE:
+                    if in_scope and ("edge", e.id) not in holds:
+                        obsolete.append(e)
+                    continue
                 if e.epistemic_state != EpistemicState.UNVERIFIED:
                     continue
-                if focus and slug(e.source) not in in_focus and slug(e.target) not in in_focus:
+                if not in_scope:
                     continue
                 pinned = DIVERGE_MARK in (e.notes or "")
                 # A recorded item waits while the sources, the policy and the item are the ones it was judged
@@ -3228,7 +3441,15 @@ class KGEngine:
                 weak = not hypothesized and is_weak(e.confidence, e.confidence_score)
                 weak_edges += weak
                 items.append(((0 if pinned else 1, 0 if hypothesized else 1, 0 if weak else 1, position(e), e.id),
-                              e.id, "edge"))
+                              e.id, "edge:span_gone" if lane == "gone" else "edge"))
+                ends[e.id] = (slug(e.source), slug(e.target))
+        # Obsolete claims that come back (0.27.0, `_obsolete_returns`): the sentence is back, or a build read new
+        # text of their file that bears on them since their verdict. Judged again after everything new, marked
+        # `reexamine`; any verdict answers it.
+        returned = self._obsolete_returns(obsolete, {n.id: n for n in nodes}, vs) if obsolete else {}
+        for e in obsolete:
+            if e.id in returned:
+                items.append(((2, 1, 1, position(e), e.id), e.id, "edge:returned"))
                 ends[e.id] = (slug(e.source), slug(e.target))
         skipped = 0
         reexamined = 0
@@ -3323,8 +3544,13 @@ class KGEngine:
         # A queued node goes in one batch with the queued edges that touch it, node first (0.17.1): one
         # grounder judges a generated compression and its star together, instead of parallel grounders
         # rejecting the node while grounding an edge into it.
-        planned = node_star_batches([{"id": i, "kind": k.split(":")[0], "reexamine": True} if ":" in k
-                                     else {"id": i, "kind": k} for _, i, k in items], ends, size)
+        def entry(i: str, k: str) -> dict:
+            if k == "edge:span_gone":   # a claim whose passage left its file (0.27.0)
+                return {"id": i, "kind": "edge", "span_gone": True}
+            if ":" in k:
+                return {"id": i, "kind": k.split(":")[0], "reexamine": True}
+            return {"id": i, "kind": k}
+        planned = node_star_batches([entry(i, k) for _, i, k in items], ends, size)
         # the held verdicts last, in batches of their own (0.24.6): a new grounder confirms or declines each
         confirm_rows.sort(key=lambda row: (row[1] != "node", row[0]))
         planned += [[{"id": i, "kind": k, "confirm": True} for i, k in confirm_rows[at:at + size]]
@@ -3353,8 +3579,15 @@ class KGEngine:
         reexamined = sum(1 for _, _, k in items if k == "node:reexamine")
         return self._scrub_egress({
             "ok": True, "focus": focus or None,
-            "queue": {"edges": sum(1 for _, _, k in items if k == "edge"), "weak_edges": weak_edges,
+            "queue": {"edges": sum(1 for _, i, k in items
+                                   if k == "edge" or (k == "edge:span_gone" and i not in gone_grounded)),
+                      "weak_edges": weak_edges,
                       "nodes": sum(1 for _, _, k in items if k == "node"),
+                      # claims whose passage left its file (0.27.0), grounded or unverified, marked `span_gone`
+                      "spans_gone": sum(1 for _, _, k in items if k == "edge:span_gone"),
+                      # obsolete claims judged again: the sentence is back, or new text of their file bears on
+                      # them (0.27.0), marked `reexamine`
+                      "obsolete_returned": sum(1 for _, _, k in items if k == "edge:returned"),
                       # rejected hypothesized nodes queued to be judged again (0.20.2, `reexamine=True`)
                       "reexamine": reexamined,
                       # rejected items a source changed under since they were judged, queued to be judged
@@ -3382,7 +3615,17 @@ class KGEngine:
             # the usable registered external sources (0.21.0), which it may search too
             "evidence": self._evidence_info(),
             # what no usable source could settle (0.22.1): left out of the batches and the hubs, or None
-            "blocked": blocked})
+            "blocked": blocked,
+            # live claims no source holds whose file is not among the sources (0.27.0): not judged, counted per
+            # file, the whole canon's whatever the focus; or None
+            "files_missing": ({"grounded": missing_states.get(EpistemicState.GROUNDED.value, 0),
+                               "unverified": missing_states.get(EpistemicState.UNVERIFIED.value, 0),
+                               "files": [{"file": f or None, "claims": c}
+                                         for f, c in sorted(missing.items(), key=lambda kv: (-kv[1], kv[0]))],
+                               "hint": "these claims cite a file that is not among the sources (moved, renamed, or "
+                                       "another notes folder), and no source holds their spans: nothing judges them "
+                                       "until the file is back. Restore it, or point the notes folder at it again"}
+                              if missing else None)})
 
     def _open_reexaminations(self) -> "list[dict]":
         """The re-examination flags the last projection stored (`advisory.reexaminable_verdicts`, every one,
@@ -3465,6 +3708,56 @@ class KGEngine:
             terms = node_terms(words, item.span or "")
         usable = [f for f in names if self._usable_file(f, vs)]
         out["context"] = self._ranked_context(terms, scrub, files=set(usable) if names else None)
+        return out
+
+    def _obsolete_returns(self, edges, by_id: dict, vs: "SourceSet | None" = None) -> "dict[str, str]":
+        """Which obsolete claims come back to be judged again (0.27.0): ``{edge id: why}``.
+        - ``"span"``: its span verifies again, as when a sentence is restored from a copy or an edit is undone.
+        - ``"new_text"``: since the claim's last verdict, an extraction read text of its own file that no read of
+          that file held before (`buildplan.read_units`' ``first``), and a paragraph of that text shares
+          `BEARING_WORDS` of the claim's words (`Projector._claim_words`, the bar a re-examination flag and a new
+          source's wake use).
+        Any verdict answers a return: the claim's latest record in the grounding audit log is then later than the
+        read, and a verdict on a returned sentence changes the state. A plan's baseline is not a read: text a
+        baseline took as read when the ledger began, or began again after a loss, brings nothing back. Without
+        this, `obsolete` would be a one-way door, since a build that writes the claim again is quarantined as a
+        claim already judged."""
+        from .groundaudit import read_audit_index
+        from .groundplan import rank_units, text_forms
+        vs = vs if vs is not None else self.verify_set()
+        out: "dict[str, str]" = {}
+        reads = audit = None
+        units: "dict[str, list[tuple[str, str]]]" = {}
+        for e in edges:
+            if not self._has_own_passage(e):
+                continue
+            if vs.verifies(e.span, e.source_file):
+                out[e.id] = "span"
+                continue
+            own = self._own_file(e, vs)
+            if not own:
+                continue
+            if reads is None:
+                reads = self._read_sections()
+            first = (reads.get(own) or {}).get("first") or {}
+            if not first:
+                continue
+            if audit is None:
+                audit = read_audit_index(self.canon.root / GROUND_AUDIT)
+            last, since = audit.last.get(e.id), audit.last_at.get(e.id) or e.verdict_at or ""
+            # a read recorded after the claim's last verdict: by the audit log's offset when the record has one
+            # (exact), else by time (a record from 0.26.0; a read in the verdict's second does not count)
+            fresh = {d for d, (at, by, mark) in first.items() if by in ("write", "record")
+                     and (mark > last if last is not None and mark is not None else at > since)}
+            if not fresh:
+                continue
+            if own not in units:
+                units[own] = [(unit_digest(u), u) for s in plan_sections(vs.for_file(own))[1]
+                              for u in section_units(s.text)]
+            new = [u for d, u in units[own] if d in fresh]
+            if new and rank_units([text_forms(u) for u in new], Projector._claim_words(e, "edge", by_id),
+                                  BEARING_WORDS):
+                out[e.id] = "new_text"
         return out
 
     def _usable_files(self, vs: "SourceSet | None" = None) -> "list[str]":
@@ -4679,7 +4972,11 @@ class KGEngine:
         kg_propose) also gets `passage` (``_passage_view``): that span, `in_source`, and the excerpt around it;
         every other edge gets `passage: null`. For a node: the node and its incident edges. An item flagged for
         re-examination that no verdict has answered gets `reexamine` (0.22.4, `_reexamine_view`): the sections
-        of the sources that flagged it. All free text leaves through the SESSION scrub, the same as kg_section,
+        of the sources that flagged it. A claim whose passage left its file, unless it is failed, gets `span_gone`
+        (0.27.0, `_span_gone_view`): its old span, the sections of its file now that share the most of its words,
+        the files that hold the old span word for word, and the passages it was also written with that still
+        verify; every other edge gets `span_gone: null`. All free text leaves through the SESSION
+        scrub, the same as kg_section,
         so a support span the grounder copies back to kg_ground, placeholders included, restores and verifies.
         Read-only."""
         if kind not in ("edge", "node"):
@@ -4750,7 +5047,12 @@ class KGEngine:
                 "source_node": view(nodes.get(slug(e.source))), "target_node": view(nodes.get(slug(e.target))),
                 "context": context, "shared_context": shared, "passage": passage, "support_context": support,
                 # a rejected item a source changed under since it was judged (0.22.4), or None
-                "reexamine": self._reexamine_view("edge", e, scrub)}, "edge", e, scrub, terms)
+                "reexamine": self._reexamine_view("edge", e, scrub),
+                # a claim whose passage left its file (0.27.0): live, obsolete, or rejected and judged again
+                # because its file changed (0.22.4); or None
+                "span_gone": (self._span_gone_view(e, nodes, scrub, vs)
+                              if e.epistemic_state != EpistemicState.FAILED and self._span_gone(e, vs) == "gone"
+                              else None)}, "edge", e, scrub, terms)
 
     # ---- a grounding judged again (0.24.7) -------------------------------------------------------------------
 
@@ -5126,6 +5428,60 @@ class KGEngine:
                              "excerpt": scrub(unit_excerpt(s.text, units, ui - first)),
                              "source": self._source_side(fname, vs)})
         return {"terms": [scrub(t) for t in terms], "sections": sections, "sections_total": len(best)}
+
+    def _file_context(self, terms: "list[str]", fname: str, scrub, vs: "SourceSet | None" = None) -> dict:
+        """`{terms, sections, sections_total}` over one file: its sections whose best paragraph shares the most of
+        `terms`, ranked as `_ranked_context` ranks (0.27.0), whatever the file's level. Where a claim whose span left
+        that file may be stated now: the passage that states a claim is where it is stated, and its support is
+        checked when it is grounded, so a file the policy does not accept still shows its text here."""
+        from .groundplan import NODE_SECTIONS, rank_units, text_forms, text_units, unit_excerpt
+        vs = vs if vs is not None else self.verify_set()
+        secs, forms, owner = [], [], []
+        for s in plan_sections(vs.for_file(fname))[1]:
+            units = text_units(s.text)
+            secs.append((s, units, len(forms)))
+            for a, b in units:
+                forms.append(text_forms(s.text[a:b]))
+                owner.append(len(secs) - 1)
+        best: "dict[int, tuple[float, int, list[str]]]" = {}
+        for score, ui, matched in rank_units(forms, terms):
+            best.setdefault(owner[ui], (score, ui, matched))
+        side = self._source_side(fname, vs)
+        sections = []
+        for sec, (_score, ui, matched) in sorted(best.items(), key=lambda kv: (-kv[1][0], kv[0]))[:NODE_SECTIONS]:
+            s, units, first = secs[sec]
+            sections.append({"source_file": fname, "section": s.index,
+                             "title": scrub(s.title) if s.title else "(whole file)",
+                             "matched": [scrub(t) for t in matched],
+                             "excerpt": scrub(unit_excerpt(s.text, units, ui - first)), "source": side})
+        return {"terms": [scrub(t) for t in terms], "sections": sections, "sections_total": len(best)}
+
+    def _span_gone_view(self, edge, nodes: dict, scrub, vs: "SourceSet | None" = None) -> dict:
+        """What kg_ground_item adds for a claim whose passage left its file (0.27.0, `_span_gone`): the span it was
+        written or grounded on and its file; `sections`, the sections of that file now that share the most of the
+        claim's words (`terms`, from its two ends and its old span; `_file_context`); `elsewhere`, the other files
+        of the graph's own sources that hold the old span word for word, where a paragraph may have moved; and
+        `also_present`, the `also stated:` passages the claim was written with that still verify, each with the
+        section around it. Its grounder grounds it on the passage that states it now, which moves its span there,
+        or marks it obsolete."""
+        from .evidence import also_passages
+        from .groundplan import node_terms
+        vs = vs if vs is not None else self.verify_set()
+        own = self._own_file(edge, vs)
+        src, tgt = nodes.get(slug(edge.source)), nodes.get(slug(edge.target))
+        words = " ".join(x for x in ((src.label if src else edge.source), (tgt.label if tgt else edge.target)) if x)
+        ctx = self._file_context(node_terms(words, edge.span or ""), own, scrub, vs)
+        content = set(vs.content_names)
+        also = [{"span": scrub(span), "source_file": fname or None, "context": self._span_context(span, fname, scrub)}
+                for span, fname in also_passages(edge.notes) if vs.verifies(span, fname)]
+        return {"span": scrub(edge.span), "source_file": own, **ctx,
+                "elsewhere": [f for f in vs.files_containing(edge.span) if f in content and f != own],
+                "also_present": also,
+                "rule": ("this claim's passage left its file. If the text now states it (in other words, elsewhere "
+                         "in the file, in also_present, or word for word in a file of elsewhere), ground it with that "
+                         "passage as support_span: the engine moves its span there. If nothing states it any more, "
+                         "mark it obsolete, with a note on what the text says now. Never reject it for this: its "
+                         "passage was edited, not refuted")}
 
     def _span_context(self, span: str, source_file: str, scrub) -> "dict | None":
         """The excerpt of the source section that holds ``span`` (``groundplan.span_excerpt``), in
@@ -6556,6 +6912,16 @@ def _register(mcp, engine: KGEngine) -> None:
         (`failed-by-lower-level`); a refused failed leaves the counter-edge standing as a visible dispute. A
         support_note promotion is recorded as an unchecked citation.
 
+        A claim whose passage left its file (0.27.0: kg_ground_item's `span_gone`, kg_ground_plan's
+        `span_gone: true`) takes one of two answers. `grounded` with `support_span`, the passage that states it
+        now, in a file the graph is built from: its span moves there (`reanchored` in the answer) and the old
+        one stays in its notes; a grounded claim keeps its verdict time. `obsolete`, with a note on what the text
+        says now: superseded, out of live topology, not negative memory. Such a claim is never rejected
+        (`span-gone-not-rejected`), and `grounded` without a passage is refused (`span-gone-needs-passage`).
+        `obsolete` is refused while the span still verifies, on an edge with no span of its own, and on a
+        rejected or failed claim. A claim whose file is not among the sources gets no verdict but failed
+        (`span-file-not-among-sources`).
+
         Held for a second grounder (0.24.6): a grounded verdict with support on an item whose grounder asked
         kg_ground_item for passages with its own `terms` changes nothing; it answers `held: true,
         needs_confirmation: true`. Report it as held, do not record the item unsupported, do not ground it
@@ -6638,7 +7004,8 @@ def _register(mcp, engine: KGEngine) -> None:
         `changed`, to read them again whole. `baseline` (once per file) says the plan took the current text of
         a file's covered sections, built before such records existed, as the text their extraction read.
         `spans_gone` counts the claims whose span no longer verifies against these files (a sentence deleted
-        or rewritten after they were written), `grounded` ones by id.
+        or rewritten after they were written), `grounded` ones by id; the next /burgess:kg-ground judges them
+        again.
         `ok: false` means do not build; `error`/`problems` say why. With `--leads` first on the line, the
         plan is `mode: "leads"`: `leads[]`, the sections holding the leads rejected claims carry, one
         extractor per section. Projection-free; it writes nothing but a file's baseline in the ledger of
@@ -6672,7 +7039,13 @@ def _register(mcp, engine: KGEngine) -> None:
         own search), in batches of their own, each item marked `"confirm": true` and counted in
         `queue.confirm`; give each such batch to a new grounder. `pin_attacks` (0.25.0, counted in
         `queue.pin_attacks`): the `[diverge]` pins a usable registered source was found AGAINST and that nothing has
-        attacked since, `{id, label, sources}`, for the adversarial grounder in Stage 2 beside the hubs. Read-only."""
+        attacked since, `{id, label, sources}`, for the adversarial grounder in Stage 2 beside the hubs.
+        Claims whose passage left their file (0.27.0: a sentence deleted or rewritten) are judged again, each item
+        marked `"span_gone": true` and counted in `queue.spans_gone`: grounded ones after everything new,
+        unverified ones in their usual place. An obsolete claim whose sentence is back, or whose file a build read
+        new text of that bears on it, comes back marked `"reexamine": true` (`queue.obsolete_returned`).
+        `files_missing`: the live claims no source holds whose file is not among the sources, per file; nothing
+        judges them until the file is back. Read-only."""
         return engine.kg_ground_plan(focus, configured_wave_size, batch_size, reexamine=bool(reexamine))
 
     @mcp.tool()
@@ -6710,7 +7083,11 @@ def _register(mcp, engine: KGEngine) -> None:
         unchecked citation, and the rule for judging it again. An item a usable source was found AGAINST (0.25.0)
         gets `against_context`: that source's sections ranked by the words its scout searched with, the passages
         an adversarial grounder judges. A held refutation's `confirm` has `verdict: "failed"` and the counter-edge.
-        Text is egress-scrubbed with the session's
+        A claim whose passage left its file (0.27.0) gets `span_gone`: its old `span` and `source_file`, the
+        `sections` of that file now that share the most of its words, `elsewhere` (files that hold the old span
+        word for word), `also_present` (the other passages it was written with that still verify) and the rule:
+        ground it on the passage that states it now, as support_span, or mark it obsolete; every other edge has
+        `span_gone: null`. Text is egress-scrubbed with the session's
         placeholders. Read-only, except that a request is recorded."""
         return engine.kg_ground_item(target_id, kind, terms)
 

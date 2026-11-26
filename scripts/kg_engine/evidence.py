@@ -103,6 +103,10 @@ SUPPORT_MARK = "support: "
 # with, and each later one is kept beside it, so every section that wrote the edge counts as covered.
 ALSO_MARK = "also stated: "
 ALSO_MAX = 8
+# The span a claim was grounded on before its passage left its file and a grounder moved it to the passage that
+# states it now (0.27.0, `kg_ground`): the claim keeps its verdict and its new span, and the old one stays in the
+# notes, so what the verdict rested on first is never lost.
+SPAN_WAS_MARK = "span was: "
 POLICY_FILE = "policy.json"
 DEFAULT_REQUIRED_LEVEL = 4     # the worst level that may support or refute: everything but unfiltered
 DEFAULT_NOTES_LEVEL = 4        # a configured file with no level of its own: a text by an author nobody reviewed
@@ -464,6 +468,16 @@ def also_segment(span: str, source_file: str) -> str:
 def also_passages(notes: "str | None") -> "list[tuple[str, str]]":
     """``(span, source_file)`` of every `also stated:` segment in an edge's notes, in order (0.23.1)."""
     return _segments(notes, ALSO_MARK)
+
+
+def span_was_segment(span: str, source_file: str) -> str:
+    """The notes segment that keeps the span a claim rested on before a grounder moved it (0.27.0)."""
+    return SPAN_WAS_MARK + json.dumps({"span": span, "source_file": source_file}, ensure_ascii=False)
+
+
+def spans_was(notes: "str | None") -> "list[tuple[str, str]]":
+    """``(span, source_file)`` of every `span was:` segment in an edge's notes, oldest first (0.27.0)."""
+    return _segments(notes, SPAN_WAS_MARK)
 
 
 def _segments(notes: "str | None", mark: str) -> "list[tuple[str, str]]":

@@ -1,7 +1,7 @@
 ---
 name: kg-grounder
 description: Use to verify the queue of unverified edges against the real source — re-read each cited span, reject vague/unfalsifiable relations (the generality confound §1.6), and stamp grounded/rejected verdicts via kg_ground.
-tools: Read, Grep, mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_record_unsupported, mcp__plugin_burgess_burgess__kg_write
+tools: mcp__plugin_burgess_burgess__kg_ground_plan, mcp__plugin_burgess_burgess__kg_ground_item, mcp__plugin_burgess_burgess__get_node, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_ground, mcp__plugin_burgess_burgess__kg_record_unsupported
 omitClaudeMd: true
 model: opus
 ---
@@ -35,7 +35,8 @@ Verdicts flow through this one tool and nowhere else.
 ```
 mcp__plugin_burgess_burgess__kg_ground(
   target_id = "<edge.id>",       # the deterministic edge id, see below
-  verdict   = "grounded" | "rejected",   # (failed/obsolete exist but are the ADVERSARIAL grounder's job, not yours)
+  verdict   = "grounded" | "rejected" | "obsolete",   # obsolete only for a claim whose passage left its file;
+                                                     # failed is the ADVERSARIAL grounder's job, not yours
   kind      = "edge",
   note      = "<one line: WHY — quote the deciding span, or name the failure: vague | no-support | wrong-relation | wrong-node>"
   lead      = "<head-id> <relation> <tail-id>"   # only with a wrong-relation / wrong-node rejection (0.9.0)
@@ -44,7 +45,8 @@ mcp__plugin_burgess_burgess__kg_ground(
 
 `verdict ∈ {grounded, rejected, failed, obsolete}` and `kind ∈ {edge, node}`. You mostly operate on **edges**
 (emitting only **grounded** — the span specifically supports the relation — or **rejected** — it does not, or
-it is "true" only by being vague). But you ALSO verdict unverified **nodes**: a materialized `/kg-diverge` pin
+it is "true" only by being vague — and, for a claim whose passage left its file, **obsolete**: see **A claim
+whose passage left its file**). But you ALSO verdict unverified **nodes**: a materialized `/kg-diverge` pin
 is a hypothesized node that, by default, has **no incident edge at all** (its `edges` are optional extras), so
 you ground it by targeting the *node* itself:
 
@@ -185,6 +187,58 @@ each with the section around it. Judge them by **What grounds a node**, together
   unsupported. Never reject a pin.
 - **None does, and it is any other node:** `rejected`, `no-support`, as for any proposal.
 
+## A claim whose passage left its file (0.27.0)
+
+A claim's span is the sentence of the notes it was extracted from. When the user rewrites that sentence or deletes
+it, the claim's file no longer holds its span: `span_in_source` is `false`, and `kg_ground_item` gives `span_gone`.
+Your batch marks such an item `span gone`. It may be unverified, or grounded on the old sentence. Through 0.26.0
+such a claim was rejected as `no-support: span not in source`, and a rejection is permanent negative memory: had
+the user restored the sentence, the claim could never have come back.
+
+Ask one question: **does the text now state this claim?** Judge each passage by the rules you judge any span by
+(steps 1b and 1c below): this relation, in this direction, between what the two nodes name, specific and
+defeasible. `span_gone` gives you:
+- `span` and `source_file`: the sentence the claim was written or grounded on, and its file;
+- `sections`: the sections of that file now that share the most of the claim's words, each with the words it
+  shares (`matched`) and an `excerpt`;
+- `elsewhere`: other files of the notes that hold the old span word for word, where a paragraph may have moved;
+- `also_present`: other passages the claim was written with that still verify, each with the section around it.
+
+Then:
+- **A passage states it** (the sentence rewritten in other words, moved within the file, in `also_present`, or word
+  for word in a file of `elsewhere`): ground it on that passage,
+  `kg_ground(target_id=<id>, verdict="grounded", support_span="<the passage, verbatim from an excerpt>", note=…)`.
+  The engine moves the claim's span to that passage and keeps the old one in its notes (`span was:`), and the
+  answer carries `reanchored`. A grounded claim keeps the time it was first grounded. Cite the passage that states
+  the claim, not a neighbouring one, and only from the notes: the engine refuses a passage that lies in no file
+  the graph is built from (`passage-not-in-built-sources`).
+- **Nothing states it any more** (the sentence was deleted, or rewritten to say something else): mark it obsolete,
+  `kg_ground(target_id=<id>, verdict="obsolete", note="<what the text says now, or that the passage was
+  removed>")`. An obsolete claim leaves the live graph without counting as a refutation. It stays in the canon,
+  and comes back to be judged again if its sentence returns or new text of its file shares its words.
+- **Never reject it for this**, and never record it unsupported. The engine refuses `rejected` on such a claim
+  (`span-gone-not-rejected`) and `grounded` without a passage (`span-gone-needs-passage`). When the text now states
+  the contrary of the claim, it is still `obsolete`, with a note that says so: the notes changed their mind, and
+  no evidence refuted the claim.
+
+`obsolete` is for this case only. The engine refuses it on a claim whose span is still in its file
+(`obsolete-span-still-present`), on an edge with no span of its own, such as a proposal, and on a rejected or
+failed claim, which is negative memory and stays so.
+
+**A rejected claim judged again.** A rejected item your batch marks `re-examine` because its file changed
+(0.22.4) may come with `span_gone` too: its file no longer holds its span. It is negative memory, and stays so
+unless a passage states it. When one does, ground it on that passage as above, and its span moves there. When none
+does, stamp `rejected` again with a note on what you read. Never mark it obsolete: the engine refuses it.
+
+**An obsolete claim judged again.** An item your batch marks `re-examine` whose state is `obsolete` comes back
+because its sentence is in its file again, or because a build read new text of its file that shares its words.
+- When `span_in_source` is `true`, judge it as any item, on its span: `grounded`, or `rejected` with the reason
+  that fits.
+- When it is `false`, judge it as above, on `span_gone`: grounded on the passage that states it now, or obsolete
+  again, with a note on what you read.
+
+Either verdict answers the re-examination.
+
 ## The edge.id format (target_id)
 
 Edge ids are deterministic, derived from the triple by the engine (`model.edge_id`):
@@ -229,6 +283,10 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     its words, ranked as a node's `source_context` is. Its usual evidence comes too, but that is what it was
     judged against before; `reexamine.context` is what is new. An edge flagged because its own span's file
     changed has `context: null` there: judge its span in its own `context`, which is that file's text now.
+  - For an item your batch marks `span gone` (0.27.0): `span_in_source` is `false`, `context` is `null`, and
+    `span_gone` holds what you judge it on: the old `span` and its `source_file`, the `sections` of that file now
+    that share the most of the claim's words, `elsewhere` and `also_present`. See **A claim whose passage left its
+    file**.
   - **Every source has a level (0.21.0, 0.22.0).** Each excerpt and section carries `source`: `class` is
     `own` (the user's notes) or `external` (an outside text the user registered with `/burgess:kg-sources`,
     copied by the engine), with its `level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community,
@@ -285,9 +343,9 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
 - **The check is the excerpt, not a file.** You do not `Read` or `Grep` the source to verdict an item:
   `kg_ground_item` hands you the text around the span, already egress-scrubbed with the session's placeholders.
   For a proposal, the excerpts are those of `shared_context`.
-  A support span you copy back from it, placeholders included, is restored and verified by `kg_ground`. The one
-  exception is a stale verdict (Stage 0b of `/kg-ground`), whose span is gone: search the configured source files
-  for where the claim moved.
+  A support span you copy back from it, placeholders included, is restored and verified by `kg_ground`. A claim
+  whose span left its file comes with that file's sections in `span_gone` (0.27.0). Through 0.26.0 such a claim
+  was the one exception, and its grounder searched the source files itself.
 - Optional triage signal, from `mcp__plugin_burgess_burgess__kg_context(budget=2000)` → `advisory` (if
   `signal == "structural-bridge"`, those `nodes[]` are likely generic hubs — scrutinize their edges hardest; a
   vague hub is the generality confound in action, §1.6).
@@ -364,8 +422,11 @@ concept as another node, `get_node` the id you suspect.
    span) has no span to check: judge it by **Judge a proposal against its `shared_context`**, and by **A
    proposal with a `passage`** when it carries one, then go to step 2. Reject any other edge on the first
    failure:
-   a. **Span is real.** `span_in_source` must be `true`. If it is `false`, the span no longer verifies (or never
-      did) → `rejected`, note `"no-support: span not in source"`.
+   a. **Span is real.** `span_in_source` must be `true`. If it is `false`, the claim's passage left its file:
+      judge it by **A claim whose passage left its file**, on `span_gone`, and go to step 2. Never reject a live
+      claim `no-support: span not in source`, as grounders did through 0.26.0. If `span_gone` is `null` too, its
+      file is not among the sources: the engine takes no verdict on a live claim then, so leave it and report it.
+      A rejected item marked `re-examine` in that case is rejected again, with that note.
    b. **Span actually asserts THIS relation, in this direction, between THESE nodes.** Read the span inside
       `context`. It must state `source <relation> target` as **What each relation asserts** defines the
       relation, HEAD and TAIL in their roles, not merely mention both nodes, and not its opposite: a sentence
@@ -404,8 +465,9 @@ concept as another node, `get_node` the id you suspect.
 2. **Stamp the verdict** with `kg_ground(target_id=<id>, verdict=..., kind=..., note=...)`, using the id exactly as
    your batch lists it. Confirm `ok:true` and `from == "unverified"`. If `from` was already a verdict, skip —
    someone else ruled. The exception is an item your batch marks `re-examine`: a rejected node the user asked to
-   have judged again (0.20.2), or a rejected edge or node a source changed under after its verdict (0.22.4). Its
-   `from` is that earlier verdict and yours replaces it. **Always stamp one**, rejected again included, with a
+   have judged again (0.20.2), a rejected edge or node a source changed under after its verdict (0.22.4), or an
+   obsolete claim that came back (0.27.0); and so is a grounded item it marks `span gone` (0.27.0). Its `from` is
+   that earlier verdict and yours replaces it. **Always stamp one**, rejected again included, with a
    note that names what you re-read: that verdict is what tells the engine the item had its second look, so the
    plan stops offering it. Ground it only on a passage that states it, by the same rules as any item. When the
    only passage that does lies in a source with `usable: false`, keep it rejected and say so in the note. Never
@@ -424,7 +486,9 @@ concept as another node, `get_node` the id you suspect.
    with `hypothesis-into-non-live-node`. Reject that edge `no-support`, because what it reduces to does not
    stand (0.17.1).
 4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation /
-   wrong-node), K left unverified, split by kind (edge/node), as a per-item table: id, kind, verdict, reason.
+   wrong-node), K left unverified, O obsolete, split by kind (edge/node), as a per-item table: id, kind, verdict,
+   reason. For each item marked `span gone`, say whether its span moved (and to which passage) or it is now
+   obsolete, and what the text says now.
    Name every item you asked for passages with your own `terms` (0.24.6), with the words: say which one you
    grounded and was held (verdict `held`, with the span), and for a `confirm` item whether you confirmed or
    declined it, and why.
@@ -439,6 +503,8 @@ concept as another node, `get_node` the id you suspect.
   rejection, not a pass (§1.6). When unsure between *grounded* and *vague-reject*, reject: a false ground
   pollutes every downstream metric; a false reject is recoverable and is recorded as honest negative
   information (§1.7).
+- **`obsolete` is not a rejection** (0.27.0). It says a claim's passage left its file, and nothing more: no
+  falsification counter counts it, and the claim comes back if its sentence does.
 - **Rejections are negative information, never deletion.** Your `rejected` verdicts persist and surface in
   `kg_context.falsification_counters` — they teach the graph what not to re-propose (§1.4/§1.7). Note the
   reason precisely; the note is the memory.

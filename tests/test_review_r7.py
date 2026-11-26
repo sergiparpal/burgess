@@ -19,8 +19,10 @@ pre-fix code:
   6. agents/evaluator.md — the kg-evaluator's tools grant omitted kg_generate, which /kg-experiment
      instructs it to call for the graph+generate+dpp arm.
   7. commands/kg-ground.md — Stage 0b prescribed ``kg_ground(grounded, support_span=...)`` to relocate
-     a stale span-present span, but kg_ground ignores support_span for non-hypothesized items, so the
-     remedy was a no-op and the stale flag never cleared.
+     a stale span-present span, but kg_ground ignored support_span for non-hypothesized items, so the
+     remedy was a no-op and the stale flag never cleared. (0.27.0: the kg_write re-emit this review put in
+     its place never worked either, since the boundary quarantines a re-emit of a judged claim; since 0.27.0
+     the plan queues such claims and kg_ground moves their span, tests/test_fix_gone_spans.py.)
 """
 from __future__ import annotations
 
@@ -201,9 +203,11 @@ def test_r7_evaluator_grants_kg_generate():
 
 def test_r7_kg_ground_stage0b_remedy_is_not_a_noop():
     text = (_REPO / "commands" / "kg-ground.md").read_text(encoding="utf-8")
-    stage = text.split("## Stage 0b", 1)[1].split("## Stage 1", 1)[0]
-    # the working remedy: relocate the span via kg_write (a canon edit that re-opens grounding)
-    assert "kg_write" in stage
-    # and it must NOT tell the grounder to relocate a span-present span via kg_ground's support_span
+    stage = text.split("## Stage 0b", 1)[1].split("## Stage 0c", 1)[0]
+    # The remedy r7 pinned, a kg_write re-emit with the new span, was a no-op too: the boundary quarantines a
+    # re-emit of a judged claim (collapses-into-known-verdict). Since 0.27.0 the stage prescribes no remedy of its
+    # own: the plan queues the claims (span_gone) and their grounders move the span through kg_ground.
+    assert "kg_write({" not in stage
+    assert '"span_gone": true' in stage and "`collapses-into-known-verdict`" in stage
     assert 'verdict="grounded",\n     support_span' not in stage
     assert 'support_span="<the new verbatim span>")` (re-earns' not in stage

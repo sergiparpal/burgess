@@ -126,7 +126,8 @@ def test_the_queue_is_the_unverified_edges_in_source_order(eng):
                              "reexamine": 0,                                       # 0.20.2
                              "reexaminable": 0, "reexaminable_held": 0,            # 0.22.4
                              "confirm": 0,                                         # 0.24.6
-                             "pin_attacks": 0}                                     # 0.25.0
+                             "pin_attacks": 0,                                     # 0.25.0
+                             "spans_gone": 0, "obsolete_returned": 0}              # 0.27.0
     assert plan["source"]["files"] == ["doc.md"]
 
 

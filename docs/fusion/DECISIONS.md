@@ -3342,6 +3342,8 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     examine such a claim again, to mark it `obsolete` or ground it on the new passage.
   - Until then the plan counts them (`spans_gone`: `grounded`, `unverified`, up to 10 grounded ids), and the build
     names the grounded ones.
+  - Addendum (2026-11-26): done in 0.27.0, see the entry of that date. «Nothing flags it» was wrong: the R3
+    advisory listed such a claim, and the command's Stage 0b routed it to a grounder whose remedies did not work.
 - **Considered, not done:**
   - A per-section baseline, for any covered section none of whose units a record holds. A one-paragraph section
     with a sentence appended has exactly that shape, so the baseline would have hidden the commonest edit.
@@ -3349,3 +3351,95 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     carry no time of writing.
 - **Pinned in:** `tests/test_fix_changed_sections.py`; the covered-section record in
   `tests/test_fix_edgeless_sections.py`; the command texts in `tests/test_fix_source_intake_and_build_noise.py`.
+
+
+## A claim whose passage left its file is judged again: moved to the passage that states it, or obsolete (2026-11-26)
+
+- **What it answers:** the case decision 4 of the 0.26.0 entry left for a separate change. The user approved the
+  design with its three recommendations («Sí, así»).
+  - Facts first, checked on 0.26.0 with a probe before any change:
+    - A grounded claim whose sentence was rewritten or deleted kept its verdict on text that was gone. The R3
+      advisory listed it (`stale_verdicts`, `span-no-longer-in-source`), and Stage 0b of `/kg-ground` had a
+      grounder search the source files. Its remedy for a claim that had moved, a `kg_write` re-emit with the new
+      span, comes back QUARANTINED `collapses-into-known-verdict` (review-C1, in the boundary since the foundation),
+      so the span never moved and the flag stayed. Review r7 (2026-07-04) had pinned that remedy as the working
+      one; it pinned only the text. Its remedy for a claim whose text was gone was a rejection. And
+      `kg_ground(grounded)` with no passage re-confirmed the claim on the gone text.
+    - An unverified claim whose span was gone was rejected by its grounder (step 1a, `no-support: span not in
+      source`), permanent negative memory: had the sentence come back, the claim's re-extraction would have been
+      quarantined `collapses-into-known-failure`.
+    - `obsolete` was accepted on any edge, and no agent gave it.
+    - On 2026-11-25 the field project had no such claim (`spans_gone` none on its copy).
+- **Decision 1: the plan finds the claims itself, and both live states are judged again.**
+  - `KGEngine._span_gone`: a claim with a span of its own (any provenance but hypothesized; the field holds 19
+    grounded `inferred` edges with spans, which R3, span-present only, does not list) whose own file is among the
+    sources and no longer holds the span. Read live by the plan, as `spans_gone` is, not from the projection's R3
+    list.
+  - A grounded one is queued after everything new, as a re-examination is; an unverified one stays where it was,
+    since it is new work anyway. Both are marked `span_gone` and counted in `queue.spans_gone`.
+  - `kg_ground_item` gives `span_gone`: the old span, the sections of its file now ranked by the claim's words
+    whatever the file's level (`_file_context`: a passage that states a claim is where it is stated, and its
+    support is checked when it is grounded), the files that hold the old span word for word (`elsewhere`), and
+    the `also stated:` passages that still verify (`also_present`).
+- **Decision 2: two answers, and the engine holds them.**
+  - `grounded` with `support_span`, the passage that states the claim now (`_reanchor`). It must verify in a file
+    the graph is built from, its own file first (`passage-not-in-built-sources`): the span is where the notes
+    state the claim, and a claim that only a paper states any more is no longer one the notes make. The moved
+    claim must rest on usable support. Its `span` and `source_file` move; the old span stays in the notes as
+    `span was:` (`evidence.span_was_segment`); a grounded claim keeps its `verdict_at`, as any re-confirmation
+    does since 0.10.2, so its hub is not reopened.
+  - `obsolete`, superseded: out of live topology, not negative memory (DECISIONS 2026-07-31), kept in the canon.
+  - A live claim whose passage is gone is never rejected (`span-gone-not-rejected`), and `grounded` with no passage
+    is refused (`span-gone-needs-passage`). A refutation (`failed`) is about the claim, not its passage, and stays
+    open.
+  - A rejected claim a source changed under (0.22.4) is often one whose passage is gone. It gets `span_gone` too,
+    and may be rejected again, staying negative memory, or grounded on a passage, which moves it like any other.
+    Without the view its grounder would have found no text at all: the flag's own `context` is null for a claim
+    flagged by its span's file, and its span `context` is null once the span is gone.
+  - In the engine and not only in the contract: the rejection was a contract rule that grounders followed, and a
+    rule a note carries from an earlier session can outlive a contract change (0.10.0).
+  - The move is the verdict path's. A judged claim's span can move nowhere else: the boundary quarantines its
+    re-emit, and that guard is right for an ordinary rebuild. The reconciler polices states, not spans, and is
+    checked against a move.
+- **Decision 3: `obsolete` only where a passage left its file** (the third recommendation). Refused on a span that
+  still verifies (`obsolete-span-still-present`), on an edge with no span of its own (`obsolete-needs-a-span`), and
+  on a rejected or failed claim (`obsolete-not-for-negative-memory`): negative memory stays what it is, as the design
+  left rejected and failed claims whose sentence is deleted out of this change. Nodes are unchanged. Three pins used
+  `obsolete` as an ordinary change of state and now meet the rule: `test_fix_overturned_lead` (a rejection followed
+  by `obsolete`; `grounded` stands in, and a new test pins the refusal), `test_fix_attack_once` (the sentence goes
+  first) and R3's own test in `test_grounding` (cleared with `obsolete` instead of a rejection).
+- **Decision 4: an obsolete claim comes back** (the second recommendation, `_obsolete_returns`).
+  - When its span verifies again (an edit undone, a copy restored), or when an extraction has read, since its last
+    verdict, a paragraph of its own file that no read of that file held before, and that paragraph shares
+    `BEARING_WORDS` (3) of the claim's words. Queued after everything new, marked `reexamine`, counted in
+    `queue.obsolete_returned`. Any verdict answers it.
+  - The read ledger, not the projector's re-examination flags: the per-file test of a flag (0.14.4) is one word
+    shared with the whole changed file, so every edit of a file would bring back all of its obsolete claims. The
+    ledger knows which paragraphs are new to a build (`read_units`' `first`), and three words in one paragraph is
+    the bar flags and wakes use since 0.24.5. A baseline is not a read.
+  - A read and a verdict are ordered by the audit log's offset, which each read record now carries
+    (`audit_mark`), not by their times: both are stamped to the second, and a build's read can fall in the
+    verdict's second. A record from 0.26.0 falls back to its time, and one in the verdict's second does not count.
+  - Its own file only, as designed: a claim moved to another file and rewritten there stays obsolete.
+- **Decision 5: a claim whose file is not among the sources is not judged.**
+  - Counted per file in `files_missing`, the whole canon's whatever the focus, and refused every verdict but
+    `failed` (`span-file-not-among-sources`). A moved or renamed file, or another notes folder, looks the same as
+    every sentence of a file deleted at once, and judging that would mark a whole file obsolete.
+  - `_own_file`: a claim naming no file belongs to the one file the graph is built from when there is exactly one
+    (a project from before files were recorded; R3's own test is such a claim), and to none among several. A name
+    not among the sources is never mapped to another file, even with a single file: that is what a configuration
+    change looks like.
+- **Decision 6: the grounder loses `Read`, `Grep` and `kg_write`.** Their only use was Stage 0b's remedy. Its
+  contract already said it reads no file and writes no node.
+- **Considered, not done:**
+  - Moving a span without a grounder when the old span is in another built file word for word, or when an `also
+    stated:` passage still verifies: that changes what a verdict rests on unread. `elsewhere` and `also_present`
+    put both in front of the grounder instead.
+  - Keeping the passage a build writes for a judged claim, at its quarantined re-emit. The grounder finds the
+    passage in `span_gone.sections` itself, and a new kind of record in the write path would have served only
+    this.
+- **Pinned in:** `tests/test_fix_gone_spans.py`; updated pins in `tests/test_review_r7.py`,
+  `tests/test_fix_overturned_lead.py`, `tests/test_fix_attack_once.py`, `tests/test_grounding.py`,
+  `tests/test_kg_ground_plan.py`, `tests/test_fix_changed_sections.py` and
+  `tests/test_fix_node_scope_and_counters.py` (the grounder brief no longer says that `span_in_source` false means
+  a rejection).

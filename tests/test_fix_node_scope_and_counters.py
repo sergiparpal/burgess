@@ -105,9 +105,11 @@ def test_the_grounder_template_names_every_reason_the_contract_defines():
     template = _flat(_grounder_template())
     reasons = set(re.findall(r"[a-z]+(?:-[a-z]+)*", GROUNDER.split("name the failure:", 1)[1].splitlines()[0]))
     assert reasons == {"vague", "no-support", "wrong-relation", "wrong-node"}
-    # `no-support` is the template's "span_in_source is false"; every other reason is named in backticks
+    # `no-support` is the template's "reject it no-support"; every other reason is named in backticks. Through
+    # 0.26.0 it was also "span_in_source is false", which since 0.27.0 calls for the moved passage or `obsolete`,
+    # never a rejection (tests/test_fix_gone_spans.py)
     assert reasons - {"no-support"} <= set(re.findall(r"`([a-z-]+)`", template))
-    assert "span_in_source is false" in template
+    assert "reject it no-support" in template and "span_in_source is false" not in template
     assert "(`enables`) filed as `grounds`" in template
     assert "between what the two nodes name" in template
 

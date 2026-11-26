@@ -471,19 +471,27 @@ READ_BY = ("write", "record", "baseline")
 
 
 def read_record(file: str, section: int, title: str, text_digest: str, units: "Iterable[str]", at: str,
-                by: str) -> str:
+                by: str, audit_mark: "int | None" = None) -> str:
     """One line of the read ledger (0.26.0): the file and section, the section's title, the digest of its whole
     text, the digests of its units (`unit_digest`), when, and who recorded it (`READ_BY`). Only the file and the
-    unit digests decide anything; the rest is for whoever reads the ledger."""
-    return json.dumps({"file": file, "section": section, "title": title, "text_sha256": text_digest,
-                       "units": [unit_digest(u) for u in units], "at": at, "by": by}, ensure_ascii=False)
+    unit digests decide whether a section is offered again; the rest is for whoever reads the ledger.
+    ``audit_mark`` (0.27.0) is the grounding audit log's size when the read was recorded: a verdict whose record
+    starts before it came first. A byte offset orders a read and a verdict exactly, as their times, stamped to the
+    second, cannot (`KGEngine._obsolete_returns`)."""
+    rec = {"file": file, "section": section, "title": title, "text_sha256": text_digest,
+           "units": [unit_digest(u) for u in units], "at": at, "by": by}
+    if isinstance(audit_mark, int) and audit_mark >= 0:
+        rec["audit_mark"] = audit_mark
+    return json.dumps(rec, ensure_ascii=False)
 
 
 def read_units(lines) -> "dict[str, dict]":
-    """``file -> {"units": set of unit digests, "at": the newest record's time}`` over every record of the
-    ledger's lines. A unit any record of a file holds has been read; the plan offers a covered section again only
-    for a unit no record holds. A line that is not such a record (a torn last line, a hand edit) is skipped,
-    never an error."""
+    """``file -> {"units": set of unit digests, "at": the newest record's time, "first": {digest: (at, by, mark)}}``
+    over every record of the ledger's lines. A unit any record of a file holds has been read; the plan offers a
+    covered section again only for a unit no record holds. ``first`` (0.27.0) is the earliest record that holds each
+    unit: when, by whom, and its ``audit_mark`` (None for a record from 0.26.0). A unit an extraction read first
+    after a claim was marked obsolete is text new to that claim (`KGEngine._obsolete_returns`); one a baseline took
+    is not. A line that is not such a record (a torn last line, a hand edit) is skipped, never an error."""
     out: "dict[str, dict]" = {}
     for line in lines:
         try:
@@ -495,8 +503,17 @@ def read_units(lines) -> "dict[str, dict]":
         file, units, at = rec.get("file"), rec.get("units"), rec.get("at")
         if not (isinstance(file, str) and file and isinstance(units, list) and isinstance(at, str) and at):
             continue
-        entry = out.setdefault(file, {"units": set(), "at": at})
-        entry["units"].update(u for u in units if isinstance(u, str) and u)
+        by = rec.get("by") if isinstance(rec.get("by"), str) else ""
+        mark = rec.get("audit_mark")
+        mark = mark if isinstance(mark, int) and not isinstance(mark, bool) and mark >= 0 else None
+        entry = out.setdefault(file, {"units": set(), "at": at, "first": {}})
+        for u in units:
+            if not (isinstance(u, str) and u):
+                continue
+            entry["units"].add(u)
+            seen = entry["first"].get(u)
+            if seen is None or at < seen[0]:
+                entry["first"][u] = (at, by, mark)
         if at > entry["at"]:
             entry["at"] = at
     return out

@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.27.0 — 2026-11-26
+
+A claim whose sentence you rewrite or delete is judged again.
+
+### Fixed
+
+- **`/burgess:kg-ground` judges again a claim whose sentence left the notes.**
+  - A grounded claim whose sentence you rewrote or deleted kept its verdict, resting on text that was gone. Its
+    quote could not move either. The command's step for such claims had a grounder write the claim again with
+    the new sentence, and the engine quarantines a claim it has already judged, so nothing changed.
+  - An unverified one was rejected as not in the source. A rejection is permanent negative memory: had you
+    restored the sentence, the claim could never have come back.
+  - Now the plan queues every such claim, grounded or unverified, and its grounder gets the sections of the file
+    as they read now.
+  - If the text still states the claim, the grounder grounds it on the new passage. The claim quotes that passage
+    from then on, and its old sentence stays in its notes. A grounded claim keeps the time it was first grounded.
+  - If nothing states it any more, the claim becomes `obsolete`. It leaves the graph's structure, and it does not
+    count as a refutation.
+- **The engine enforces these rules.**
+  - `kg_ground` refuses to reject such a claim, and refuses to ground it again without a passage.
+  - `obsolete` is refused on a claim whose sentence is still in its file, on a claim with no quote of its own,
+    and on a rejected or refuted one.
+
+### Added
+
+- **An obsolete claim comes back.** It is judged again when its sentence is back in its file, or when a build
+  reads new text of its file that shares three of its words. Any verdict answers it.
+- **A rejected claim can move too.** A rejected claim judged again because its file changed may have lost its
+  sentence as well. Its grounder then gets the same sections. If a passage states the claim, it is grounded on
+  that passage and quotes it from then on. Otherwise it is rejected again. It never becomes `obsolete`.
+- **A claim whose file is missing is named, not judged.** A claim whose file is no longer among the sources
+  (moved, renamed, or a different notes folder) gets no verdict, and the plan names the file. That looks the
+  same as every sentence of the file deleted at once.
+
+### Changed
+
+- The grounder no longer has `Read`, `Grep` or `kg_write`. They were there only for the step this version
+  replaces.
+- `/burgess:kg-build`'s `spans_gone` counts only claims whose file is among the planned files. A claim that names
+  no file counts when the notes are one file.
+
+### Upgrading
+
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- The next `/burgess:kg-ground` judges any claim whose sentence is gone. If you have not edited your notes since
+  building, there is none.
+
 ## 0.26.0 — 2026-11-25
 
 A section you edit after it was built is read again, for what is new.
