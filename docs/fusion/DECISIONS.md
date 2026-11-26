@@ -3533,3 +3533,48 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     wrote lay inside the project. They also found two small faults, fixed in 0.28.1: the session's reasons written
     into the entry's `iterations` line, and two stale counts of the tools
     (`tests/test_fix_eval_iterations_and_tool_count.py`).
+
+## A grounder asks in the source's language before it records an idea unsupported (2026-11-26)
+
+- **Context.** 0.24.6 let a grounder ask once, in at most 8 words in the source's language, for passages with its
+  own words (`kg_ground_item(…, terms=…)`). It applies when the item and a source are in different languages and
+  nothing in its excerpts bears on the item. The contract said the grounder *may* ask.
+  - The second e2e (2026-11-26, Windows, 0.28.1) never reached that case, so it was built: a Spanish pin got an
+    English test note, registered as found for it. The note's three sections that shared the scout's search words
+    said nothing of the pin; its fourth stated it in other words.
+  - The engine's ranking was checked first: `search_context` showed the three, `source_context` showed nothing,
+    and a request made of the fourth section's own words ranked it first. A request in the pin's words, put into
+    English, was not checked; the live test below shows it shares one word with that section.
+- **What happened.** The grounder got exactly that view and recorded the pin unsupported without asking, twice: in
+  a normal pass and with the pin as the focus. The passage the request exists for stayed unseen, and the pin would
+  have waited for a new source.
+- **Decision.** `kg_record_unsupported` answers `terms-not-asked`, with `files`, `max_terms` and a `hint`, for an
+  item a usable registered source was found for (`found_for`). It does so while no request of the grounder's is on
+  record against the item and the sources as they are (`_current_request`, keyed by both signatures). The grounder
+  contract says to ask once before recording such an item.
+  - Not for an item with a held verdict open: its second grounder declines by recording it, and may not search
+    (`terms-not-allowed`).
+  - Support found after the request is still held for a second grounder (0.24.6), so a required request cannot
+    become a search run until something fits.
+- **Rejected alternatives.**
+  - The contract alone ("ask once before you record"): the optional wording was skipped 2 of 2 in the case built
+    for it, and a refusal does not depend on the model reading a rule.
+  - Asking for any item with a source in another language: the engine does not know languages. `found_for` is the
+    case a scout's search makes, usually across languages; an item in the source's language pays one more
+    `kg_ground_item` call.
+  - Asking before a rejection too: an item waiting for a source is recorded, never rejected for want of support, so
+    the rule reaches it at the one call it makes.
+- **Live test (2026-11-26).** On 0.28.2 (WSL, Claude Code 2.1.316, `--plugin-dir`, the read block on, a copy of that
+  project with the pin as the focus), the grounder asked before it recorded, so the refusal never fired. It asked
+  with `rhetorical role section quotation footnote objection support restrict`.
+  - The fourth section shares one of those words, `footnote`. The test note had worded it to avoid the pin's and
+    the scout's words, and `quotation` is not `quoted`. A section is shown only when it shares two words of the
+    request (`rank_units`, `need=2`), so the request showed none, and the grounder recorded the pin unsupported,
+    as the rule then allows.
+  - What follows a found passage was run on a copy through the engine alone, with no model: refused with
+    `terms-not-asked`, a request of six words ranking the fourth section first, the grounding held, the pin queued
+    `confirm`.
+  - So the new wording alone made the grounder ask in its one live run; the refusal stays as the guarantee. A
+    passage that states an item in other words than the grounder asks with stays unseen, as every view of the
+    sources ranks by shared words.
+- **Pinned in:** `tests/test_fix_record_unsupported_asks_terms.py`.

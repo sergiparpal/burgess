@@ -1348,6 +1348,9 @@ a `terms` request is recorded (0.24.6).
     the policy) are what they are now (`_current_request`): asking again gives back the first words and
     sections. Every request goes to `.kg-ground-requests.jsonl`. Refusals: `terms-too-many` (with `max`),
     `terms-empty`, and `terms-not-allowed` for an item with a held verdict. A refusal records nothing.
+    Since 0.28.2 the request is due before an item a usable source was found for is recorded unsupported:
+    `kg_record_unsupported` (§1.26) answers `terms-not-asked` until one is on record against the sources as they
+    are. Through 0.28.1 it was the grounder's choice, and in a run made for it the grounder never asked.
   - **A held verdict.** After a request, a grounded verdict that brings support (`support_span` or
     `support_note`) is held (§1.4, `needs_confirmation`): `kg_ground_plan` queues the item last, marked
     `confirm` (§1.21), and `kg_ground_item` then gives it `confirm`: `{span, support_note, context, terms,
@@ -1492,6 +1495,11 @@ the field pass of 2026-11-21 ran ten grounders over 120 pins, about 2.50 USD, an
   unreadable ledger only offers those pins to one more grounder.
 - `ok: false` for an unknown item or kind, an empty or overlong note, or an item that is not an unverified
   `[diverge]` pin; nothing is written then.
+- `terms-not-asked` (0.28.2), with `files` and a `hint`, for an item a usable registered source was found for
+  (`found_for`) while no request of the grounder's (`kg_ground_item` with `terms`, §1.22) is on record against
+  the item and the sources as they are. The grounder asks once in the source's language, judges what that found,
+  and records the item again or grounds it (held for a second grounder). Not asked of an item with a held verdict
+  open, whose second grounder declines it by recording it and may not search. Nothing is written then.
 - Registering an external source (§1.27) changes the source signature. Through 0.22.0 that offered every waiting
   pin again, and so did any change of the policy (§1.30), whose fingerprint joins the signature whenever it
   differs from the defaults. Since 0.22.1 only a usable file the item was not judged against does, as below, and

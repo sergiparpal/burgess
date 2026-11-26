@@ -149,7 +149,9 @@ non-failure reason.
   **Then record it** with `kg_record_unsupported(target_id=<id>, kind=<node|edge>, note=<what you looked for
   and did not find>)`. The plan then leaves the pin out until the sources or the pin change, so the next pass
   does not judge it again for the same answer. Through 0.20.0 nothing recorded it, and one field pass judged
-  120 pins again and left all 120 unverified.
+  120 pins again and left all 120 unverified. **When a registered source was found for the pin, ask first** in
+  the source's language (*Your own request*, below): the engine refuses the record with `terms-not-asked` until
+  you have (0.28.2).
 - **`[diverge]`-marked item, WITH positive support → `grounded`.** If you *do* find a verbatim `support_span`
   (or an external `support_note`), promote it exactly like any hypothesis — earning grounding is always allowed.
 - **Active falsification is not yours.** If a `[diverge]` idea is genuinely *refuted* (not merely unsupported),
@@ -310,10 +312,14 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
       words the scout searched for the item with. Those words were chosen before anyone judged a passage, by
       someone else. Read it first, as you read `source_context`.
     - **Your own request.** When the item and a source are in different languages and nothing in the excerpts
-      bears on the item, you may call `kg_ground_item(target_id, kind, terms="…")` once: at most 8 words, in
-      the source's language, naming what the item claims (its mechanism, not the verdict you hope for). It
-      answers `requested_context`, the usable sections that share the most of them. The engine records the
-      request; asking again gives back the first words and sections, never new ones.
+      bears on the item, call `kg_ground_item(target_id, kind, terms="…")` once, before you record the item
+      unsupported: at most 8 words, in the source's language, naming what the item claims (its mechanism, not
+      the verdict you hope for). It answers `requested_context`, the usable sections that share the most of
+      them. The excerpts above show a few sections only, so the passage that states the item can sit in one
+      they left out. The engine records the request; asking again gives back the first words and sections,
+      never new ones. For an item a registered source was found for, `kg_record_unsupported` answers
+      `terms-not-asked` until you have asked (0.28.2). Through 0.28.1 the request was optional, and in a test
+      made for it the grounder never asked, twice, while the passage that stated the item sat unseen.
     - **Support found after your request is held.** A grounded verdict you give the item afterwards answers
       `held: true, needs_confirmation: true` and changes nothing: a second grounder confirms it. Report the item
       as held, with the span. Do not record it unsupported and do not call `kg_ground` on it again. The
