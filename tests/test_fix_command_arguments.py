@@ -28,11 +28,8 @@ degraded a perturbation to `regroup`.
 """
 from __future__ import annotations
 
-import os
 import re
 import shlex
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -151,49 +148,6 @@ def test_kg_build_reads_the_option_from_its_text_not_the_shell():
     assert 'configured_wave_size: "${user_config.extract_wave_size}"' in text
 
 
-# ---- running the commands' Bash as the orchestrator would -------------------------------------------
-
-def _working_bash() -> "str | None":
-    """A bash that actually runs, or None: Git Bash first on Windows, the shell Claude Code's Bash tool
-    uses there (the PATH `bash` may be the WSL stub). Same probe as test_fix_kg_build_paths."""
-    candidates = []
-    if os.name == "nt":
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), r"C:\Program Files"):
-            if base:
-                candidates.append(str(Path(base) / "Git" / "bin" / "bash.exe"))
-    candidates.append(shutil.which("bash"))
-    for c in candidates:
-        if not c or not Path(c).exists():
-            continue
-        try:
-            r = subprocess.run([c, "-c", "echo ok"], capture_output=True, text=True, timeout=30)
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if r.returncode == 0 and r.stdout.strip() == "ok":
-            return c
-    return None
-
-
-BASH = _working_bash()
-needs_bash = pytest.mark.skipif(BASH is None, reason="no working bash (Windows without Git Bash)")
-
-
-def _first_bash_block(text: str, after: str = "") -> str:
-    section = text[text.index(after):] if after else text
-    m = re.search(r"```bash\n(.*?)```", section, re.S)
-    assert m, f"no ```bash block after {after!r}"
-    return m.group(1)
-
-
-def _run(script: str, tmp_path: Path, **env_extra: str) -> "tuple[int, str]":
-    path = tmp_path / "block.sh"
-    path.write_text(script, encoding="utf-8", newline="\n")      # CRLF would break bash
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_PLUGIN_OPTION_")}
-    env.update(env_extra)                                         # the Bash tool has no plugin options
-    r = subprocess.run([BASH, str(path)], capture_output=True, env=env, timeout=60)
-    return r.returncode, (r.stdout + r.stderr).decode("utf-8", errors="replace").replace("\r", "")
-
-
 def _plan_call(expanded: str) -> "tuple[str, str]":
     """The two values the orchestrator copies into kg_build_plan, read off the FILLED-IN command text: the
     arguments line, and the configured_wave_size text."""
@@ -230,29 +184,40 @@ def test_the_wave_size_reaches_the_plan(one_document, vault, raw, options, expec
     assert plan["wave_size"] == expected
 
 
-def _kg_perturb_block(second: "str | None") -> str:
-    script = _first_bash_block(_read(REPO / "commands" / "kg-perturb.md"))
-    if second is not None:                                         # the orchestrator's own substitution
-        assert 'SECOND="__SECOND__"' in script
-        script = script.replace('SECOND="__SECOND__"', f'SECOND="{second}"', 1)
-    return script
+def _perturb_line(raw: str) -> str:
+    """The `arguments` the orchestrator passes to kg_perturb_plan for the typed line `raw` (0.28.0: the engine
+    classifies the path; through 0.27.0 a Bash block did, from a `__SECOND__` slot the orchestrator filled)."""
+    call = re.search(r'kg_perturb_plan\(arguments="(.*?)"\)', _expand(_read(REPO / "commands" / "kg-perturb.md"), raw))
+    assert call, "kg-perturb.md no longer hands its typed line to kg_perturb_plan"
+    return call.group(1)
 
 
-@needs_bash
-def test_kg_perturb_stops_when_its_argument_was_not_filled_in(tmp_path):
-    code, out = _run(_kg_perturb_block(None), tmp_path)
-    assert code == 1, out
-    assert "MODE=" not in out, out              # a forgotten substitution never passes for "no second source"
+def test_kg_perturb_refuses_a_line_that_names_no_file(vault):
+    from kg_engine.server import KGEngine
+
+    eng = KGEngine(vault)
+    # an argument left unfilled is a path to no file: refused, never read as "no second source"
+    for raw in ("$ARGUMENTS", "__SECOND__", "no-such-file.md"):
+        plan = eng.kg_perturb_plan(raw)
+        assert plan["ok"] is False and "mode" not in plan, plan
 
 
-@needs_bash
 @pytest.mark.parametrize("second,expected", [
-    ("", ["MODE=degrade"]),
-    ("otra carpeta/graph.json", ["MODE=graph", "SECOND_GRAPH=otra carpeta/graph.json"]),
-    ("Mi segundo documento.md", ["MODE=source", "CONSTRUCTION=mi-segundo-documento",
-                                 "SECOND_SOURCE=Mi segundo documento.md"]),
+    ("", {"mode": "degrade"}),
+    ("otra carpeta/graph.json", {"mode": "graph", "second_graph": "otra carpeta/graph.json"}),
+    ("Mi segundo documento.md", {"mode": "source", "construction": "mi-segundo-documento",
+                                 "second_source": "Mi segundo documento.md"}),
+    ('"Mi segundo documento.md"', {"mode": "source", "construction": "mi-segundo-documento",
+                                   "second_source": "Mi segundo documento.md"}),
 ])
-def test_kg_perturb_classifies_the_path_it_was_given(tmp_path, second, expected):
-    code, out = _run(_kg_perturb_block(second), tmp_path)
-    assert code == 0, out
-    assert out.strip().splitlines() == expected, out
+def test_kg_perturb_classifies_the_path_it_was_given(vault, second, expected):
+    from kg_engine.server import KGEngine
+
+    (vault / "otra carpeta").mkdir()
+    (vault / "otra carpeta" / "graph.json").write_text('{"nodes": [], "links": []}', encoding="utf-8")
+    (vault / "Mi segundo documento.md").write_text("# Otro\n\n## Uno\nTexto.\n", encoding="utf-8")
+    plan = KGEngine(vault).kg_perturb_plan(_perturb_line(second))
+    assert plan["ok"], plan
+    for key, value in expected.items():
+        # a relative path is the project's, returned absolute so every later call names the same file
+        assert plan[key] == (str(vault / value) if key in ("second_graph", "second_source") else value), plan

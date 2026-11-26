@@ -1,7 +1,7 @@
 ---
 description: Grounding's second function — build a second reading of a source as a second construction and cross-generate (ensemble §9) the edges it wrote that the graph lacks, each with the passage it was read from. The only mechanism that attacks coverage; only passages in the graph's own sources can ground.
 argument-hint: "[second_source_or_graph_json]"
-allowed-tools: Task, Bash, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics
+allowed-tools: Task, mcp__plugin_burgess_burgess__kg_perturb_plan, mcp__plugin_burgess_burgess__kg_generate, mcp__plugin_burgess_burgess__kg_propose, mcp__plugin_burgess_burgess__kg_context, mcp__plugin_burgess_burgess__kg_metrics
 ---
 
 # /burgess:kg-perturb — perturbation & exo cross-generation (PLAN Stage 7; §9 / §15)
@@ -41,38 +41,26 @@ The second construction is built **in-session by a `kg-extractor` subagent** thr
 `<project>/.kg/constructions/<slug>/`. **No `ANTHROPIC_API_KEY` and no `backend` extra are needed** — the
 session does the language work, the engine only validates + stores (§2.2, the "LLM is the session" model).
 
-Classify that path (a tiny Bash step — no runner/venv needed). Write it in place of `__SECOND__`, inside the
-double quotes, or leave the quotes empty when no argument was given. A placeholder left as it is stops the
-step, so a forgotten substitution can never pass for "no second source":
+Classify that path with `mcp__plugin_burgess_burgess__kg_perturb_plan(arguments="$ARGUMENTS")`, passing the
+typed line verbatim: the engine strips the quotes, resolves a relative path against the project and checks the
+file exists. This step needs no shell (0.28.0). Through 0.27.0 it was a Bash block, and under the setting
+`permissions.blockReadsOutsideWorkingDirectories` Claude Code asks the person before a block its parser cannot
+analyse (a `case`, a `${…}`); in the end-to-end run of 2026-11-25 both tries were refused and the session
+classified the path by hand.
 
-```bash
-SECOND="__SECOND__"   # the path from the arguments, without quotes; "" when there is none
-case "$SECOND" in (__*__) echo "the path from the arguments was not filled in above (or leave the quotes empty)"; exit 1 ;; esac
-if [ -z "$SECOND" ]; then
-  echo "MODE=degrade"                       # no second source → ensemble degrades to regroup
-elif [ "${SECOND##*.}" = "json" ]; then
-  echo "MODE=graph"; echo "SECOND_GRAPH=$SECOND"   # a pre-built graph.json → use it directly (§11)
-else
-  # a second SOURCE document → derive a stable construction NAME from its basename
-  NAME=$(basename "$SECOND"); NAME="${NAME%.*}"
-  # POSIX BRE (`*`, not the GNU `\+` extension — BSD/macOS sed treats `\+` as a literal `+`, so the
-  # basename would not be cleaned there). The engine's _construction_slug re-slugs identically anyway,
-  # so this only keeps the echoed NAME clean and portable.
-  NAME=$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-][^a-z0-9._-]*/-/g; s/^[-_.][-_.]*//; s/[-_.][-_.]*$//')
-  [ -n "$NAME" ] || NAME="second"
-  echo "MODE=source"; echo "CONSTRUCTION=$NAME"; echo "SECOND_SOURCE=$SECOND"
-fi
-```
-
-- **`MODE=graph`** → skip to Step 2 with `second_graph="$SECOND_GRAPH"` (the pre-built escape hatch).
-- **`MODE=source`** → launch **kg-extractor** (Task) to build the named construction, then go to Step 2 with
-  `second_construction="$CONSTRUCTION"`. The extractor writes the second source's nodes/edges via
-  `kg_write(..., construction="$CONSTRUCTION", source="$SECOND_SOURCE")` — spans verified against the SECOND
-  source, landing in that construction's own canon, key-free.
-- **`MODE=degrade`** (no argument) → skip the second construction; `kg_generate` **degrades to `regroup`**
+- **`ok: false`** → the path names no file. Tell the user what `error` says, and stop: nothing is built.
+- **`mode: "graph"`** → skip to Step 2 with `second_graph="<second_graph>"` (the pre-built escape hatch, §11).
+- **`mode: "source"`** → launch **kg-extractor** (Task) to build the named construction, then go to Step 2 with
+  `second_construction="<construction>"`. The extractor writes the second source's nodes/edges via
+  `kg_write(..., construction="<construction>", source="<second_source>")` — spans verified against the SECOND
+  source, landing in that construction's own canon, key-free. `sections` is how many sections it has, and
+  `own_source` says whether the file is one of the graph's own sources: a second reading of it gives a second
+  opinion on its extraction, while an outside document mainly previews what it would connect.
+- **`mode: "degrade"`** (no argument) → skip the second construction; `kg_generate` **degrades to `regroup`**
   (a re-partition of the current construction). Surface this as a one-line note and continue — never block.
 
-Exact Task invocation for `MODE=source` (substitute `$CONSTRUCTION` and `$SECOND_SOURCE`):
+Exact Task invocation for `mode: "source"` (substitute the plan's `construction`, `second_source` and
+`source_file`):
 
 ```
 Task(
@@ -81,7 +69,7 @@ Task(
   prompt: """
 Build a SECOND CONSTRUCTION of a source document into a NAMED alternate canon (NOT the primary graph),
 section by section. Get each section from
-  mcp__plugin_burgess_burgess__kg_section(source_file="<the basename of $SECOND_SOURCE>", section=<n>, construction="$CONSTRUCTION", source="$SECOND_SOURCE")
+  mcp__plugin_burgess_burgess__kg_section(source_file="<source_file>", section=<n>, construction="<construction>", source="<second_source>")
 starting at section 1; its `of` says how many sections the document has. Its `text` is your section: extract
 from it and nothing else, and cite spans only from it. Its `known_nodes` are the PRIMARY graph's nodes the
 section names: for the same concept, write the graph's id (your contract's rules for known nodes hold), and
@@ -90,9 +78,9 @@ canon.
 
 On EVERY mcp__plugin_burgess_burgess__kg_write call, pass these two extra arguments so the write is routed
 to the second construction (they are the whole point — without them you would overwrite the primary graph):
-  construction: "$CONSTRUCTION"
-  source: "$SECOND_SOURCE"
-Set each edge's `source_file` to the basename of $SECOND_SOURCE. Follow your full system contract: declared
+  construction: "<construction>"
+  source: "<second_source>"
+Set each edge's `source_file` to "<source_file>". Follow your full system contract: declared
 pack node_types/edge_types only; every non-deterministic edge carries a verbatim `span` that is a substring
 of the section text (§1.5); never set a verdict (epistemic_state stays `unverified`) and never authored_by
 `human`. Emit one `complete: true` payload per section and report the dispositions per section, then a final
@@ -109,7 +97,7 @@ proposed nothing. A source the graph was built from mostly confirms its extracti
 
 After the extractor finishes, sanity-check the build landed (its reported ACCEPTED counts are non-zero). If
 it wrote **nothing**, tell the user the second source yielded no anchored structure and either fix the source
-or fall back to `MODE=degrade` — do not proceed on an empty construction (Step 2 would then degrade to
+or fall back to `mode: "degrade"` — do not proceed on an empty construction (Step 2 would then degrade to
 `regroup` anyway, with a note saying so).
 
 **Also verify nothing leaked into the PRIMARY graph.** Routing depends on the extractor passing
@@ -127,16 +115,16 @@ user's own version control or backup can bring one back.
 
 ## Step 2 — cross-generate (ensemble §9)
 
-- **`MODE=source`** → `mcp__plugin_burgess_burgess__kg_generate(mechanism="ensemble", second_construction="$CONSTRUCTION", k=10)`.
+- **`mode: "source"`** → `mcp__plugin_burgess_burgess__kg_generate(mechanism="ensemble", second_construction="<construction>", k=10)`.
   The engine projects the named construction's alternate canon in-session (key-free) and cross-generates.
-- **`MODE=graph`** → `mcp__plugin_burgess_burgess__kg_generate(mechanism="ensemble", second_graph="$SECOND_GRAPH", k=10)`.
+- **`mode: "graph"`** → `mcp__plugin_burgess_burgess__kg_generate(mechanism="ensemble", second_graph="<second_graph>", k=10)`.
 
 Either returns hypothesized candidates, each rationale carrying `perturbation=external`: the edges the second
 construction wrote between two nodes not adjacent in ours, each with its relation, its direction and
 `passage`, the span it was read from. `passage.in_source` says whether that span is in the graph's own
 sources, the only text a grounder judges against; `passages` counts both kinds, and `note` says when some lie
 outside them. A pre-built graph whose edges record no relation gives plain `bridges` with no passage. With no
-second construction (`MODE=degrade`, or a construction that built empty), the same call returns the
+second construction (`mode: "degrade"`, or a construction that built empty), the same call returns the
 `regroup` degrade (its `note` says so) — still useful, but internal, not coverage-attacking.
 
 With a second construction the payload also carries `ensemble`: how each of its live edges fared, the parts

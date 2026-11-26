@@ -119,8 +119,15 @@ def test_the_command_checks_the_order_and_logs_it():
     assert "Save them to the control draft (`ideation_outputs.control.json`" in step2
     assert "to the graph draft (`ideation_outputs.graph.json`) before reading any rag file" in step2
     step3 = _flat(_section(text, "## Step 3 —", "## Step 3b"))
-    assert 'harness evaluator-order "$EXP/ideation_outputs.json"' in step3
+    # 0.28.0: the engine's score step runs the check (harness.evaluator_order) and the log step writes it
+    assert 'kg_experiment(step="score", run="<run>")' in step3 and "Its `evaluator_order` is" in step3
     assert "It gates nothing (§4)" in step3
     step4 = _flat(text[text.index("## Step 4"):])
-    assert "**Evaluator order:**" in step4
+    assert "the evaluator's order" in step4
     assert "When the evaluator-order check was not verified, say so" in step4
+    from kg_engine import measure
+    entry = measure.render_experiment_log(
+        prompts_count=1, prompt_source="test", prompt_file="p.json",
+        score={"ideation": {"table": {}}, "evaluator_order": {"verified": False, "problems": ["drafts missing"]}},
+        judge_score=None)
+    assert "**Evaluator order:** not verified: drafts missing" in entry

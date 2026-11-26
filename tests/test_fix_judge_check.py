@@ -99,7 +99,8 @@ def test_the_cli_refuses_a_missing_source(tmp_path, capsys):
 
 def test_step_0_runs_the_check_and_step_3b_obeys_it():
     step0 = EXPERIMENT.split("## Step 0", 1)[1].split("## Step 1", 1)[0]
-    assert '"$PY" -m kg_engine.harness judge-check "$SRC"' in step0
+    # 0.28.0: the engine's first step returns the check (kg_engine.measure.experiment_start: judge.control_capacity)
+    assert 'kg_experiment(step="start")' in step0 and "`judge` (0.25.2)" in step0
     assert "judge_possible" in step0 and "write no controls" in step0
     assert "the source cannot hold a positive control" in step0
     step3b = EXPERIMENT.split("## Step 3b", 1)[1].split("## Step 4", 1)[0]

@@ -118,38 +118,59 @@ def test_the_evaluator_checks_the_file_it_wrote():
 
 # --------------------------------------------------------------------------- the command prepares the arms
 
-def test_step_0_notes_the_run_and_whether_lightrag_can_run():
-    first = next(b for b in _bash_blocks(_read(EXPERIMENT)) if '"$PY"' in b)
-    assert '"$PY" -m kg_engine.lightrag_arm check' in first
-    assert 'echo "RUN=$(date -u +%Y%m%dT%H%M%SZ)"' in first
+def test_step_0_notes_the_run_and_whether_lightrag_can_run(tmp_path):
+    # 0.28.0: the engine's first step returns the run's UTC stamp and whether the LightRAG arm can run
+    from kg_engine import measure
+
+    step0 = _flat(_section(_read(EXPERIMENT), "## Step 0", "### The optional `lightrag` arm"))
+    assert 'kg_experiment(step="start")' in step0
+    assert "`run`, this run's UTC timestamp" in step0 and "`lightrag` {available, reason}" in step0
+    (tmp_path / "doc.md").write_text("# A\nentropy grounds time.\n", encoding="utf-8")
+    out = measure.experiment_start(tmp_path, source_path=str(tmp_path / "doc.md"),
+                                   lightrag=lambda: (False, "disabled: set KG_LIGHTRAG=1"))
+    assert re.fullmatch(r"\d{8}T\d{6}Z", out["run"]) and out["lightrag"] == {
+        "available": False, "reason": "disabled: set KG_LIGHTRAG=1"}
 
 
-def test_the_prompt_file_is_written_with_write_under_the_run_name():
+def test_the_prompt_file_is_written_with_write_under_the_run_name(tmp_path):
+    from kg_engine import measure
+
     text = _read(EXPERIMENT)
     assert "Write" in _front(text).split("allowed-tools:", 1)[1]
-    assert "save it with the **Write** tool as a JSON array of strings to" in _flat(text)
-    assert "${CLAUDE_PROJECT_DIR}/.kg/experiment/prompts-<RUN>.json" in text
+    assert "save it with the **Write** tool as a JSON array of strings to Step 0's `prompts_path`" in _flat(text)
+    assert measure.prompts_path(tmp_path, "20261126T101500Z") == tmp_path / ".kg" / "experiment" / \
+        "prompts-20261126T101500Z.json"
 
 
 def test_step_1b_builds_the_rag_passages_before_the_evaluator_starts():
     text = _read(EXPERIMENT)
-    call = '"$PY" -m kg_engine.harness rag-slices "$EXP/prompts-$RUN.json" "$SRC" "$EXP/rag-$RUN"'   # 0.23.0
-    blocks = [b for b in _bash_blocks(text) if call in b]
-    assert len(blocks) == 2  # the default block, and the one that adds the LightRAG answers
-    assert "lightrag_arm answer" not in blocks[0] and "lightrag_arm answer" in blocks[1]
+    step1b = _flat(_section(text, "## Step 1b", "## Step 2"))
+    # 0.28.0: the engine writes the passages; the one shell block left is the opt-in LightRAG arm's
+    assert 'kg_experiment(step="rag", run="<run>")' in step1b
+    blocks = _bash_blocks(text)
+    assert len(blocks) == 1 and "lightrag_arm answer" in blocks[0] and "rag-slices" not in blocks[0]
     assert text.index("## Step 1b") < text.index("## Step 2")
     brief = _flat(_section(text, "## Step 2", "## Step 3"))
-    assert "the rag folder `${CLAUDE_PROJECT_DIR}/.kg/experiment/rag-<RUN>`" in brief
+    assert "the rag folder (`rag_dir`)" in brief
     assert "The evaluator has no shell" in brief
     assert "Write all **control** answers first, from the prompts alone, before any tool call." in brief
 
 
 def test_the_log_and_the_summary_carry_the_caveats_and_the_dpp_verdict():
+    # 0.28.0: the engine writes the entry from the saved scores (kg_engine.measure.render_experiment_log)
+    from kg_engine import measure
+
     text = _read(EXPERIMENT)
-    log = next(b for b in _bash_blocks(text) if ">> \"$PROGRESS\"" in b)
-    assert "printf '\\n**Caveat:** %s\\n'" in log
-    assert "printf '\\n**DPP verdict:** %s\\n'" in log
-    assert "| graph+generate+dpp |" in log
+    row = {"n": 2, "novelty": 0.9, "support": 0.5, "grounded_novelty": 0.45, "diversity": 1.0, "utility": 0.0,
+           "unsupported_rate": 0.0}
+    ideation = {"table": {"graph+generate+dpp": row, "control": row}, "dpp_verdict": "dpp did NOT clearly beat",
+                "caveats": ["utility counts only the English markers", "a second caveat"]}
+    log = measure.render_experiment_log(prompts_count=2, prompt_source="drafted from the graph",
+                                        prompt_file="p.json", score={"ideation": ideation}, judge_score=None)
+    assert "\n**Caveat:** utility counts only the English markers\n" in log and "\n**Caveat:** a second caveat\n" in log
+    assert "\n**DPP verdict:** dpp did NOT clearly beat\n" in log
+    assert "| graph+generate+dpp | 2 | 0.9 |" in log
+    assert log.index("| control |") < log.index("| graph+generate+dpp |")      # the arms in their fixed order
     assert "Every entry of `caveats`, verbatim, right after the verdict" in _flat(text)
 
 

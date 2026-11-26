@@ -81,12 +81,13 @@ afterward. The portico moved from the door of imagination to after generation.
    `get_neighbors`, `shortest_path`, `kg_explain_path` (the grounded-only associative chain + advisory `leap`),
    and `kg_context` (budgeted, falsification-aware) for grounded answers with provenance. Hypothesized
    candidates appear in a SEPARATE `hypotheses[]` block, never in the grounded `items[]`.
-5. **`/burgess:kg-eval`** — run the deterministic gates: extraction precision (`f4_probe.py score`, gate
-   ≥ 0.70), inter-coder agreement (`harness agreement`, Krippendorff α ≥ 0.67), and the
-   bridge-metric gate (`harness specificity`). **kg-annotator** drives these and reports verdicts.
+5. **`/burgess:kg-eval`** — run the deterministic gates in the engine (`kg_eval`): extraction precision
+   (gate ≥ 0.70), inter-coder agreement (Krippendorff α ≥ 0.67), and the bridge-metric gate.
+   **kg-annotator** labels the sheets from a copy of the source in the run's folder under `.kg/eval/`.
 6. **`/burgess:kg-experiment`** — control \| graph \| graph+generate \| graph+generate+dpp \| rag ideation
-   comparison via `harness ideation`. With `--judge`, blind **kg-judge** subagents also score each idea for
-   grounded and useful, never novelty (`harness judge-packets` / `judge-aggregate`).
+   comparison, scored in the engine (`kg_experiment`). With `--judge`, blind **kg-judge** subagents also score
+   each idea for grounded and useful, never novelty; the engine builds their packets and aggregates the
+   verdicts. Only the opt-in LightRAG arm runs a shell step.
 
 ## Who does what
 
@@ -95,12 +96,12 @@ afterward. The portico moved from the door of imagination to after generation.
 | `/burgess:kg-build` | `kg-extractor` | `kg_build_plan`, `kg_section`, `kg_write`, `kg_record_edgeless_section` |
 | `/burgess:kg-ground` | `kg-grounder`, `kg-adversarial-grounder` | `kg_ground_plan`, `kg_ground_item`, `kg_ground`, `kg_write`, `kg_record_attack` |
 | `/burgess:kg-generate` | `kg-generator` | `kg_generate`, `kg_propose`, `kg_operate`, `kg_absorption`, `kg_record_generation`, `kg_context` |
-| `/burgess:kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_metrics` (`digest=true`, before and after the build), `kg_section` / `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`; its `ensemble` tally), `kg_propose` (each edge's `passage`) |
+| `/burgess:kg-perturb` | `kg-extractor` (builds the second construction, key-free), `kg-generator` | `kg_perturb_plan` (the argument's mode and the construction's name), `kg_metrics` (`digest=true`, before and after the build), `kg_section` / `kg_write` (`construction=`), `kg_generate` (ensemble, `second_construction=`; its `ensemble` tally), `kg_propose` (each edge's `passage`) |
 | `/burgess:kg-query` | (none; direct reads) | `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `kg_explain_path`, `kg_context` |
 | `/burgess:kg-view` | (none; direct render) | `kg_export` |
 | `/burgess:kg-sources` | `kg-scout` under `find` (searches and reads pages through the engine, proposes only) | `kg_source_add` (`preview=true` first), `kg_source_find`, `kg_source_list`, `kg_source_set`, `kg_source_policy`; the scouts use `kg_source_search`, `kg_source_probe`, `kg_source_record_search` and WebSearch |
-| `/burgess:kg-eval` | `kg-annotator` | `f4_probe.py`, `kg_engine.harness`, `query_graph` |
-| `/burgess:kg-experiment` | `kg-evaluator`; `kg-judge` with `--judge` | `kg_engine.harness rag-slices`, `kg_engine.harness ideation`, `kg_engine.harness judge-packets` / `judge-aggregate`, `kg_context`, `kg_generate` |
+| `/burgess:kg-eval` | `kg-annotator` | `kg_eval` (`sample`, `score`, `agreement`, `specificity`, `validate_pack`, `log`), `query_graph` |
+| `/burgess:kg-experiment` | `kg-evaluator`; `kg-judge` with `--judge` | `kg_experiment` (`start`, `rag`, `score`, `judge_packets`, `judge_score`, `log`), `kg_context`, `kg_generate`, `kg_agenda` |
 | `/burgess:kg-diverge` | (none; main agent generates/judges) | `kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`, `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`, `kg_diverge_export` |
 
 The MCP server is named `burgess`; tools are namespaced `mcp__plugin_burgess_burgess__<tool>`.
@@ -120,13 +121,15 @@ level a project requires to verify, the notes' own level, whether the notes are 
 by the engine, and the scout's web searches and proposals) plus the five **generative-layer** tools (`kg_propose` — the
 hypothesized write lane; `kg_generate` — the discovery mechanisms; `kg_operate` — the §8 endo operations;
 `kg_absorption` — the §14 absorption window; `kg_record_generation` — the record a /burgess:kg-generate run
-leaves in that window's ledger) make **thirty-six** graph tools, and the eight
+leaves in that window's ledger), and the three that run /burgess:kg-eval's, /burgess:kg-experiment's and
+/burgess:kg-perturb's own steps (`kg_eval`, `kg_experiment`, `kg_perturb_plan`, 0.28.0: they write only under the
+project's `.kg/`, never the canon) make **thirty-nine** graph tools, and the eight
 **divergence-surface** tools (`kg_diverge_init`, `kg_diverge_ingest`, `kg_diverge_remember`,
 `kg_diverge_parents`, `kg_diverge_metrics`, `kg_diverge_recall`, `kg_diverge_materialize`,
 `kg_diverge_export` — the /burgess:kg-diverge flow: MAP-Elites + k-NN novelty + DPP slates + anti-collapse
 monitor over project-local, session-ephemeral state under `.kg/diverge/`, plus the EXPLICIT
 pin-materialization door into the hypothesized lane and the end-of-session file of every idea; advisory
-ordering only, below the grounding boundary, never a verdict path) make **forty-four** tools in total.
+ordering only, below the grounding boundary, never a verdict path) make **forty-seven** tools in total.
 These are the ONLY tools — `kg-build`, `kg-generate`, `kg-diverge`, etc. are slash commands.
 
 ## Core invariants — non-negotiable, enforced by the boundary

@@ -6091,6 +6091,120 @@ class KGEngine:
         return self._scrub_egress({"ok": True, "generation": new_generation, "tracked": len(ledger["tracked"]),
                                    "recorded": recorded, "skipped": skipped})
 
+    # ---- measurement without a shell (0.28.0) -----------------------------
+    # /kg-eval, /kg-experiment and /kg-perturb ran their deterministic steps as Bash blocks that started the
+    # plugin's Python from the plugin's folder. Under `permissions.blockReadsOutsideWorkingDirectories` Claude
+    # Code asks the person before every such command and the auto mode's classifier cannot answer for them, so
+    # on 2026-11-25 /kg-eval measured nothing. The steps run here instead (`kg_engine.measure`). They read the
+    # canon and the sources, and write only under the project's `.kg/`: never the canon, never a verdict.
+
+    _EVAL_STEPS = ("sample", "score", "agreement", "specificity", "validate_pack", "log")
+    _EXPERIMENT_STEPS = ("start", "rag", "score", "judge_packets", "judge_score", "log")
+
+    def _measure_source(self) -> str:
+        """The path the measurement command lines read as the project's source (`python -m kg_engine.paths
+        source`): the notes when the build reads them alone, else a fresh copy of the files it reads."""
+        from . import paths
+        return paths.write_content(self._sources, self.data_dir)
+
+    def _built_notes(self):
+        """The notes, when the build reads them: where a log an older version left in the source would be."""
+        return self._sources.notes_path() if self.evidence_policy().build_from_notes else None
+
+    def _measure(self, command: str, step: str, run_step) -> dict:
+        """Run one measurement step; a step that cannot run as asked answers `ok: false` with its reason."""
+        from . import evalsheet, harness, measure
+        try:
+            return self._scrub_egress(run_step())
+        except (measure.MeasureError, evalsheet.SheetError, harness._LoadError) as e:
+            return {"ok": False, "command": command, "step": step, "error": str(e)}
+
+    def kg_eval(self, step: str, run: str = "", graph: str = "", iterations: str = "") -> dict:
+        """One step of /burgess:kg-eval (0.28.0): `sample`, `score`, `agreement`, `specificity`,
+        `validate_pack`, `log`. See `kg_engine.measure` and the tool's description."""
+        from . import measure
+        step = str(step or "").strip().lower()
+        if step not in self._EVAL_STEPS:
+            return {"ok": False, "command": "kg-eval", "error": f"step {step!r} is not one of {list(self._EVAL_STEPS)}"}
+
+        def sample():
+            if str(graph or "").strip():
+                path = Path(str(graph).strip().strip("\"'")).expanduser()
+                path = path if path.is_absolute() else self.project_dir / path
+                given = True
+            else:
+                self._ensure_projected(views=False)
+                path, given = self.projector.graph_path, False
+            return measure.eval_sample(self.project_dir, graph_path=path, graph_given=given,
+                                       documents=self.verify_set().texts, source_path=self._measure_source(),
+                                       notes_path=self._built_notes(), run=run)
+
+        steps = {
+            "sample": sample,
+            "score": lambda: measure.eval_score(self.project_dir, run=run,
+                                                edges={e.id: e for e in self.canon.all_edges()}),
+            "agreement": lambda: measure.eval_agreement(self.project_dir, run=run),
+            "specificity": lambda: measure.eval_specificity(self.project_dir, run=run),
+            "validate_pack": lambda: measure.eval_validate_pack(self.project_dir, run=run, pack_path=self.pack_path),
+            "log": lambda: measure.eval_log(self.project_dir, run=run, iterations=iterations),
+        }
+        return self._measure("kg-eval", step, steps[step])
+
+    def kg_experiment(self, step: str, run: str = "", prompts: str = "", prompt_source: str = "",
+                      judge_note: str = "") -> dict:
+        """One step of /burgess:kg-experiment (0.28.0): `start`, `rag`, `score`, `judge_packets`,
+        `judge_score`, `log`. See `kg_engine.measure` and the tool's description."""
+        from . import measure
+        step = str(step or "").strip().lower()
+        if step not in self._EXPERIMENT_STEPS:
+            return {"ok": False, "command": "kg-experiment",
+                    "error": f"step {step!r} is not one of {list(self._EXPERIMENT_STEPS)}"}
+        steps = {
+            "start": lambda: measure.experiment_start(self.project_dir, source_path=self._measure_source(),
+                                                      notes_path=self._built_notes(),
+                                                      prompts=str(prompts or "").strip().strip("\"'")),
+            "rag": lambda: measure.experiment_rag(self.project_dir, run=run, source_path=self._measure_source()),
+            "score": lambda: measure.experiment_score(self.project_dir, run=run, source_path=self._measure_source()),
+            "judge_packets": lambda: measure.experiment_judge_packets(self.project_dir, run=run,
+                                                                      source_path=self._measure_source()),
+            "judge_score": lambda: measure.experiment_judge_score(self.project_dir, run=run),
+            "log": lambda: measure.experiment_log(self.project_dir, run=run, prompt_source=prompt_source,
+                                                  judge_note=judge_note),
+        }
+        return self._measure("kg-experiment", step, steps[step])
+
+    def kg_perturb_plan(self, arguments: str = "") -> dict:
+        """Classify /burgess:kg-perturb's argument (0.28.0), the step its Bash block did: no argument → `degrade`
+        (a re-partition, `regroup`); a `.json` file → `graph` (a pre-built graph to cross against); any other
+        file → `source` (a second source to build into a named construction, whose name the engine derives as
+        the block did: the file's name without its extension, lowercased, each run of other characters a hyphen).
+        A relative path is the project's. A path that names no file is refused before anything is built."""
+        raw = str(arguments or "").strip()
+        if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
+            raw = raw[1:-1].strip()
+        if not raw:
+            return {"ok": True, "mode": "degrade",
+                    "note": "no second source: ensemble degrades to regroup, a re-partition of this graph"}
+        path = Path(raw).expanduser()
+        path = path if path.is_absolute() else self.project_dir / path
+        if not path.is_file():
+            return {"ok": False, "error": f"no file at {path}: give a second source document or a graph.json"}
+        if path.suffix.lower() == ".json":
+            return {"ok": True, "mode": "graph", "second_graph": str(path)}
+        name = re.sub(r"[^a-z0-9._-]+", "-", path.stem.lower()).strip("-_.") or "second"
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            return {"ok": False, "error": self._scrub_error(f"the second source cannot be read as UTF-8 text: {e}")}
+        _level, planned = plan_sections(text)
+        own = self.source_set().texts.get(path.name)
+
+        def norm(t: str) -> str:
+            return t.lstrip("\ufeff").replace("\r\n", "\n")
+        return {"ok": True, "mode": "source", "construction": name, "second_source": str(path),
+                "source_file": path.name, "sections": len(planned),
+                "own_source": own is not None and norm(own) == norm(text)}
+
     def kg_operate(self, op: str, *, target: str | None = None, label: str = "", body: str = "",
                    members=None, k: int | None = None) -> dict:
         """Run one of the four endo operations (§8, PLAN Stage 4), persisting the result through the
@@ -7350,6 +7464,60 @@ def _register(mcp, engine: KGEngine) -> None:
         with no mechanism are skipped with the reason. Returns {ok, generation, tracked, recorded,
         skipped}. Writes only the ledger: no node, edge or verdict changes."""
         return engine.kg_record_generation(nodes)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_eval(step: str, run: str = "", graph: str = "", iterations: str = "") -> dict:
+        """One step of /burgess:kg-eval, run in the engine so the command needs no shell. Steps, in order:
+        `sample` opens a run (pass `graph` only when the user named a graph.json; by default the project's own
+        graph, re-projected): it copies into the run's folder under `.kg/eval/` the documents the edges cite
+        (`source.folder`, what the annotators read) and the plugin's contract (`contract.folder`: extractor.md,
+        adversarial-grounder.md, pack.yaml), and writes three sheets of one seeded sample (`sheets`: labels,
+        labels_a, labels_b; each annotator writes the matching file of `labels`). It also returns the graph's
+        `summary`, `copy` (`installed` or `development`) and `legacy_log` (a note to pass on, or null). Pass
+        the returned `run` to every later step. `score` fills labels.csv from labels.json and returns the
+        precision, astrology rate, span-support rate, per-relation precision, calibration and `writers` (by
+        writer, by the verdict each edge holds now, and the edges labeled other than correct); `ok: false`
+        with `problems` means the labels file does not label the sheet row for row: hand `problems` to the
+        same annotator. `agreement` fills labels_a/labels_b and returns Krippendorff's α. `specificity`
+        returns the specificity bridge-metric gate. `validate_pack` (a development checkout only) loads the
+        pack and reports its coverage of the source. `log` appends the run's entry to `.kg/PROGRESS.md`,
+        written from the saved results; pass `iterations`, what only you know (the refinements made in a
+        development checkout, or recommended in an installed copy, or "none"). In a development checkout,
+        `sample` with the same `run` samples again after a rebuild (the next pass); `log` records the best
+        pass. Writes only under the project's `.kg/`: never the canon, never a verdict."""
+        return engine.kg_eval(step, run, graph, iterations)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_experiment(step: str, run: str = "", prompts: str = "", prompt_source: str = "",
+                      judge_note: str = "") -> dict:
+        """One step of /burgess:kg-experiment, run in the engine so the command needs no shell (only the
+        optional LightRAG arm keeps a Bash step). Steps: `start` opens a run and returns `run` (pass it to
+        every later step), `prompts_path` (where the run's prompt set lives: write it there, unless you passed
+        the user's file as `prompts`, which the engine reads and saves there and returns as `prompts`),
+        `demo_source` (whether the source is the demo the default prompts are written for), `legacy_log` (a
+        note: stop on it), `lightrag` {available, reason} and `judge` {judge_possible, problems}. `rag` writes
+        the rag arm's passages into `.kg/experiment/rag-<run>/`. `score` scores the evaluator's
+        `ideation_outputs.json` against the source and checks the evaluator's order (`ideation`,
+        `evaluator_order`). With --judge: `judge_packets` checks the controls in
+        `judge-<run>/private/controls.json` and writes one packet per prompt (`ok: false` with `failures` when
+        a control failed its check: no packet is written), and `judge_score` aggregates the judges' verdicts.
+        `log` appends the run's entry to `.kg/PROGRESS.md`, written from the saved scores; pass
+        `prompt_source` (where the prompts came from) and, when --judge was asked for but the judge did not
+        run, `judge_note` (why). Writes only under the project's `.kg/`: never the canon, never a verdict."""
+        return engine.kg_experiment(step, run, prompts, prompt_source, judge_note)
+
+    @mcp.tool()
+    @_tool_result
+    def kg_perturb_plan(arguments: str = "") -> dict:
+        """Plan a /burgess:kg-perturb: pass the command's typed `$ARGUMENTS` VERBATIM. Returns `mode`:
+        `degrade` (no argument: ensemble degrades to regroup), `graph` (a .json file: `second_graph`, for
+        kg_generate(second_graph=…)) or `source` (any other file: `construction`, the name every kg_write and
+        kg_section of the second reading passes, `second_source`, the absolute path they pass as `source`,
+        `source_file`, `sections`, and `own_source`, whether the file is one of the graph's own sources). A
+        relative path is the project's. `ok: false` means no such file: nothing is built. Reads only."""
+        return engine.kg_perturb_plan(arguments)
 
     @mcp.tool()
     @_tool_result

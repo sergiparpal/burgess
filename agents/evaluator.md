@@ -54,8 +54,8 @@ slate from `kg_generate` even when `kg_context` returns stored `hypotheses[]`: t
 prompt, but pick the same ones for GRAPH+GENERATE and GRAPH+GENERATE+DPP.
 
 **The rag context.** Through 0.11.7 you built it yourself, and on a Windows corpus that meant writing a
-retrieval script and running it through a shell. The command now runs one deterministic retrieval
-(`harness rag-slices`, BM25 over the source's paragraphs) before it starts you, so every run of the same
+retrieval script and running it through a shell. The command now has the engine run one deterministic
+retrieval (BM25 over the source's paragraphs) before it starts you, so every run of the same
 prompts on the same source gives this arm the same passages. The folder holds `01.md`, `02.md`, … in prompt
 order (more digits past 99 prompts) and an `index.json` you do not need.
 
@@ -163,7 +163,7 @@ check that it parses as JSON and that every list has one answer per prompt; if n
 A JSON string cannot hold a raw line break or an unescaped `"`, so keep each answer on one line and use
 « » or ' ' for quotations inside it.
 
-The command then scores it with `python -m kg_engine.harness ideation <outputs.json> <the source path>`.
+The command then has the engine score it against the source (`harness ideation`).
 Each idea gets a **grounded novelty**: how far it leaves the source's wording × how much of its key-term
 weight the source holds. The arms are compared prompt by prompt (0.12.0). The headline `verdict` is
 GRAPH vs RAG, then GRAPH vs CONTROL, GRAPH+GENERATE vs GRAPH and the dpp arm vs GRAPH+GENERATE. That is why
@@ -210,7 +210,7 @@ answer *k* of every arm must answer prompt *k*.
 8. **Write** the JSON object above to the output path you were given, check it as described under Output,
    and report the path.
    - Copy `control` and the graph-based arms unchanged from the graph draft. The command checks that they
-     match, and that the drafts came in this order (`harness evaluator-order`).
+     match, and that the drafts came in this order (the engine's order check).
    - Do NOT score the outputs yourself: invoking the harness is the command's step.
 
 ---

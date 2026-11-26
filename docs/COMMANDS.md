@@ -856,7 +856,10 @@ API key and no extra dependencies required.
 
 ### The argument's three modes
 
-The command classifies the argument by its extension. There are exactly three behaviours:
+The engine classifies the argument by its extension (`kg_perturb_plan`, 0.28.0; through 0.27.0 a shell command
+did, which `permissions.blockReadsOutsideWorkingDirectories` stops on a question to you). A relative path is your
+project's, and a path that names no file stops the command before anything is built. There are exactly three
+behaviours:
 
 | You pass | Mode | What happens |
 | --- | --- | --- |
@@ -1130,6 +1133,15 @@ Grade a specific projection — for instance, an archived build you want to comp
 Annotators can label a CSV but hold no graph-write tools: they **cannot** forge a verdict into the
 canon. Precision is measured *about* the graph, never written *into* it.
 
+**It runs no shell commands** (0.28.0). The engine runs every step (`kg_eval`): it draws the sample, fills the
+sheets from the annotators' labels, scores them and writes the log entry. Each run gets a folder under
+`.kg/eval/` holding the sheets, the labels, the results, a copy of the documents the annotators read and a copy of
+the plugin's contract, which the session reads before it recommends a refinement. Through 0.27.0 these steps were
+shell commands that started the plugin's Python from the plugin's folder. If your settings turn on
+`permissions.blockReadsOutsideWorkingDirectories`, Claude Code asks you before every such command, and in auto
+mode it cannot answer for you; the same setting blocks reading files outside your project, where the source can
+live. An end-to-end run on 2026-11-25 measured nothing for that reason.
+
 Since 0.13.2 the annotators also start without your CLAUDE.md files and without Claude Code's memory index,
 which a subagent gets by default. A note about an earlier eval could tell them how its coders labelled an edge.
 
@@ -1210,7 +1222,7 @@ Repeat a run on its saved prompts, with blind judges (about 0.8 million tokens m
 | `graph` | The prompt + a context pack drawn from the **grounded** graph. |
 | `graph+generate` | The graph pack **plus** the hypothesized slate (one `kg_generate` call), clearly marked unverified. Tests whether *generating* lifts ideation beyond grounded context alone. |
 | `graph+generate+dpp` | The same slate as `graph+generate`, in advisory-DPP order with its geometry labels. The candidate set is **identical** — this arm measures whether the *presentation* lifts ideation. |
-| `rag` | The prompt + the source passages a naive flat retrieval finds (BM25 over the source's paragraphs, `harness rag-slices`), the same on every run of the same prompts. The honest strawman. |
+| `rag` | The prompt + the source passages a naive flat retrieval finds (BM25 over the source's paragraphs, picked by the engine), the same on every run of the same prompts. The honest strawman. |
 | `lightrag` *(opt-in)* | The prompt answered by a real, published **GraphRAG** baseline (LightRAG) over the same corpus. A stronger strawman than flat `rag`. |
 
 ### The optional `lightrag` arm
@@ -1222,6 +1234,9 @@ unchanged and emits no error. To enable it, **all three** must hold:
 2. Opt in: `KG_LIGHTRAG=1`. (Optional tuning: `KG_LIGHTRAG_QUERY_MODE`, default `mix`.)
 3. Provide `OPENAI_API_KEY` — LightRAG's default backend is OpenAI, so **this arm makes network and
    paid API calls.** That cost is the price of the stronger baseline, and it is why the arm is opt-in.
+
+This arm is the one step of the command that runs a shell command, and Claude Code may ask you to approve it: it
+sends your whole source to OpenAI with your key, so that approval is kept on purpose (0.28.0).
 
 ### Reading the scores
 
@@ -1256,12 +1271,13 @@ The command surfaces these caveats when they apply:
 Through 0.11.x the headline asked whether `graph` beat `control` on novelty. Novelty is distance from a
 source the control arm never sees, so on three field runs the graph arm could not have won it.
 
-The subagent that writes the ideas has no shell (since 0.11.8). Only the command's own steps use one: the
-environment check, the rag passages, the scoring and the log entry.
+The subagent that writes the ideas has no shell (since 0.11.8), and since 0.28.0 neither has the command, but for
+the optional LightRAG arm: the engine runs its steps (`kg_experiment`), from the run's start and the rag passages
+to the scoring and the log entry, which it writes from the saved scores.
 
 It answers every arm in one context, so its blindness is procedural. Since 0.13.1 it writes two drafts on the
 way: the control answers before its first graph call, and the graph-based arms before it reads any rag
-passage. `harness evaluator-order` checks two things: that the drafts came in that order, and that the final
+passage. The engine's score step checks two things: that the drafts came in that order, and that the final
 file carries them unchanged. The log records the result as **Evaluator order**.
 
 Since 0.13.2 the evaluator and the judges start without your CLAUDE.md files and without Claude Code's memory
@@ -1275,7 +1291,7 @@ one fresh `kg-judge` subagent per prompt reads that prompt's ideas the way a car
 
 **What a judge sees.**
 - Every arm's idea, plus two controls the command writes: a **decoy**, whose central support is invented, and
-  a **positive control**, whose facts are real and come from at least two documents. The harness checks both
+  a **positive control**, whose facts are real and come from at least two documents. The engine checks both
   before any judge runs.
 - Each item labelled A, B, …, in a seeded order that rotates per prompt, with its own passages from the source.
   The labels' meaning stays out of the judges' reach.

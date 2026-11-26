@@ -49,13 +49,21 @@ def content_source(project: "str | Path", plugin_data: str = "", source_path: st
 
     project = Path(project)
     resolver = _SourceResolver(envconfig.clean(source_path) or None, evidence_dir(project), project)
+    return write_content(resolver, project_data_dir(project, plugin_data))
+
+
+def write_content(resolver, data_dir: "str | Path") -> str:
+    """`content_source` for a resolver already built: the notes path when the build reads the notes alone, else
+    `<data_dir>/content/` holding a copy of each file the build reads, refreshed now. The engine calls this with
+    its own resolver (0.28.0: `kg_eval`, `kg_experiment`), so a measurement reads the path the command lines
+    read."""
     pol = resolver.policy()
     built, _other = resolver._split()
     notes = resolver.notes_path() if pol.build_from_notes else None
     if not built:
         return str(notes) if notes else ""
     content = resolver.resolve()
-    folder = project_data_dir(project, plugin_data) / CONTENT_DIRNAME
+    folder = Path(data_dir) / CONTENT_DIRNAME
     if folder.exists():
         shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True, exist_ok=True)
