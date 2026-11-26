@@ -121,7 +121,7 @@ def test_only_the_kg_eval_log_header_keeps_the_short_form():
     held = [(rel, line) for rel in TEXTS for line in (REPO / rel).read_text(encoding="utf-8").splitlines()
             if LOG_HEADER in line]
     assert held == []
-    in_engine = [(str(p.relative_to(REPO)), line) for p in ENGINE for line, text in _engine_strings(p)
+    in_engine = [(p.relative_to(REPO).as_posix(), line) for p in ENGINE for line, text in _engine_strings(p)
                  if LOG_HEADER in text]
     assert [rel for rel, _ in in_engine] == ["scripts/kg_engine/measure.py"], in_engine
 

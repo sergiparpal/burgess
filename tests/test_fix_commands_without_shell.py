@@ -78,7 +78,8 @@ def _bash_blocks(text: str) -> list:
 
 
 def _files(root: Path) -> dict:
-    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+    # POSIX keys on every platform: on Windows `relative_to` gives backslashes, which a `.kg/` prefix misses
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
 @pytest.fixture
@@ -89,7 +90,9 @@ def rig(tmp_path):
     subprocess.run(["git", "-C", str(project), "init", "-q"], check=True)
     notes = tmp_path / "notas"
     notes.mkdir()
-    (notes / FILE).write_text(DOC, encoding="utf-8")
+    # CRLF on every platform, as a Windows editor saves notes: the Windows CI leg caught a comparison that
+    # assumed the engine keeps a file's line endings (it reads text with universal newlines)
+    (notes / FILE).write_text(DOC, encoding="utf-8", newline="\r\n")
     eng = KGEngine(project, source_path=notes, pack_path=PACK)
     for section in (1, 2):
         eng.kg_section(FILE, section)
@@ -160,10 +163,12 @@ def test_sample_copies_what_the_agents_read_into_the_project(rig):
     assert out["ok"], out
     folder = Path(out["folder"])
     assert folder.parent == project / ".kg" / "eval" and folder.name == out["run"]
-    # the documents, byte for byte as the engine reads them, inside the project
+    # the documents exactly as the engine reads them, the text a span is checked against, inside the project
     src = Path(out["source"]["folder"])
     assert src.is_relative_to(project) and out["source"]["documents"] == [FILE]
-    assert (src / FILE).read_bytes() == (notes / FILE).read_bytes()
+    assert (src / FILE).read_bytes() == eng.verify_set().texts[FILE].encode("utf-8")
+    assert eng.verify_set().texts[FILE] == DOC          # the notes' CRLF read as LF (universal newlines)
+    assert (notes / FILE).read_bytes() == DOC.replace("\n", "\r\n").encode("utf-8")
     # the contract the orchestrator checks advice against, as the running plugin has it
     contract = Path(out["contract"]["folder"])
     assert out["contract"]["files"] == ["extractor.md", "adversarial-grounder.md", "pack.yaml"]
