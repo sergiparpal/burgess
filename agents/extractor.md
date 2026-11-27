@@ -114,7 +114,8 @@ no-op — 0 redactions — so the examples below copy plain source text unchange
 ## The pack vocabulary (use ONLY these — anything else is QUARANTINED: `undeclared-node-type` for nodes, `undeclared-edge-type` for edges)
 - **node_type**: `compression`, `primitive`, `claim`, `metric`, `operation`, `failure`
 - **relation**: `grounds`, `attacked_by`, `reconciles_with`, `bridges`, `collapses_into`,
-  `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`, `enables`
+  `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`, `enables`, `increases`,
+  `decreases`
 
 If the prose expresses a relation that is not in this list, do **not** coin a new type, and do not force the
 nearest one either: leave the edge out. A claim filed under a relation that does not fit is rejected at
@@ -144,6 +145,8 @@ name the HEAD by its role:
 | projects         | the regenerable projection   | the source it derives from              |
 | survives         | the claim/info that persists | the operation node it survives          |
 | enables          | the precondition or means    | what it makes possible                  |
+| increases        | the factor (cause/treatment) | the quantity it raises                  |
+| decreases        | the factor (cause/treatment) | the quantity it lowers                  |
 
 (`reconciles_with` and `bridges` feel symmetric but are still typed HEAD→TAIL: for `reconciles_with`,
 HEAD is the resolution and TAIL is the intuition it rescues; for `bridges`, HEAD is the node that joins
@@ -163,6 +166,21 @@ makes it count something other than what it claims to (0.11.0). Equivalent mutan
 lower a mutation score: the score is `confounded_by` them. Through 0.10.2 this table said only "inflates",
 and grounders ratified confounds that lower a figure or change what it counts, since the pack has no other
 relation for them.
+
+`increases` and `decreases` state an effect and its sign (0.29.0): the span says that the TAIL, a quantity such
+as a rate, a score, a time, a level or a risk, rises or falls because of the HEAD, in a result, a comparison of
+conditions or a mechanism the source asserts («aumenta», «reduce», «acelera», «is higher with»). The sign is the
+quantity's own: «reduce la tasa de fallos» is `decreases` on the failure rate, «mejora la cobertura» `increases`
+on coverage. The HEAD is the factor present, so a TAIL that rises when the HEAD is taken away is a decrease:
+«PRODa is significantly higher when suggestions are disabled» states `automatic-suggestions decreases
+experts-actual-productivity`. When the source gives the effect for one group or condition only, the TAIL names
+it (`experts-actual-productivity`, not `actual-productivity`). None of these states an effect: a hypothesis or an
+expectation («we expect that X might reduce Y»), a difference the source itself calls not significant, and an
+association or a predictor («is associated with», «predicts», «se asocia con»), which has no pack relation (a
+predictor is no proxy either, so it is not `approximates`). What another relation covers stays there. What makes
+the TAIL possible is `enables`. A remedy the source adopts or recommends against a threat is `defends_against`
+(«to limit fatigue, we added a break»), while a fall it reports in a quantity is `decreases` («the break lowered
+the fatigue scores»). A bias of a figure is `confounded_by`.
 <!-- relation-roles:end -->
 
 ### Do NOT reach for a region-spanning relation when the prose says something narrower
@@ -170,6 +188,10 @@ relation for them.
   `bridges`/`approximates`. A bare taxonomic **is-a** with no evidential role has no pack relation — drop it.
 - a precondition or means that makes something possible, or makes it work → `enables`, never `grounds`,
   even when «por eso» or «porque» links them.
+- an effect («X reduces Y», «Y is higher with X») → `increases`/`decreases` from the factor to the quantity,
+  written as that edge: never a claim node that restates the effect («experts-more-productive-with-…») with
+  `grounds` hung on it. A hypothesis, an association or a difference the source calls not significant gets no
+  effect edge.
 - two merely complementary / paired concepts → emit no edge (use `reconciles_with` **only** if the prose
   states a real tension one resolves).
 - "reveals / makes detectable" → NOT `projects`.

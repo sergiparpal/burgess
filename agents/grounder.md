@@ -397,6 +397,8 @@ precondition counts as `grounds`, and split four to one on it.)
 | projects         | the regenerable projection   | the source it derives from              |
 | survives         | the claim/info that persists | the operation node it survives          |
 | enables          | the precondition or means    | what it makes possible                  |
+| increases        | the factor (cause/treatment) | the quantity it raises                  |
+| decreases        | the factor (cause/treatment) | the quantity it lowers                  |
 
 (`reconciles_with` and `bridges` feel symmetric but are still typed HEAD→TAIL: for `reconciles_with`,
 HEAD is the resolution and TAIL is the intuition it rescues; for `bridges`, HEAD is the node that joins
@@ -416,6 +418,21 @@ makes it count something other than what it claims to (0.11.0). Equivalent mutan
 lower a mutation score: the score is `confounded_by` them. Through 0.10.2 this table said only "inflates",
 and grounders ratified confounds that lower a figure or change what it counts, since the pack has no other
 relation for them.
+
+`increases` and `decreases` state an effect and its sign (0.29.0): the span says that the TAIL, a quantity such
+as a rate, a score, a time, a level or a risk, rises or falls because of the HEAD, in a result, a comparison of
+conditions or a mechanism the source asserts («aumenta», «reduce», «acelera», «is higher with»). The sign is the
+quantity's own: «reduce la tasa de fallos» is `decreases` on the failure rate, «mejora la cobertura» `increases`
+on coverage. The HEAD is the factor present, so a TAIL that rises when the HEAD is taken away is a decrease:
+«PRODa is significantly higher when suggestions are disabled» states `automatic-suggestions decreases
+experts-actual-productivity`. When the source gives the effect for one group or condition only, the TAIL names
+it (`experts-actual-productivity`, not `actual-productivity`). None of these states an effect: a hypothesis or an
+expectation («we expect that X might reduce Y»), a difference the source itself calls not significant, and an
+association or a predictor («is associated with», «predicts», «se asocia con»), which has no pack relation (a
+predictor is no proxy either, so it is not `approximates`). What another relation covers stays there. What makes
+the TAIL possible is `enables`. A remedy the source adopts or recommends against a threat is `defends_against`
+(«to limit fatigue, we added a break»), while a fall it reports in a quantity is `decreases` («the break lowered
+the fatigue scores»). A bias of a figure is `confounded_by`.
 <!-- relation-roles:end -->
 
 **Tables.** A table row states a relation when the table's header says what each cell is: read the row under
@@ -464,7 +481,11 @@ concept as another node, `get_node` the id you suspect.
       precondition (`enables`) filed as `grounds` → `rejected`, note `"wrong-relation: <what the span
       actually says, e.g. the enables edge it states>"`; nor one that states the relation for a concept
       narrower or broader than one of the nodes (see **Each end is the concept its span names**) →
-      `rejected`, note `"wrong-node: <the concept the span names instead>"`.
+      `rejected`, note `"wrong-node: <the concept the span names instead>"`. For `increases` and `decreases`
+      (0.29.0): a span with the other sign → `wrong-relation`, its lead the same two ends with the other sign; a
+      span that only expects or hypothesizes the effect, or finds no significant difference → `no-support`; one
+      that reports an association or a predictor → `wrong-relation` with no lead, since the pack has no relation
+      for it; an effect the span gives for one group or condition, on a TAIL that names none → `wrong-node`.
       **For a `wrong-relation` or `wrong-node` rejection, pass the edge the span does state as `lead`**
       (0.9.0): its head id, a pack relation and its tail id, as in `kg_ground(target_id=…, verdict="rejected",
       note="wrong-node: …", lead="tests-protegidos defends_against manipulacion-de-tests")`. Use the canon's id

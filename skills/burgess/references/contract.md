@@ -329,7 +329,7 @@ Anything outside these lists QUARANTINES as undeclared-type (§3). Use these in 
 
 - **node_types:** `compression`, `primitive`, `claim`, `metric`, `operation`, `failure`
 - **edge_types:** `grounds`, `attacked_by`, `reconciles_with`, `bridges`, `collapses_into`, `confounded_by`,
-  `approximates`, `defends_against`, `projects`, `survives`, `enables`
+  `approximates`, `defends_against`, `projects`, `survives`, `enables`, `increases`, `decreases`
 
 ---
 

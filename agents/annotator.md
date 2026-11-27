@@ -34,7 +34,8 @@ These four are the entire space. Every edge gets exactly one:
   wrong order — the source says `Y grounds X` but the extractor wrote `X grounds Y`). A reversed directed
   edge (`grounds` / `attacked_by` / `defends_against` / …) is the canonical `wrong_type` and was the
   dominant Stage-4 miss, so check HEAD/TAIL against the prose — not just the label. The endpoints can be
-  right and the span verbatim yet the edge still be `wrong_type` because it points the wrong way.
+  right and the span verbatim yet the edge still be `wrong_type` because it points the wrong way. A wrong
+  sign is `wrong_type` too (0.29.0): `increases` where the source says the quantity falls, or the reverse.
 
 And the orthogonal **span_found ∈ {y | n}** flag — the span-present check (§1.5, §2 of the source):
 

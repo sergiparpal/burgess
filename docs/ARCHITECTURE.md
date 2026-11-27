@@ -723,6 +723,10 @@ in the axes spec's `engine:` block (`pack/domains/_schema.md` has the full table
 `specificity_seeds` (term → IDF-like float), and an optional `divergence:` section (descriptor
 axes + the `dpp` flag + engine overrides). Types outside the pack quarantine as
 `undeclared-*-type`; extending the pack — never editing the quarantine bucket — is how they clear.
+Extending it also changes the digest of its types that keys each edgeless-section record, so the next build
+plans every section recorded with no edge again: a section that held nothing writable may hold an edge of the
+new type. 0.8.0 added `enables` this way, and 0.29.0 the two signed effect relations `increases` and
+`decreases`, whose sign is in the name, so the canon format did not change.
 `python -m kg_engine.pack validate pack/pack.yaml [source]` checks the contract and, with a
 source, coverage in both directions (did the pack capture the source's defined terms; is the
 glossary grounded in the source). Schema detail: `skills/burgess/references/pack-schema.md`;

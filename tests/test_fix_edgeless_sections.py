@@ -87,9 +87,15 @@ def _cover(e: KGEngine, span: str = ARGUMENT) -> None:
 # ---- the plan ----------------------------------------------------------------------------------------
 
 def test_a_recorded_section_leaves_the_plan(eng):
+    # 0.29.0: «Fuentes» is a reference-list title, so a plain plan leaves the section out before any record is
+    # made; `--all` plans it, as every build did when 0.14.0 added the record
     plan = eng.kg_build_plan("", "1")
+    assert (plan["sections_uncovered"], plan["sections_skipped"], plan["waves"]) == (2, 1, 2)
+    plan = eng.kg_build_plan("--all", "1")
     assert (plan["sections_uncovered"], plan["sections_edgeless"], plan["waves"]) == (3, 0, 3)
     out = _record(eng)
+    plan = eng.kg_build_plan("--all", "1")
+    assert (plan["sections_uncovered"], plan["sections_edgeless"], plan["waves"]) == (2, 1, 2)
     plan = eng.kg_build_plan("", "1")
     assert (plan["sections_uncovered"], plan["sections_edgeless"], plan["waves"]) == (2, 1, 2)
     assert _to_extract(plan) == ["Argumento", "Vocabulario"]
