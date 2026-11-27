@@ -30,6 +30,11 @@ edge_types:
   # 0.8.0: a precondition or means is not evidence. With no relation for it, extractors filed "X permite Y"
   # under `grounds` and grounders split on whether that held (field report on 0.7.0).
   - enables          # HEAD = precondition/means, TAIL = what it makes possible. NOT evidence (grounds).
+  # 0.29.0: an effect is not evidence either. With no relation for one, extractors restated each effect of an
+  # empirical paper as a claim node («experts are more productive with suggestions disabled») with `grounds`
+  # hung on it, or left the section edgeless (field report, 2026-11-22). The sign is in the relation's name.
+  - increases        # HEAD = factor/treatment, TAIL = the quantity it raises. NOT an association or a predictor.
+  - decreases        # HEAD = factor/treatment, TAIL = the quantity it lowers. NOT a remedy adopted (defends_against).
 
 glossary:
   compression: "A single idea that stands in for many observations; earns its keep only when it predicts."

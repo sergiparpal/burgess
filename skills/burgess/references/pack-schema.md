@@ -55,7 +55,7 @@ node_types:
   - failure          # a recorded falsified claim (negative information)
 ```
 
-### `edge_types` (11) — relation types drawn from the source prose
+### `edge_types` (13) — relation types drawn from the source prose
 ```yaml
 edge_types:
   # Directed edges read  HEAD <relation> TAIL.  Reversing HEAD/TAIL was the dominant Stage-4 miss
@@ -72,6 +72,8 @@ edge_types:
   - projects         # HEAD = regenerable projection, TAIL = source it derives from. NOT "reveals / makes-detectable".
   - survives         # HEAD = claim/info that persists, TAIL = the operation it survives (TAIL must be an `operation`).
   - enables          # HEAD = precondition/means, TAIL = what it makes possible. NOT evidence (grounds).
+  - increases        # HEAD = factor/treatment, TAIL = the quantity it raises. NOT an association or a predictor.
+  - decreases        # HEAD = factor/treatment, TAIL = the quantity it lowers. NOT a remedy adopted (defends_against).
 ```
 
 **Relation direction is load-bearing (§Stage 4).** Every directed edge reads `HEAD <relation> TAIL`; the
@@ -86,7 +88,9 @@ changing the names — never the comments — is what changes the boundary's all
 Each of the first ten edge types is grounded in a verbatim relation in `source.md` (§1, span-present
 invariant). `enables` (0.8.0) comes from a field corpus instead: its prose said "X permite Y" (X makes Y
 possible) again and again, extractors filed those claims under `grounds`, and grounders split on whether
-a precondition is evidence.
+a precondition is evidence. `increases` and `decreases` (0.29.0) come from the field too: two empirical
+papers stated most of their findings as effects, and extractors restated each one as a claim node with
+`grounds` hung on it, or wrote no edge for it. Their sign is in the name, so the canon format does not change.
 
 The relation words of those ten are wrapped in markdown emphasis in the source, and `normalize_text`
 does not strip the `*`, so a verbatim span must include the asterisks exactly — e.g. the real substrings

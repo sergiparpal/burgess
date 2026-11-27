@@ -71,9 +71,13 @@ AGAIN_NEEDS_A_FILE = ("--again reads again the sections of the files it names: g
 # A short section is not left out: the 16 between 1 and 59 characters there were all page furniture, which
 # html-text/3 no longer copies, while a one-line note can state an edge ("La fábrica funciona cuando verifica cada
 # cambio.", 49 characters, in the suite's notes).
+# `fuentes` (0.29.0): the field's Spanish notes title their source lists «Fuentes» (450 to 12,500 characters each).
+# When 0.29.0's new relations made the ledger's records stop applying, 6 of the 14 sections the plan offered again
+# on that corpus were these (2026-11-27).
 _REFERENCE_TITLES = re.compile(
     r"^(?:\d+(?:\.\d+)*\.?\s+)?(?:references?|bibliography|bibliograf[ií]a|referencias(?: bibliogr[aá]ficas)?|"
-    r"refer[eê]ncias|works cited|literature cited|cited literature|literaturverzeichnis)\s*$", re.I)
+    r"refer[eê]ncias|fuentes(?: consultadas)?|works cited|literature cited|cited literature|"
+    r"literaturverzeichnis)\s*$", re.I)
 _BACK_MATTER_TITLES = re.compile(
     r"^(?:rights and permissions|about this (?:article|chapter|paper)|cite this (?:article|chapter|paper)|"
     r"share this (?:article|chapter|paper)|publisher[’'`]*s? note|additional information|author information|"
@@ -87,7 +91,7 @@ _ANY_WORD = re.compile(r"\w")
 
 def skip_reason(title: "str | None", text: str) -> str:
     """Why a build leaves a section out (0.23.1), or "": `reference-list` (titled References, Bibliography,
-    Referencias…), `back-matter` (a publisher's Rights and permissions, Cite this article, Author information,
+    Referencias, Fuentes…), `back-matter` (a publisher's Rights and permissions, Cite this article, Author information,
     Funding, Competing interests…) or `empty` (no letter or digit below its heading, as a heading followed at once
     by its subheadings: nothing a verbatim span could quote). An extractor found no edge in any of them on the
     field's papers; each cost a run. `--all` plans them anyway."""

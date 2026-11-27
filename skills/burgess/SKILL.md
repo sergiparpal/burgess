@@ -176,7 +176,8 @@ for TRANSPORT failures (truncation, schema). A `kg_write` payload may set `"comp
 `QUARANTINED/undeclared-edge-type` (edges).
 - node types: `compression`, `primitive`, `claim`, `metric`, `operation`, `failure`
 - edge types: `grounds`, `attacked_by`, `reconciles_with`, `bridges`, `collapses_into`,
-  `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`, `enables`
+  `confounded_by`, `approximates`, `defends_against`, `projects`, `survives`, `enables`, `increases`,
+  `decreases`
 
 Use only these in extraction. Glossary and per-term specificity seeds live in `pack/pack.yaml` +
 `pack/glossary.md`. Validate coverage with `python -m kg_engine.pack validate pack/pack.yaml examples/source.md`.

@@ -61,6 +61,7 @@ _FALLBACK_NODE_TYPES = ["compression", "primitive", "claim", "metric", "operatio
 _FALLBACK_EDGE_TYPES = [
     "grounds", "attacked_by", "reconciles_with", "bridges", "collapses_into",
     "confounded_by", "approximates", "defends_against", "projects", "survives", "enables",
+    "increases", "decreases",
 ]
 
 SYSTEM_PROMPT = """\

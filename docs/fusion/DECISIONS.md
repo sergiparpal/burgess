@@ -3669,3 +3669,98 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
   words does not come back by itself.
 - **Pinned in:** `tests/test_fix_gone_span_asks_terms.py`. The tests of `tests/test_fix_gone_spans.py`,
   `tests/test_grounding.py` and `tests/test_fix_attack_once.py` that mark a claim obsolete now ask first.
+
+## The pack gains `increases` and `decreases`: an effect is an edge from the factor to the quantity (2026-11-27)
+
+- **Context.** The pack's eleven relations come from the demo theory plus one field addition, `enables` (0.8.0).
+  None of them carries an effect. On 2026-11-22 two empirical papers (level 1) were built into a test graph, and
+  most of their findings are effects: automatic suggestions lower experts' actual productivity and raise novices',
+  and interruptions raise stress.
+  - The extractors restated each effect as a claim node («Experts are more productive with disabled suggestions»)
+    with a result node `grounds`-ing it. 26 of the graph's 190 nodes are such claims, and no edge joins the factor
+    to the quantity it changes.
+  - Sections were recorded edgeless with notes such as «causal claims (intrusive suggestions lower perceived
+    productivity) that no pack relation carries».
+  - One predictor, «the acceptance rate of code suggestions … is a significant predictor of developers' perceived
+    productivity», went in as `acceptance-rate approximates perceived-productivity` and was grounded: filed under
+    the nearest relation, for want of one.
+
+  It is the pattern that gave `enables`: a kind of claim the field states again and again, with no relation for it,
+  filed under the nearest one or left out.
+- **Decision.**
+  - **Two relations, the sign in the name.** `increases` and `decreases`: the HEAD is the factor (a cause, a
+    treatment), the TAIL the quantity it raises or lowers. A relation's name is all the boundary checks, so the
+    canon format, the payload schema, the merge driver and the projector are untouched. Two findings of opposite
+    sign on the same two nodes get two edge ids, so neither merges into the other as a duplicate.
+  - **Effects only.** The span must assert the effect: a result, a comparison of conditions, or a mechanism. A
+    hypothesis or an expectation, a difference the source calls not significant, and an association or a predictor
+    state none.
+  - **The group goes in the TAIL.** An effect that holds for one group or condition names it in the TAIL. A general
+    TAIL is `wrong-node`, the rule for an end broader than its span since 0.8.1. Moderation as such, an effect that
+    depends on a third variable, is not a binary edge and stays out.
+  - **Tie-breaks in the shared table**, which the grounder repeats word for word (0.8.0): `enables` is what makes
+    something possible; `defends_against` is a remedy the source adopts or recommends against a threat (its
+    purpose), and `decreases` a fall it reports in a quantity (its outcome); `approximates` is a proxy, never a
+    predictor; `confounded_by` is a bias of a figure.
+  - **The grounder's rejections** map onto the four existing reasons. The other sign is `wrong-relation`, with the
+    other sign as its lead. An expectation, or a difference found not significant, is `no-support`. An association
+    is `wrong-relation` with no lead. A general TAIL is `wrong-node`. The annotator counts a wrong sign as
+    `wrong_type`.
+  - **«Fuentes» is a reference-list title** (`buildplan._REFERENCE_TITLES`). The field's notes title their source
+    lists so. The 0.14.0 report already named «the six Fuentes lists» among the sections that hold no relation, and
+    0.23.1's list of titles missed the Spanish word. A title that goes on («Fuentes de error») is still read.
+- **Settled the same day, on the recommendations.**
+  - Effects only, as above.
+  - No relation for "no effect". «No significant difference» says that a study did not find an effect, not that
+    there is none. As a claim it can attack the effect another claim states (`attacked_by`), as the test graph's
+    extractors already did.
+  - The vocabulary rule stays. A new type stops every edgeless record from applying (0.14.0), and the release notes
+    say what the next build plans and how to build one file. Measured on copies of the field's projects with this
+    release's engine: from 0 to 8 sections on the notes (the six «Fuentes» lists left out), and from 0 to 95 on the
+    test graph's three sources, 17 of them page furniture of copies made before 0.23.1.
+- **Rejected alternatives.**
+  - **One `affects` relation with a sign field.** A new edge field changes the canon, the payload (whose extra
+    fields are forbidden), the merge driver and the projector, for what two names carry.
+  - **One unsigned relation.** Opposite findings on the same two nodes would share one edge id and merge.
+  - **Associations too** (any stated direction). It would leave fewer splits on wording, but the field's own
+    predictor would read `acceptance-rate increases perceived-productivity`, a cause the study does not claim. If
+    the field shows the need, an association is a relation of its own, not a reading of these two.
+  - **Effects as nodes** (one claim node per effect, joined to its factor and its quantity). It would carry
+    moderation and conditions, but every effect becomes three items, and the pack has no relations for the joins.
+  - **An opposite effect as a counter-edge** (`COUNTER_RELATIONS`). That is a change to the verdict path, and the
+    adversarial grounder already refutes an edge through a counter-edge on one of its ends.
+  - **Keeping edgeless records across a vocabulary that only grows.** Whether a section holds an edge of a new type
+    is known only by reading it.
+  - **A build that asks before it reads recorded sections again.** It is machinery for an event the pack has had
+    twice.
+- **Live test** (WSL, Claude Code 2.1.316, Opus 5.5, `--plugin-dir` on this branch, the read block on; a test note
+  in English with one section in Spanish, written for it; 0 permission denials, 0 tool errors).
+  - `/burgess:kg-build` ($1.14, 108 s, one wave of six extractors, the «Fuentes» list left out) wrote the seven edges
+    the note states, each with its sign:
+    - `automatic-suggestions decreases experts-actual-productivity`, from «actual productivity was significantly
+      higher when automatic suggestions were disabled», and its novices' twin as `increases`;
+    - `interruptions increases developers-stress-levels`, from a cited finding;
+    - `15-minute-break defends_against fatigue`, from «To limit fatigue, we added a 15-minute break», beside
+      `15-minute-break decreases self-reported-fatigue-scores`, from «the break lowered the participants'
+      self-reported fatigue scores»;
+    - `cache-de-compilacion decreases tiempo-de-integracion` and `comprobaciones-deterministas enables
+      retirar-la-revision-humana`.
+
+    It recorded the section with the non-significant difference and the section of hypotheses as edgeless, each
+    note naming the rule, and wrote nothing for the predictor.
+  - Six wrongly written effects were then written through the engine, as an extractor would write them: the other
+    sign, a general TAIL, the non-significant difference, a hypothesis, the predictor, and the remedy as a
+    `decreases`.
+  - `/burgess:kg-ground` ($1.15, 120 s, two grounders) grounded the seven and rejected the six, each for the reason
+    the table gives:
+    - the other sign: `wrong-relation`, with the right sign as its lead;
+    - the general TAIL: `wrong-node`, with the novices' edge as its lead;
+    - the non-significant difference and the hypothesis: `no-support`;
+    - the predictor: `wrong-relation` with no lead;
+    - the remedy: `wrong-relation`, with `defends_against` as its lead.
+
+    The novices' edge, whose span leaves out «For novice developers», was grounded on its context, as step 1b says
+    to read a span.
+- **Pinned in:** `tests/test_feat_effect_relations.py`. `tests/test_fix_relation_rules.py` keeps every list of the
+  relations complete and the two tables identical. `tests/test_fix_edgeless_sections.py`'s first test plans its
+  «Fuentes» section with `--all`, since a plain plan now leaves it out.

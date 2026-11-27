@@ -79,7 +79,7 @@ Use these to find what `kg_context` did not return and to follow specific relati
   query each of the three relations. Every filter applies to both nodes and edges. The claims are the edges:
   the extractor's nodes are never verdicted, so a state filter returns few nodes. Node types are
   `compression | primitive | claim | metric | operation | failure`; relations are
-  `grounds | attacked_by | reconciles_with | bridges | collapses_into | confounded_by | approximates | defends_against | projects | survives | enables`.
+  `grounds | attacked_by | reconciles_with | bridges | collapses_into | confounded_by | approximates | defends_against | projects | survives | enables | increases | decreases`.
 - `mcp__plugin_burgess_burgess__get_node(node_id)` — one node plus its incident edges (use slug IDs, e.g. `compression`).
 - `mcp__plugin_burgess_burgess__get_neighbors(node_id, relation=…)` — incident edges, optionally one relation.
 - `mcp__plugin_burgess_burgess__shortest_path(source, target)` — `{path: [node_ids] | null}` over the derived graph.

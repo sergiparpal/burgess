@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.29.0 — 2026-11-27
+
+The pack gains two relations for an effect, `increases` and `decreases`, so a finding such as «automatic
+suggestions lower experts' productivity» becomes an edge from the factor to the quantity it changes.
+
+### Added
+
+- **`increases` and `decreases`, the pack's twelfth and thirteenth relations.** The HEAD is the factor (a cause or a
+  treatment), the TAIL the quantity it raises or lowers: a rate, a score, a time, a level, a risk.
+  - Until now the pack had no relation for an effect. Two empirical papers built into a graph on 2026-11-22 state
+    most of their findings as effects. The extractors restated each one as a claim node, «Experts are more
+    productive with disabled suggestions», with a result node grounding it: 26 of the graph's 190 nodes were claims
+    whose label states an effect, and no edge joined the factor to the quantity it changes. Other sections went
+    without edges, their notes saying that no relation of the pack carries a causal claim.
+  - The sign is in the name, so the canon format, the payload and the write boundary do not change.
+- **The relation table that the extractor and the grounder share says what states an effect.**
+  - The span says that the quantity rises or falls because of the factor, in a result, a comparison of conditions
+    or a mechanism the source asserts. The HEAD is the factor present: «PRODa is significantly higher when
+    suggestions are disabled» states `automatic-suggestions decreases experts-actual-productivity`.
+  - An effect the source gives for one group or condition only names it in the TAIL (`experts-actual-productivity`),
+    never in a general node.
+  - None of these states an effect: a hypothesis or an expectation, a difference the source itself calls not
+    significant, and an association or a predictor. The pack has no relation for an association, and a predictor
+    is no proxy, so it is not `approximates` either. On the same papers, «acceptance rate is a significant predictor
+    of perceived productivity» had gone in as `approximates` and been grounded.
+  - What another relation covers stays there: what makes something possible is `enables`, a remedy the source
+    adopts against a threat is `defends_against`, and a bias of a figure is `confounded_by`.
+  - The extractor writes the effect itself, never a claim node that restates it with `grounds` hung on it.
+- **The grounder names the rejection for each wrong effect.** The other sign is `wrong-relation`, with the right
+  sign as its lead. An expectation, or a difference the source finds not significant, is `no-support`. An
+  association is `wrong-relation` with no lead, since the pack has no relation for it. An effect on a TAIL that
+  leaves out the group it holds for is `wrong-node`.
+- **`/burgess:kg-eval`'s annotator counts a wrong sign as `wrong_type`.**
+- **Checked live**, on a test note written for it.
+  - The build wrote each effect with its sign and its group, and kept a remedy apart from a fall it reported. It
+    wrote nothing for the hypotheses, the non-significant difference or the predictor.
+  - The grounders rejected six wrongly written effects, each for the reason above, and grounded the seven right ones.
+
+### Changed
+
+- **A build leaves out a list of sources titled «Fuentes»**, as it leaves out References and Referencias since
+  0.23.1. A section titled «Fuentes de error» is still read, and `--all` plans the lists anyway.
+
+### Not changed
+
+- **The claim nodes that already state an effect stay.** A build does not read a covered section again, so a
+  paper's results gain effect edges only from `/burgess:kg-build --again <file>`, which reads its covered sections
+  again, whole.
+- **An opposite effect is no refutation.** Two findings of opposite sign on the same two nodes are two edges, and
+  each is judged on its own passage. A `failed` verdict still names a counter-edge (`attacked_by`, `confounded_by`
+  or `collapses_into`).
+- **No relation says that something has no effect.** A result that finds no significant difference stays what it
+  was: a claim, which can attack the effect another claim states (`attacked_by`).
+- `/burgess:kg-generate` proposes `bridges` and `collapses_into` only, as before.
+
+### Upgrading
+
+- **The next `/burgess:kg-build` reads again every section recorded with no edge.** A record holds while the
+  section's text and the pack's types are the ones its extraction read (0.14.0), and a section that held nothing
+  writable may hold an edge of a new type.
+  - On copies of the field's projects the plan went from 0 sections to 8 on the notes, once the six «Fuentes» lists
+    were left out. On the two papers and a survey it went to 95: 17 of them page furniture of copies made before
+    0.23.1, the rest sections in which an extractor found nothing to write.
+  - A build launches its whole plan without asking. To read one file again, name it: `/burgess:kg-build paper.md`.
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- A session opened before the update keeps the old engine, so open a new one.
+
 ## 0.28.3 — 2026-11-27
 
 A claim whose sentence you rewrote in other words is found again, instead of being marked obsolete.

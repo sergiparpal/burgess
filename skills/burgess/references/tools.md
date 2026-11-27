@@ -453,7 +453,7 @@ columns — `betweenness`, the confound-corrected `spec_betweenness`, per-node `
 — trusted as a ranking signal only when the specificity gate is ON (§1.6); until then they are advisory.
 Valid `node_type` filters are the pack's declared types
 (`compression|primitive|claim|metric|operation|failure`); `relation` filters the declared edge types
-(`grounds|attacked_by|reconciles_with|bridges|collapses_into|confounded_by|approximates|defends_against|projects|survives|enables`).
+(`grounds|attacked_by|reconciles_with|bridges|collapses_into|confounded_by|approximates|defends_against|projects|survives|enables|increases|decreases`).
 
 ### 1.8 `mcp__plugin_burgess_burgess__get_node(node_id)`
 
@@ -962,7 +962,7 @@ ledger.
 ```
 
 - `skipped` on a section (0.23.1, `buildplan.skip_reason`) — left out of `sections_uncovered`: `reference-list`
-  (titled References, Bibliography, Referencias…), `back-matter` (a publisher's Rights and permissions, Cite this
+  (titled References, Bibliography, Referencias, Fuentes…), `back-matter` (a publisher's Rights and permissions, Cite this
   article, Author information, Funding, Competing interests…) or `empty` (no letter or digit below its heading,
   as a heading followed at once by its subheadings; a short section is planned, since one line can state an
   edge). On the field's two papers they were 37 of the 117 sections a new copy holds (43 of the 137 in the
