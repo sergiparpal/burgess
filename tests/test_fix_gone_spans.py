@@ -15,6 +15,9 @@ that states the claim now, which moves its span there (the old one kept as a `sp
 Such a claim is never rejected, `obsolete` is refused anywhere else, an obsolete claim comes back when its
 sentence does or a build reads new text of its file that bears on it, and a claim whose file is not among the
 sources is not judged at all.
+
+Since 0.28.3 a grounder asks the claim's file once in its own words before it marks the claim obsolete
+(`tests/test_fix_gone_span_asks_terms.py`), so the tests here that mark one obsolete ask first (`_ask`).
 """
 from __future__ import annotations
 
@@ -94,6 +97,11 @@ def _rows(plan: dict) -> "list[dict]":
 
 def _row(plan: dict, eid: str) -> "dict | None":
     return next((item for item in _rows(plan) if item["id"] == eid), None)
+
+
+def _ask(eng: KGEngine, eid: str = CLAIM, terms: str = "fábrica entra cambio") -> None:
+    """The one request a gone claim's grounder makes before it marks the claim obsolete (0.28.3)."""
+    assert eng.kg_ground_item(eid, terms=terms)["requested_context"]["files"] == [FILE]
 
 
 # ---- which claims are judged again ------------------------------------------------------------------------------
@@ -253,6 +261,7 @@ def test_obsolete_says_the_passage_left_its_file_and_nothing_else(rig):
     assert eng.kg_ground(edge_id("fabrica", "bridges", "oraculo"), "obsolete")["error"] == "obsolete-needs-a-span"
     before = eng.kg_context()["falsification_counters"]["failed_or_rejected_edges"]
     _edit(notes, f"{OLD}.", f"{NEW}.")
+    _ask(eng)
     out = eng.kg_ground(CLAIM, "obsolete", note="§1 now speaks of what enters, not of each change")
     assert out["ok"] and out["to"] == "obsolete", out
     assert eng.kg_context()["falsification_counters"]["failed_or_rejected_edges"] == before   # not a refutation
@@ -282,6 +291,7 @@ def test_a_rejected_claim_judged_again_may_stay_rejected_or_move(rig):
 def test_an_obsolete_claim_comes_back_when_its_sentence_does(rig):
     eng, notes = rig
     _edit(notes, f"{OLD}.", f"{NEW}.")
+    _ask(eng)
     assert eng.kg_ground(CLAIM, "obsolete", note="rewritten")["ok"]
     _edit(notes, f"{NEW}.", f"{OLD}.")                                    # the edit undone
     plan = eng.kg_ground_plan("", "")
@@ -298,6 +308,7 @@ def test_an_obsolete_claim_comes_back_when_its_sentence_does(rig):
 def test_an_obsolete_claim_comes_back_when_a_build_reads_new_text_about_it(rig):
     eng, notes = rig
     _edit(notes, f"{OLD}.\n\n", "")
+    _ask(eng)
     assert eng.kg_ground(CLAIM, "obsolete", note="the sentence was removed")["ok"]
     # new text in its file that shares none of its words: a build reads it, and nothing comes back
     _edit(notes, f"{SECOND}.", f"{SECOND}.\n\nEl arnés corre en un contenedor aislado.")
@@ -312,7 +323,8 @@ def test_an_obsolete_claim_comes_back_when_a_build_reads_new_text_about_it(rig):
     plan = eng.kg_ground_plan("", "")
     assert _row(plan, CLAIM) == {"id": CLAIM, "kind": "edge", "reexamine": True}
     assert "verifica cada cambio antes de integrarlo" in eng.kg_ground_item(CLAIM)["span_gone"]["sections"][0]["excerpt"]
-    # any verdict answers it, obsolete again included
+    # any verdict answers it, obsolete again included, after a request against the file as it reads now
+    _ask(eng, terms="fábrica verifica integrarlo")
     assert eng.kg_ground(CLAIM, "obsolete", note="read again: it says when, not that it works")["ok"]
     assert eng.kg_ground_plan("", "")["queue"]["obsolete_returned"] == 0
 
@@ -321,6 +333,7 @@ def test_a_read_recorded_by_0_26_0_is_ordered_by_its_time(rig):
     """A read record from 0.26.0 carries no audit mark: it counts when stamped after the verdict's second."""
     eng, notes = rig
     _edit(notes, f"{OLD}.", "La fábrica verifica cada cambio antes de integrarlo.")
+    _ask(eng)
     assert eng.kg_ground(CLAIM, "obsolete", note="rewritten")["ok"]
     text = (notes / FILE).read_text(encoding="utf-8")
     sec = next(s for s in plan_sections(text)[1] if s.title == "Argumento")
@@ -341,6 +354,7 @@ def test_a_read_recorded_by_0_26_0_is_ordered_by_its_time(rig):
 def test_a_baseline_brings_no_obsolete_claim_back(rig):
     eng, notes = rig
     _edit(notes, f"{OLD}.", "La fábrica verifica cada cambio antes de integrarlo.")
+    _ask(eng)
     assert eng.kg_ground(CLAIM, "obsolete", note="rewritten")["ok"]
     (eng.canon.root / ".kg-read-sections.jsonl").unlink()                 # the ledger lost: the plan lays a baseline
     assert eng.kg_build_plan("", "").get("baseline")

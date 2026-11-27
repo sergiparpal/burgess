@@ -204,7 +204,14 @@ never rejected (`span-gone-not-rejected`), since a rejection would bar it for go
 `obsolete` is refused on a claim whose span still verifies, on one with no span of its own, and on a rejected or
 failed claim. A claim whose file is not among the sources (`_own_file`: moved, renamed, another notes folder) takes
 no verdict but `failed`. A re-anchor is the only way a judged claim's span moves: a `kg_write` re-emit of it is
-quarantined (`collapses-into-known-verdict`, §3.3), and the reconciler polices states, not spans.
+quarantined (`collapses-into-known-verdict`, §3.3), and the reconciler polices states, not spans. The grounder's
+view ranks the claim's file by the claim's own words, which a sentence rewritten in other words may not use, so it
+also shows the paragraphs of the claim's file written or rewritten since it was last judged (`new_text`, 0.28.3,
+`_new_text_view`), read from the ledger of sections read (§3.4) whatever their words: a unit no read record holds,
+in a section a build has read, or one an extraction first read after the claim's last verdict. Before `obsolete` the
+grounder also asks once with words of its own (`terms`, ranked over that file whatever its level), and `kg_ground`
+refuses `obsolete` with `terms-not-asked` until it has (0.28.3, `_obsolete_terms_not_asked`). A move found that way
+is held for a second grounder, as support found after any request is (below).
 
 **External sources (0.21.0, `evidence.py`).** Through 0.20.2 every verdict was judged against the configured
 sources, the user's own notes, so `grounded` meant "my notes say it", and the only outside support was a

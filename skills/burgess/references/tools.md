@@ -270,7 +270,13 @@ one of two answers:
   verdict is refused (`span-gone-needs-passage`).
 - **`obsolete`**, superseded: the claim leaves live topology, is not negative memory (no falsification counter
   counts it), and stays in the canon. It comes back to `kg_ground_plan` when its span verifies again, or when a
-  build reads new text of its file that bears on it (§1.21).
+  build reads new text of its file that bears on it (§1.21). Since 0.28.3 it waits for one request of the
+  grounder's (`kg_ground_item` with `terms`, §1.22, ranked over the claim's file) against the item and the sources
+  as they are, and is refused with `terms-not-asked` (with `source_file`, `max_terms` and a `hint`) until then
+  (`KGEngine._obsolete_terms_not_asked`): the grounder's view is ranked by the claim's own words, and a sentence
+  rewritten in other words can share none of them. Not asked of a claim whose move is held for a second grounder,
+  who declines it with `obsolete` and may not search. A move found after the request is held like any support
+  found after one (**Held for a second grounder**, below).
 
 Such a claim is never rejected (`span-gone-not-rejected`): a rejection is permanent negative memory, and would bar
 the claim if the sentence came back. A refutation (`failed`) is about the claim, not its passage, and stays open.
@@ -326,7 +332,8 @@ answered, `kg_ground_plan` queues the item only marked `confirm`, last and in a 
   notes or as a `verdict (grounded):` paragraph of the node's body.
 - **Declined:** another verdict on the item, or an unsupported record made after the hold (both read by byte
   offset past its marks, so a record from the same second does not count), answers it the other way. So does a
-  change to the item itself.
+  change to the item itself. A claim whose passage left its file (0.28.3) is declined with `obsolete`, never
+  recorded unsupported, and its `confirm` view says so.
 - **What it guards against.** The engine checks that a cited passage is verbatim. Nothing checked that it was not
   picked out of a search run until something fitted. A request lets a grounder look in another language; the hold
   sends what that search found to a grounder who did not choose the words. The engine cannot tell one grounder
@@ -1138,7 +1145,9 @@ was saved to a file, and was read with scripts that auto mode stopped on permiss
 - **`queue.confirm` (0.24.6):** the items with a grounded verdict held for a second grounder, because its support
   came after the grounder's own search (§1.4, §1.22). Each is queued only this way, last, in batches of their own
   as `{id, kind, confirm: true}`, so no grounder judges its own hold in the same launch. It leaves the plan once a
-  verdict or an unsupported record answers it. With nothing usable, the held items are counted in `blocked`.
+  verdict or an unsupported record answers it. With nothing usable, the held items are counted in `blocked`. An
+  item is queued while it is unverified or grounded, and since 0.28.3 an obsolete claim too: one that came back and
+  whose move its grounder found after asking. Through 0.28.2 such a hold kept the claim out of every plan.
 - **`queue.leads_pending` (0.9.0):** the leads rejected claims carry that no edge has taken yet (§1.19),
   for `/burgess:kg-build --leads`. The whole canon's, whatever the focus.
 - **`queue.spans_gone` (0.27.0):** the claims whose passage left their file (`KGEngine._span_gone`: the file is
@@ -1250,8 +1259,19 @@ a `terms` request is recorded (0.24.6).
   and its old span) as a node's `source_context` is, whatever the file's level (`_file_context`): the passage that
   states a claim is where it is stated, and its support is checked when it is grounded. `elsewhere` lists the other
   files the graph is built from that hold the old span word for word, and `also_present` the `also stated:`
-  passages (0.23.1) that still verify, each with its `context`. `null` for every other edge. Its grounder grounds it
-  on the passage that states it now, as `support_span`, or marks it obsolete (§1.4).
+  passages (0.23.1) that still verify, each with its `context`. `new_text` (0.28.3, `KGEngine._new_text_view`):
+  the paragraphs (units, as the ledger of sections read counts them) of that file written or rewritten since the
+  claim was last judged, whatever their words, each `{source_file, section, title, matched, excerpt, source}`, at
+  most 6 (`NEW_TEXT_MAX`, each cut at 2000 characters), those that share the claim's words first and then in source
+  order; `new_text_total` counts them all. A unit is new when no record of the ledger (`.kg-read-sections.jsonl`)
+  holds it, in a section whose title a record of the file bears (a section only the edgeless ledger records, or one
+  a build skips, is left out), or when its earliest record is an extraction's made after the claim's last verdict
+  (the rule an obsolete claim comes back by). A claim with no verdict on record counts only the first kind.
+  `new_text` is `null` when the ledger holds no record of the file. `null` for every other edge. Its grounder
+  grounds it on the passage that states it now, as `support_span`, or marks it obsolete (§1.4). For such a claim (0.28.3) a
+  `terms` request ranks the sections of that file, whatever its level, instead of the usable sections of every
+  source: `requested_context` then carries `files: [<its file>]`, and the request is due before the claim is marked
+  obsolete (§1.4). That file is where the claim can move to; an external copy is not.
 - `span_source` (0.21.0) — where the span lies: a configured source's label (`class: "own"`, `file`, its
   `level` and `level_name` from the policy, `role`, `marks`, `usable`), a registered external source's label
   (`class: "external"`, the same plus `title`, `url`, `published`, `build`), `{"class": "none"}` when no file holds
@@ -1344,7 +1364,8 @@ a `terms` request is recorded (0.24.6).
     someone else. Absent when no such source or no such search exists.
   - `terms` — the grounder's own request: at most 8 content words (`GROUND_TERMS_MAX`), in the source's
     language. It answers `requested_context`, the usable sections that share the most of them, ranked as
-    `source_context` is, with `repeated` and a `note`. One request per item while the item and the sources (and
+    `source_context` is, with `repeated` and a `note` (for a claim whose passage left its file, the sections of
+    that file, with `files`: see `span_gone` above). One request per item while the item and the sources (and
     the policy) are what they are now (`_current_request`): asking again gives back the first words and
     sections. Every request goes to `.kg-ground-requests.jsonl`. Refusals: `terms-too-many` (with `max`),
     `terms-empty`, and `terms-not-allowed` for an item with a held verdict. A refusal records nothing.
