@@ -3578,3 +3578,94 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
     passage that states an item in other words than the grounder asks with stays unseen, as every view of the
     sources ranks by shared words.
 - **Pinned in:** `tests/test_fix_record_unsupported_asks_terms.py`.
+
+## A claim whose sentence was rewritten in other words is found again: the file's new text, and a request before obsolete (2026-11-27)
+
+- **Context.** 0.27.0 judges again a claim whose span left its file. Its grounder gets `span_gone.sections`: the
+  sections of that file that share the most of the claim's own words (its two ends' labels and its old span). It
+  either grounds the claim on the passage that states it now, which moves the span there, or marks it obsolete.
+  - The 0.27.0 live test named the case this misses, and its PR left it out («Not in this PR»). A sentence rewritten
+    in other words can share none of the claim's words, and a section is shown only when one of its paragraphs
+    shares two (`rank_units`, `need=2`). The rewrite then sits in a section the view leaves out, the grounder sees
+    nothing, and the claim is marked obsolete while the notes still state it.
+  - It stays out: an obsolete claim returns only when its sentence does, or when a build reads new text of its
+    file sharing three of its words (`_obsolete_returns`), and the rewrite has already been read.
+  - The engine already took a `terms` request for any item (0.24.6) and held support found after one; a 0.27.0
+    test pinned that for a gone claim. But the request ranked the usable sections of every source, and the
+    contract allowed it only across languages, so no grounder made it.
+- **First design, and its live test.** The request was made due before `obsolete` (below) and nothing else. On a
+  test note in Spanish (WSL, Claude Code 2.1.316, Opus 5.5, `--plugin-dir`, the read block on; $0.76, 0 permission
+  denials) with three grounded claims whose sentences were edited:
+  - the grounder asked before both `obsolete` verdicts, so the refusal never fired;
+  - a sentence reworded keeping its words was moved at once, and a deleted one marked obsolete after a request
+    that found nothing, both right;
+  - the sentence rewritten in other words («Sembrar errores a propósito en el código delata las comprobaciones que
+    aprueban siempre», for «Las pruebas de mutación protegen contra los tests que nunca fallan») was missed. The
+    grounder asked with «mutantes mutación detectan tests inútiles siempre pasan evitan», which shares one word
+    with it, and marked the claim obsolete. It reused words of the old span, which its contract says not to.
+  - So a request by words alone does not close the case. In a check made before the run, 3 of 5 plausible requests
+    reached the rewrite: it depends on the words a model picks.
+- **Decision.**
+  - **The file's new text (`_new_text_view`).** `span_gone.new_text` holds the units of the claim's file as it reads
+    now (paragraphs, list items, table rows, as the ledger of sections read counts them, 0.26.0) that are new to
+    the claim:
+    - a unit no record of the ledger holds, in a section whose title a record of that file bears: text added or
+      rewritten since that section was last read;
+    - or a unit whose earliest record is an extraction's (`write` or `record`) made after the claim's last verdict
+      (`_read_after`, the rule `_obsolete_returns` uses, now shared): text a build read since.
+    They are ranked by the claim's words and then in source order, so a paraphrase that shares none still shows, at
+    most six (`NEW_TEXT_MAX`), with `new_text_total`; `null` when the ledger holds no record of the file. The
+    engine chooses the text, not a model's words, so a move found there is not held: it is a passage the view
+    showed, as `sections` shows one.
+  - **A request before obsolete, for what `new_text` cannot see.** A gone claim's request ranks the sections of its
+    own file, whatever the file's level, the scope of its view (`requested_context` with `files`): that file is
+    where the claim can move to (`_reanchor`), an external copy is evidence and not text the graph is built from,
+    and under a strict policy the usable sections leave the notes out. `kg_ground` refuses `obsolete` with
+    `terms-not-asked` (with `source_file`, `max_terms` and a `hint`) until one request of the grounder's is on
+    record against the item and the sources as they are (`_obsolete_terms_not_asked`, `_current_request`); not for
+    a claim whose move is held, whose second grounder declines with `obsolete` and may not search. `new_text` misses
+    an edit made before the ledger began again, more new text than it shows, and, for a claim never judged, text a
+    build has read since; the request is the grounder's search there.
+  - **A move found by the request is held** for a second grounder, like any support found after one (0.24.6). Its
+    `confirm` view tells that grounder to decline with `obsolete`, not to record the claim unsupported.
+  - **`kg_ground_plan` queues a held move of an obsolete claim for confirmation.** Through 0.28.2 it queued the holds
+    on unverified and grounded items only, and its obsolete list leaves a held claim out, so such a hold kept the
+    claim out of every plan. No grounder had asked for a gone claim, so the gap was latent; the request makes it
+    reachable.
+  - The grounder contract and the command describe `new_text` and say: when nothing in `span_gone` states the
+    claim, ask once, in words the new text may use, before calling it gone.
+- **Live test with `new_text` (same note, claims and edits; $0.74, 78 s, 0 permission denials, one grounder).**
+  - The rewrite was the first entry of the claim's `new_text`, sharing no word with it. The grounder grounded the
+    claim on it at once, with no request and no hold, and gave the reason: sowing errors on purpose is what mutation
+    testing does, and exposing checks that always pass is the defence against tests that never fail.
+  - The deleted sentence's claim was marked obsolete after one request («porcentaje código ejecutado indicador
+    medida eficacia tests») that found nothing, and the reworded one was moved at once, as in the first run.
+  - The orchestrator's report named the move as one to read twice, since its passage shares no word with the old
+    one and no second grounder confirmed it. That is the report doing its job: such a move rests on one grounder's
+    reading, as any move on a passage the view showed does.
+- **Rejected alternatives.**
+  - The contract alone: an optional request was skipped 2 of 2 in the forced run of 0.28.2, and a refusal does not
+    depend on the model reading a rule.
+  - The request alone: the first design, missed in its live test.
+  - A lower bar for the request (one shared word when two find nothing): in a large file it shows sections that
+    share one common word, not the rewrite.
+  - Every unit no record holds, in any section: an edgeless section is recorded only in the edgeless ledger, and a
+    section a build skips (`buildplan.skip_reason`, a reference list in the notes) is never read, so their text would
+    come back with every gone claim of the file.
+  - Measuring a claim never judged from its write: the edge records no time of writing, and a read record does not
+    name the claims its extraction wrote. A build that writes such a claim again from its new sentence moves it
+    itself (`_keep_first_passages`, 0.23.1).
+  - Bringing an obsolete claim back on any new text of its file, not only text that shares three of its words:
+    every edit of a file would send all its obsolete claims back to a grounder.
+  - No hold for a move the request found: the risk is the one 0.24.6 holds against, a search run until something
+    fits, and a moved claim rests on its new passage from then on.
+  - Ranking every file the graph is built from: a paragraph moved word for word shows in `elsewhere` already, and
+    one moved to another file and reworded is rarer.
+  - Asking before a rejected gone claim is rejected again: it is negative memory either way, and the request stays
+    free for it.
+- **Not changed.** An edit made before the ledger of sections read began, or began again after it was lost, is not
+  new text (0.26.0), and a request finds only the sections sharing two of its words (0.28.2's «Not changed»), so such
+  an edit in other words can still go unseen. A claim marked obsolete because its sentence was rewritten in other
+  words does not come back by itself.
+- **Pinned in:** `tests/test_fix_gone_span_asks_terms.py`. The tests of `tests/test_fix_gone_spans.py`,
+  `tests/test_grounding.py` and `tests/test_fix_attack_once.py` that mark a claim obsolete now ask first.

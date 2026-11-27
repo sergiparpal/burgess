@@ -288,6 +288,8 @@ def test_re_grounding_clears_the_stale_flag(vault, tmp_path):
 
     # a rejection is refused; obsolete is the verdict, and the next projection (source unchanged) clears it
     assert eng.kg_ground(eid, "rejected", note="source no longer supports this")["error"] == "span-gone-not-rejected"
+    assert eng.kg_ground(eid, "obsolete")["error"] == "terms-not-asked"       # 0.28.3: its file asked once first
+    assert eng.kg_ground_item(eid, terms="compression claims beneath")["ok"]
     assert eng.kg_ground(eid, "obsolete", note="the source no longer says this")["ok"]
     eng.projector.project()
     assert eng.projector.kg_context()["advisory"]["stale_verdicts"] == []

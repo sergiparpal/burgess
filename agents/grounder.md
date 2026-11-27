@@ -203,18 +203,34 @@ defeasible. `span_gone` gives you:
 - `span` and `source_file`: the sentence the claim was written or grounded on, and its file;
 - `sections`: the sections of that file now that share the most of the claim's words, each with the words it
   shares (`matched`) and an `excerpt`;
+- `new_text` (0.28.3): the paragraphs of that file written or rewritten since the claim was last judged, whatever
+  their words, those that share the claim's words first, at most six (`new_text_total` counts them all). A
+  sentence the user rewrote in other words is among them even when it shares no word with the claim, which
+  `sections` cannot show. `null` when no build has recorded what it read of the file;
 - `elsewhere`: other files of the notes that hold the old span word for word, where a paragraph may have moved;
 - `also_present`: other passages the claim was written with that still verify, each with the section around it.
 
 Then:
-- **A passage states it** (the sentence rewritten in other words, moved within the file, in `also_present`, or word
-  for word in a file of `elsewhere`): ground it on that passage,
+- **A passage states it** (the sentence rewritten in other words, often in `new_text`, moved within the file, in
+  `also_present`, or word for word in a file of `elsewhere`): ground it on that passage,
   `kg_ground(target_id=<id>, verdict="grounded", support_span="<the passage, verbatim from an excerpt>", note=…)`.
   The engine moves the claim's span to that passage and keeps the old one in its notes (`span was:`), and the
   answer carries `reanchored`. A grounded claim keeps the time it was first grounded. Cite the passage that states
   the claim, not a neighbouring one, and only from the notes: the engine refuses a passage that lies in no file
   the graph is built from (`passage-not-in-built-sources`).
-- **Nothing states it any more** (the sentence was deleted, or rewritten to say something else): mark it obsolete,
+- **Nothing in `span_gone` states it: ask once before you call it gone (0.28.3).** `new_text` misses what no
+  build recorded as read before the edit (a ledger begun again after it), more new text than it shows, and, for a
+  claim never judged, text a build has read since. Call `kg_ground_item(target_id, "edge", terms="…")` once: at
+  most 8 words, in the language of the file, saying what the claim says the way the new text may say it (other
+  words for its two ends and for its relation), not the words of the old span, which `sections` was already ranked
+  by. Its `requested_context` holds the sections of the claim's file that share the most of them, whatever the
+  file's level; a section shows only when one of its paragraphs shares two of your words. A passage there that
+  states the claim grounds it as in the bullet above, and that verdict is held for a second grounder (**Support
+  found after your request is held**, under Inputs). The engine refuses `obsolete` with `terms-not-asked` until you
+  have asked against the file as it reads now. Through 0.28.2 the request was for another language only, and a
+  rewrite that shared no word with the claim was marked obsolete.
+- **Nothing states it any more** (the sentence was deleted, or rewritten to say something else), and your request
+  found nothing either: mark it obsolete,
   `kg_ground(target_id=<id>, verdict="obsolete", note="<what the text says now, or that the passage was
   removed>")`. An obsolete claim leaves the live graph without counting as a refutation. It stays in the canon,
   and comes back to be judged again if its sentence returns or new text of its file shares its words.
@@ -287,8 +303,9 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     changed has `context: null` there: judge its span in its own `context`, which is that file's text now.
   - For an item your batch marks `span gone` (0.27.0): `span_in_source` is `false`, `context` is `null`, and
     `span_gone` holds what you judge it on: the old `span` and its `source_file`, the `sections` of that file now
-    that share the most of the claim's words, `elsewhere` and `also_present`. See **A claim whose passage left its
-    file**.
+    that share the most of the claim's words, `new_text` (the paragraphs of that file written or rewritten since
+    the claim was last judged, 0.28.3), `elsewhere` and `also_present`. Your one request with `terms` answers
+    `requested_context` over that same file (0.28.3). See **A claim whose passage left its file**.
   - **Every source has a level (0.21.0, 0.22.0).** Each excerpt and section carries `source`: `class` is
     `own` (the user's notes) or `external` (an outside text the user registered with `/burgess:kg-sources`,
     copied by the engine), with its `level` (1 reviewed, 2 institutional, 3 editorial, 4 author or community,
@@ -319,7 +336,9 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
       they left out. The engine records the request; asking again gives back the first words and sections,
       never new ones. For an item a registered source was found for, `kg_record_unsupported` answers
       `terms-not-asked` until you have asked (0.28.2). Through 0.28.1 the request was optional, and in a test
-      made for it the grounder never asked, twice, while the passage that stated the item sat unseen.
+      made for it the grounder never asked, twice, while the passage that stated the item sat unseen. A claim
+      whose passage left its file asks its own file the same way before it is marked obsolete, whatever the
+      language (0.28.3, **A claim whose passage left its file**).
     - **Support found after your request is held.** A grounded verdict you give the item afterwards answers
       `held: true, needs_confirmation: true` and changes nothing: a second grounder confirms it. Report the item
       as held, with the span. Do not record it unsupported and do not call `kg_ground` on it again. The
@@ -331,8 +350,11 @@ Never construct an id by hand and hope. **Use each id exactly as your batch list
     support: not a sentence the source reports someone else saying, not a hypothesis it then sets aside, not
     a weaker or neighbouring claim. You cannot search: `terms` is refused for it. Ground it with that span
     (the verdict answers `confirmed: true` and a line in the notes or the body says how it was found), or
-    leave it `unverified` and record it unsupported, saying what the passage lacks. Never confirm a verdict
-    you were held on yourself.
+    leave it `unverified` and record it unsupported, saying what the passage lacks. When the item also comes
+    with `span_gone`, its passage left its file and the held verdict is a move (0.28.3): confirm it the same
+    way, and the claim's span moves to the passage, or decline it with `obsolete`, with a note on what the
+    passage lacks. Such a claim is never recorded unsupported, and the engine asks no request of you before
+    that `obsolete`. Never confirm a verdict you were held on yourself.
   - **A `confirm` whose `verdict` is `failed` (0.25.0)** is a refutation an adversarial grounder found against a
     `[diverge]` idea. It holds the counter-edge (`refuted_by`), its span and the section around it. Judge only
     whether that passage, in its section, refutes the idea: it shows the idea's own mechanism failing for the
@@ -493,8 +515,8 @@ concept as another node, `get_node` the id you suspect.
    stand (0.17.1).
 4. **Report.** Summarize: N grounded, M rejected (broken out by reason: vague / no-support / wrong-relation /
    wrong-node), K left unverified, O obsolete, split by kind (edge/node), as a per-item table: id, kind, verdict,
-   reason. For each item marked `span gone`, say whether its span moved (and to which passage) or it is now
-   obsolete, and what the text says now.
+   reason. For each item marked `span gone`, say whether its span moved (and to which passage), its move was held
+   (with the words you asked with), or it is now obsolete, and what the text says now.
    Name every item you asked for passages with your own `terms` (0.24.6), with the words: say which one you
    grounded and was held (verdict `held`, with the span), and for a `confirm` item whether you confirmed or
    declined it, and why.

@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.28.3 — 2026-11-27
+
+A claim whose sentence you rewrote in other words is found again, instead of being marked obsolete.
+
+### Fixed
+
+- **The grounder sees the text of the file written since a claim was judged.**
+  - Since 0.27.0 a claim whose sentence left its file is judged again on the sections of its file that share the
+    claim's words. A sentence rewritten in other words can share none of them. Its grounder then saw nothing and
+    marked the claim obsolete, while your notes still stated it. The live test of 0.27.0 named this case, and that
+    release left it out.
+  - Now `kg_ground_item` also gives such a claim `new_text`: the paragraphs of its file written or rewritten since
+    the claim was last judged, whatever their words. The engine reads them from its record of the sections each
+    build read (0.26.0). The rewritten sentence is among them, and the grounder moves the claim to it.
+- **Before it marks such a claim obsolete, the grounder asks its file once in its own words.**
+  - `kg_ground` refuses `obsolete` until the grounder has asked (`kg_ground_item` with `terms`: at most 8 words, in
+    the language of the file). For such a claim the request ranks the sections of its own file, whatever the file's
+    level, where until now it ranked the usable sections of every source.
+  - The request covers what `new_text` cannot see: an edit made before that record began again, and more new text
+    than it shows.
+  - A passage found by the request is held for a second grounder, as support found after any request is. That
+    grounder moves the claim's span to the passage, or marks the claim obsolete.
+  - The request alone was not enough. In a live test built for it, the grounder asked as it now must, but its words
+    shared one with the rewritten sentence, and a section shows only when it shares two, so it marked the claim
+    obsolete. That run is why `new_text` exists. On the same test with `new_text`, the grounder moved the claim to
+    the rewritten sentence at once.
+- **A held move of an obsolete claim reaches its second grounder.** An obsolete claim comes back when new text of
+  its file bears on it. If its grounder then found the passage after asking, the move was held, and the plan left
+  the claim out of every pass, because it queued only the holds on unverified and grounded items. No grounder made
+  such a request before this release, so nobody hit the gap.
+
+### Not changed
+
+- **An edit made before the record of sections read began, or began again after it was lost, is not new text**, as
+  since 0.26.0. The grounder's request is then its only search, and it finds only the sections that share two of
+  its words.
+- **For a claim never judged, text a build has read since is not new to it**: there is no verdict to measure from. A
+  build that writes such a claim again from its new sentence moves it there itself, as since 0.23.1.
+- **Only the claim's own file is searched.** A paragraph moved word for word to another file of the notes shows in
+  `elsewhere`, as since 0.27.0. One moved to another file and reworded is not found.
+- A rejected claim judged again because its file changed, whose sentence is gone, is rejected again without a
+  request, as before. It stays negative memory unless a passage states it.
+
+### Upgrading
+
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- A claim already marked obsolete stays obsolete. It comes back to be judged again when its sentence returns, or
+  when a build reads new text of its file that shares three of its words, as since 0.27.0. One marked obsolete
+  because its sentence was rewritten in other words does not come back by itself.
+- A session opened before the update keeps the old engine, so open a new one.
+
 ## 0.28.2 — 2026-11-26
 
 A grounder asks in the source's language before it leaves an idea waiting for a source.

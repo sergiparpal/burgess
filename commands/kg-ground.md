@@ -127,7 +127,10 @@ sentence, the claim rests on text that is gone: `kg_context`'s `advisory.stale_v
    (`kg_ground_item`'s `span_gone`) and give one of two verdicts: grounded on the passage that states the claim
    now, which moves its span there, or `obsolete`, superseded. The engine refuses to reject such a claim: that
    would be permanent negative memory for a sentence the user edited, and would bar the claim if the sentence
-   came back. Tell the user in a line how many come back for this, and why.
+   came back. A grounder also sees the paragraphs of the file written or rewritten since the claim was last judged
+   (`new_text`, 0.28.3), and before `obsolete` it asks the file once in its own words, since a sentence rewritten
+   in other words may share none of the claim's; a move it finds that way waits for a second grounder (**Held
+   verdicts**, below). Tell the user in a line how many come back for this, and why.
 2. Obsolete claims come back too (`queue.obsolete_returned`, marked `"reexamine": true`): those whose sentence is in
    their file again, and those whose file a build has read new text of since their verdict that shares their
    words. Say how many.
@@ -215,7 +218,8 @@ terms, at most 8 words in the source's language naming what the item claims (you
 support you find after that is held for a second grounder, and kg_ground answers needs_confirmation: report
 it as held and do not record it unsupported. An item marked confirm carries confirm, a passage another
 grounder cited after its own search: judge only whether that passage states the item, with no search of your
-own, and ground it with that span or record it unsupported. An item marked re-examine that is grounded was
+own, and ground it with that span or record it unsupported (one that also comes with span_gone: mark it obsolete
+instead). An item marked re-examine that is grounded was
 grounded before and is judged again on request: its grounded_on holds the passage it rests on. Ground it again if
 that passage states the node itself; if it states only a neighbouring claim, withdraw a [diverge] pin's support
 with kg_ground(verdict "unverified", note saying what the passage lacks) and reject any other node no-support.
@@ -224,9 +228,13 @@ a node the user asked to have judged again, or an item a source changed under si
 comes with reexamine, the sections of that source that share its words. Judge it on those as well, and stamp
 your verdict even though its `from` is that rejection: a rejection again is a verdict too, and it answers the
 re-examination. An item marked span gone has lost its passage: the user deleted or rewrote the sentence its span
-quotes, and kg_ground_item gives span_gone, the sections of its file as it reads now. If a passage there states
-the claim, ground it with that passage as support_span (the engine moves its span there); if nothing states it
-any more, mark it obsolete with a note on what the text says now. Never reject it for this, and stamp it even
+quotes, and kg_ground_item gives span_gone, the sections of its file as it reads now that share the claim's words,
+and new_text, the paragraphs of its file written or rewritten since it was last judged, whatever their words. If a
+passage there states the claim, ground it with that passage as support_span (the engine moves its span there). If
+none does, ask kg_ground_item once more with terms, at most 8 words saying what the claim says the way the
+rewritten text may say it, and judge the sections of its file that share them; a passage found that way is held
+for a second grounder. If nothing states it any more, mark it obsolete with a note on what the text says
+now: the engine refuses obsolete before you have asked. Never reject it for this, and stamp it even
 though its `from` may be grounded. An item marked re-examine that is obsolete came back because its sentence
 returned or new text of its file shares its words: judge it on its span when span_in_source is true, else on
 span_gone, the same way. Then apply ONE verdict with
@@ -242,7 +250,7 @@ mcp__plugin_burgess_burgess__kg_ground(target_id, verdict, kind, note, lead), pe
     (`vague`). For `wrong-relation` and `wrong-node`, pass the edge the span does state as kg_ground's
     `lead`: "<head-id> <relation> <tail-id>". Never for an item whose passage is gone.
   - obsolete: only for an item whose passage is gone (span_in_source false, with span_gone) that no passage
-    states any more, with a note on what the text says now.
+    states any more, after your one request with terms, with a note on what the text says now.
   - a hypothesized item is grounded only with support (a support_span copied from the context, from
     shared_context's excerpts or from its passage, placeholders included, or a support_note); a
     [diverge]-pinned item without support stays unverified, and you record it with
@@ -275,7 +283,9 @@ plan: do not re-launch it, report it.
 gets its verdict held, not applied. The next probe lists that item marked `confirm` (`queue.confirm`), last, in
 a batch of its own. Launch that batch like any other, as its own `kg-grounder` in the next wave, with the item
 written `(node, confirm)` or `(edge, confirm)`. Never hand it back to the grounder that was held: a new launch
-is a new grounder, and that is the point. The engine cannot tell grounders apart; this command does.
+is a new grounder, and that is the point. The engine cannot tell grounders apart; this command does. Since 0.28.3
+this includes a claim whose passage left its file, moved to a passage its grounder found with words of its own: the
+second grounder confirms the move or marks the claim obsolete.
 
 ## Stage 2 — Attack the hubs (kg-adversarial-grounder)
 

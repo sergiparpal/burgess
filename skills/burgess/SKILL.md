@@ -65,8 +65,9 @@ afterward. The portico moved from the door of imagination to after generation.
    rejected as `wrong-relation` or `wrong-node` carries a **lead**, the edge its span does state
    (`kg_ground(..., lead=...)`); **`/burgess:kg-build --leads`** has an extractor write the leads, and the next
    `/burgess:kg-ground` judges them (0.9.0). A claim whose sentence the notes no longer hold is judged again
-   (0.27.0, `span_gone`): grounded on the passage that states it now, which moves its span there, or `obsolete`
-   (superseded, not a refutation; it comes back if its sentence does), never rejected.
+   (0.27.0, `span_gone`, with the file's text written since it was judged, 0.28.3): grounded on the passage that
+   states it now, which moves its span there, or, once its grounder has also searched the file in other words,
+   `obsolete` (superseded, not a refutation; it comes back if its sentence does), never rejected.
 3. **`/burgess:kg-generate [mechanism] [k]`** — turn the graph into an idea generator. `kg_generate` runs the
    deterministic discovery mechanisms (bridge §2/§4, seed §3, compression §7, regroup §8, transplant §5,
    ensemble §9, periphery §5 — low-degree sources) over the derived graph and emits ranked structural
