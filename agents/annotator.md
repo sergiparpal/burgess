@@ -49,13 +49,85 @@ still be too general (vague) or mislabeled (wrong_type). Decide each axis indepe
 ### Decision order (apply in this sequence, first hit wins)
 1. Is there NO span and NO real support in the source for this connection? → **fabricated** (span_found=n).
 2. Is the connection real but "true only because the endpoints are generic / unfalsifiable"? → **vague**.
-3. Are the endpoints related but the relation label wrong for what the source actually says? → **wrong_type**.
+3. Are the endpoints related but the relation wrong for what the source actually says, read by the table below?
+   → **wrong_type**.
 4. Otherwise — true, specific, span-backed → **correct**.
 
 Be STRICT. When you cannot find a verbatim span and you are inferring the relation from "it sounds
 right", that is not `correct` — it is `vague` or `fabricated`. The whole point of this document
 (§Intro) is that its claims do not verify themselves, so a naive reader turns it into convincing
 nonsense. Do not be that reader.
+
+---
+
+## What each relation asserts
+
+The extractor wrote each edge by this table, and the grounders judged it by the same one: label it by the same
+one too (0.29.1). A relation is `correct` only when its span states it as the table defines it, with HEAD and
+TAIL in their roles. It is `wrong_type` when the table gives what the span states another relation, or the
+other direction.
+
+<!-- relation-roles:begin (agents/extractor.md holds the same block; tests/test_fix_relation_rules.py keeps them identical) -->
+| relation         | HEAD is…                     | TAIL is…                                |
+|------------------|------------------------------|-----------------------------------------|
+| grounds          | the evidence or reason       | the claim it supports                   |
+| attacked_by      | the victim (vaguer/weaker)   | the attacker (stronger/more specific)   |
+| defends_against  | the remedy/defense           | the threat/problem                      |
+| confounded_by    | the biased metric/value      | the confound that biases it             |
+| collapses_into   | the thing that reduces       | what it reduces to                      |
+| approximates     | the cheap proxy              | the truer target it stands in for       |
+| projects         | the regenerable projection   | the source it derives from              |
+| survives         | the claim/info that persists | the operation node it survives          |
+| enables          | the precondition or means    | what it makes possible                  |
+| increases        | the factor (cause/treatment) | the quantity it raises                  |
+| decreases        | the factor (cause/treatment) | the quantity it lowers                  |
+
+(`reconciles_with` and `bridges` feel symmetric but are still typed HEAD→TAIL: for `reconciles_with`,
+HEAD is the resolution and TAIL is the intuition it rescues; for `bridges`, HEAD is the node that joins
+the two communities.)
+
+`grounds` and `enables` are not interchangeable. `grounds` is evidence or a reason to believe: the span offers
+the HEAD as what shows the TAIL is true, or as a reason to think it is. `enables` is a precondition or a means:
+the span says the HEAD makes the TAIL possible, or makes it work («permite», «hace posible», «sin X no hay
+Y»). «Lo que lo permite son comprobadores deterministas» enables retiring review; it is no evidence that
+retiring review works. A connective does not decide between the two (0.10.0): «por eso», «porque» or «así
+que» says that the HEAD explains the TAIL, not how, so ask what the HEAD does for the TAIL. «O puedes bajar la
+variedad del entorno hasta que el controlador que sí puedes construir sea suficiente. Por eso funcionan los
+robots industriales» gives the means that makes the robots work: it states `enables`, not `grounds`.
+
+`confounded_by` is a confound: a factor that biases the HEAD's figure, whether it inflates it, lowers it, or
+makes it count something other than what it claims to (0.11.0). Equivalent mutants, which no test can kill,
+lower a mutation score: the score is `confounded_by` them. Through 0.10.2 this table said only "inflates",
+and grounders ratified confounds that lower a figure or change what it counts, since the pack has no other
+relation for them.
+
+`increases` and `decreases` state an effect and its sign (0.29.0): the span says that the TAIL, a quantity such
+as a rate, a score, a time, a level or a risk, rises or falls because of the HEAD, in a result, a comparison of
+conditions or a mechanism the source asserts («aumenta», «reduce», «acelera», «is higher with»). The sign is the
+quantity's own: «reduce la tasa de fallos» is `decreases` on the failure rate, «mejora la cobertura» `increases`
+on coverage. The HEAD is the factor present, so a TAIL that rises when the HEAD is taken away is a decrease:
+«PRODa is significantly higher when suggestions are disabled» states `automatic-suggestions decreases
+experts-actual-productivity`. When the source gives the effect for one group or condition only, the TAIL names
+it (`experts-actual-productivity`, not `actual-productivity`). None of these states an effect: a hypothesis or an
+expectation («we expect that X might reduce Y»), a difference the source itself calls not significant, and an
+association or a predictor («is associated with», «predicts», «se asocia con»), which has no pack relation (a
+predictor is no proxy either, so it is not `approximates`). What another relation covers stays there. What makes
+the TAIL possible is `enables`. A remedy the source adopts or recommends against a threat is `defends_against`
+(«to limit fatigue, we added a break»), while a fall it reports in a quantity is `decreases` («the break lowered
+the fatigue scores»). A bias of a figure is `confounded_by`.
+<!-- relation-roles:end -->
+
+**The table decides, not the source's word for the relation (0.29.1).** A source may name a relation loosely,
+even with one of the pack's own names: what decides is what the span says the HEAD does for the TAIL. «Yeast
+*grounds* a light crumb: without yeast the dough does not rise» gives a precondition, so `yeast enables
+light-crumb` is `correct` and `yeast grounds light-crumb` is `wrong_type`, whatever word the author chose.
+
+**An attack does not have to refute (0.29.1).** `attacked_by` holds when the span sets a more specific case,
+condition or claim against the HEAD: a word turns it against the HEAD (*but*, *against*, «pero», «en contra», a
+caveat that limits it) or a header says so. A limit the source states is such an attack, the case its TAIL,
+even though the HEAD still holds elsewhere: «Watering every day keeps a lawn green, but in a heatwave it browns
+anyway» states `daily-watering attacked_by heatwave`. It is `wrong_type` when the span relates the two another
+way: the TAIL supports the HEAD, explains it, or is a part of it.
 
 ---
 

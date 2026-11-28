@@ -32,6 +32,17 @@ the user's request: its grounder gets `grounded_on`, the passage it rests on. A 
 without a focus. A focus keeps the items whose id or label holds every word of it, so name one item by its full
 id to judge that one alone.
 
+<!-- plain-words:begin (every command holds this block; tests/test_fix_annotators_and_plain_words.py keeps the ten identical) -->
+**Talk to the user in plain words (0.29.1).** This text cites the plan's sections (§1.7) and names the engine's
+fields and tools (`on_unusable_total`, `kg_merge`) so that you can find them; the user knows none of them. Say
+what each one means: «2 grounded claims no longer rest on a usable source», not `on_unusable_total: 2`; «I can
+merge the two nodes», not `kg_merge`. Show no plan section (§), in a table either. Keep as they are the commands
+to type (`/burgess:kg-ground`), the ids of nodes and edges, file names, a section of the user's document by its
+title or its number, the pack's relations and types (`grounds`, `claim`), the states and provenances
+(`grounded`, `span-present`), and any reply this text asks the user to type exactly. A log entry keeps the format
+its step gives.
+<!-- plain-words:end -->
+
 ## Stage 0 — Plan the pass (read-only)
 
 Find what is actually pending before spending any subagent budget.
@@ -276,8 +287,11 @@ those. A re-examined item drops out once a grounder has given it a new verdict, 
 item marked span gone once its span has moved or it is obsolete (0.27.0). A
 `[diverge]` pin a grounder left `unverified` for want of support drops out of the plan once the
 grounder records it with `kg_record_unsupported`, and is counted in `queue.unsupported_waiting`; since 0.22.0
-so does a claim whose only support lies below the project's required level. One it did not record stays in the
-plan: do not re-launch it, report it.
+so does a claim whose only support lies below the project's required level. With a focus, the probe lists such an
+item again: a focus offers recorded items again, as a fresh look, so the pin or claim a grounder of this pass has
+just recorded, or whose grounding it has just withdrawn on `--reexamine`, is back in its `batches`. It has had its
+look in this pass: do not re-launch it (0.29.1). One it did not record stays in the plan: do not re-launch it,
+report it.
 
 **Held verdicts (0.24.6).** A grounder that asked for passages with its own words and then found support
 gets its verdict held, not applied. The next probe lists that item marked `confirm` (`queue.confirm`), last, in
@@ -371,7 +385,7 @@ Render a summary like:
 Grounding pass complete.
   queue drained : unverified  N → M
   verdicts      : grounded +g, rejected +r, failed +f, obsolete +o
-  memory        : falsification_counters.failed_or_rejected_edges = K  (never pruned, §1.7)
+  memory        : K claims rejected or refuted, kept as negative memory (never pruned)
   hubs attacked : <hub list> → C counter-edges, R recorded with none
 ```
 

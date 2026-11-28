@@ -3764,3 +3764,76 @@ Every kickoff answer, every default applied on timeout, every judgment call. One
 - **Pinned in:** `tests/test_feat_effect_relations.py`. `tests/test_fix_relation_rules.py` keeps every list of the
   relations complete and the two tables identical. `tests/test_fix_edgeless_sections.py`'s first test plans its
   «Fuentes» section with `--all`, since a plain plan now leaves it out.
+
+## Three fixes in the text the agents read: a focused probe, the annotators' table, plain words (2026-11-28)
+
+- **What it answers:** on 2026-11-28 the user asked what was still open. Three small findings of the field and
+  end-to-end runs had fixes in the text alone, none of them in a verdict rule, and the user approved them as
+  0.29.1 («Sí, prepárala»). The engine's code does not change.
+- **Decision 1: a focused probe lists a recorded item again, and `/kg-ground` says not to launch it again.**
+  - What the engine does: under a focus `kg_ground_plan` skips the ledger of items recorded unsupported
+    (`unsupported = {} if focus`, since 0.20.1), because naming an item asks for a fresh look. A withdrawn
+    grounding is recorded in the same ledger (0.24.7).
+  - What the field showed: on 2026-11-24, twice, `--reexamine <full id>` withdrew a pin's support, and the
+    progress probe, called with the same arguments, listed the pin again. The session did not launch it again, on
+    its own judgment. The command said a recorded item drops out of the plan, which holds only without a focus.
+  - The change: two sentences in the progress probe. The engine is unchanged: the focus is how a user asks again,
+    and the orchestrator knows which items this pass's grounders have judged.
+  - Rejected: an engine that leaves out, under a focus, the items recorded during the same pass. The engine cannot
+    tell one pass from the next, and a focus would then no longer ask for a fresh look.
+- **Decision 2: the annotators label by the extractor's table. The table decides, and an attack need not refute.**
+  - What 0.25.2 left open: in the end-to-end run of 2026-11-25 the annotators labeled `wrong_type` two edges the
+    grounders had grounded. One was `span-check attacked_by out-of-context-verbatim-quote`, from «One caveat
+    limits the span check…». The other was the lead `span-present-provenance enables authority-of-span-check`,
+    where the author had written *grounds* for a precondition. The 0.25.2 entry left to the user which one
+    decides, the author's relation word or the pack's definition, and whether a limitation counts as an attack.
+  - What settles it: the extractor writes and the grounder judges by one table (0.8.0). A measurement of the
+    extractor has to use that table too, or it counts as errors the edges the contract asks for. The grounders
+    grounded the caveat's counter-edge in both end-to-end runs (2026-11-25 and 2026-11-26), and the adversarial
+    grounder's contract lets a counter-edge challenge a hub without refuting it (Step 2d).
+  - The change: `annotator.md` holds the relation-roles block word for word, and `test_fix_relation_rules.py`
+    keeps the three copies identical. Its decision order reads `wrong_type` by the table, and two rules follow
+    the block.
+  - The examples are made up (yeast and a light crumb, a lawn in a heatwave). A pending field claim used as an
+    example primed a verdict once (0.18.1), and neither the demo nor the end-to-end source holds these.
+  - `/kg-eval`'s prompt to the annotators says to judge each relation by that table.
+  - Not changed: the shared block itself, so the extractor and the grounders read exactly what they read before.
+  - What it costs: a precision measured before 0.29.1 may count such edges as errors, so a change across this
+    version is not the extractor's alone.
+- **Decision 3: one block of plain words in every command.**
+  - What the run showed: field names (`on_unusable_total`), a tool name (`kg_merge`), the plan's §1.6 and §1.7 in
+    a `/kg-query` answer, and a § column reading §9 in the perturbation slate.
+  - Why: the command texts cite the plan and name fields so that the session can find them. Their templates
+    passed some of that on: `/kg-query`'s falsification counters and advisory, `/kg-ground`'s summary, and the
+    § columns of the two slates.
+  - The change: the templates lose them. Every command holds one block, identical in all ten and read before its
+    first step (`test_fix_annotators_and_plain_words.py`). It says what to keep as it is: the commands to type,
+    ids, file names, the sections of the user's own documents, the pack's relations and types, the states and
+    provenances, exact replies, and a log entry's format.
+  - Rejected: a rule in the skill only, since the skill is not loaded with every command.
+- **Live test** (on «Sí, pruébala», 2026-11-28; WSL, Claude Code 2.1.316, Opus 5.5, `--plugin-dir` on this branch,
+  the read block on; $1.55 in three runs, 0 permission denials, 0 tool errors). The project was a copy of the
+  end-to-end project of 2026-11-25 with its ledgers, so the session's reconcile kept every verdict. A dry copy
+  showed that first: 0 verdicts re-quarantined, and the sheet held the three edges.
+  - `/kg-eval` ($1.04, 84 s): all three annotators labeled `span-check attacked_by out-of-context-verbatim-quote`
+    and `span-present-provenance enables authority-of-span-check` `correct`, and the rejected
+    `span-present-provenance grounds authority-of-span-check` `wrong_type`. Their notes cite the rules («a caveat
+    limiting the HEAD = attack», «enables per the table»). Precision 0.94 (16 of 17), α 1.000, and every label
+    matched its edge's verdict (grounded 16 of 16 correct, rejected 0 of 1).
+  - Before, in the three measurements of that canon (0.25.1 on 2026-11-25, the field runs of 0.28.0 and 0.28.1 on
+    2026-11-26, nine labels each): the lead `wrong_type` 9 of 9, the `grounds` edge `correct` 9 of 9, the
+    counter-edge `correct` 5 of 9.
+  - `/kg-query What limits the span check?` ($0.28) and `/kg-sources policy` ($0.23) answered with no § and no field
+    or tool name. The counters came as «18 rejected or refuted claims», and the policy said that no grounded claim
+    had lost its usable source. Only `build_from_notes` showed, inside a command it gave the user to type.
+  - The block first named neither the pack's relations nor its types among what stays as it is, and a session could
+    have taken them for engine names. They were added after the `/kg-eval` run, before the other two.
+  - Not tried live: the focused probe, whose two engine tests run the plan itself.
+  - Seen, not changed: the `/kg-eval` report said the rejected `grounds` edge "was written before the rule
+    existed". It was written on 0.25.1, long after the rule (0.8.0): the extractor followed the author's word. The
+    inference comes from step 4.4's own sentence, "When the contract already states the rule an error breaks, the
+    edge was written before the rule", which holds only for a canon older than the rule.
+- **Not done** (still open): a same-wave duplicate concept is never offered for a merge; a passing TLS failure
+  (`truststore`); section titles and a related-work rule for grounders (protection 3); grounders differ on
+  support spans in «In summary».
+- **Pinned in:** `tests/test_fix_annotators_and_plain_words.py`, `tests/test_fix_relation_rules.py`.

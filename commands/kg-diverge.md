@@ -32,6 +32,17 @@ approval, most of it before the first round. The session's own state needs no fi
 the seed, the pins, the discards and the comparisons, and `kg_diverge_export` writes every idea of the
 session to a file for the user (step 11). Never read `.kg/diverge/` files.
 
+<!-- plain-words:begin (every command holds this block; tests/test_fix_annotators_and_plain_words.py keeps the ten identical) -->
+**Talk to the user in plain words (0.29.1).** This text cites the plan's sections (§1.7) and names the engine's
+fields and tools (`on_unusable_total`, `kg_merge`) so that you can find them; the user knows none of them. Say
+what each one means: «2 grounded claims no longer rest on a usable source», not `on_unusable_total: 2`; «I can
+merge the two nodes», not `kg_merge`. Show no plan section (§), in a table either. Keep as they are the commands
+to type (`/burgess:kg-ground`), the ids of nodes and edges, file names, a section of the user's document by its
+title or its number, the pack's relations and types (`grounds`, `claim`), the states and provenances
+(`grounded`, `span-present`), and any reply this text asks the user to type exactly. A log entry keeps the format
+its step gives.
+<!-- plain-words:end -->
+
 ## Reach — how far out (the divergence dial)
 
 Maximum divergence is not always what the user wants: it produces extravagant, and

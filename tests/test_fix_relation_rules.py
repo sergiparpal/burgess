@@ -30,6 +30,7 @@ REPO = Path(__file__).resolve().parents[1]
 PACK = load_pack(REPO / "pack" / "pack.yaml")
 EXTRACTOR = (REPO / "agents" / "extractor.md").read_text(encoding="utf-8")
 GROUNDER = (REPO / "agents" / "grounder.md").read_text(encoding="utf-8")
+ANNOTATOR = (REPO / "agents" / "annotator.md").read_text(encoding="utf-8")
 CMD = (REPO / "commands" / "kg-ground.md").read_text(encoding="utf-8")
 
 
@@ -61,6 +62,12 @@ def test_an_enables_edge_is_accepted(vault: Path, tmp_path: Path):
 
 def test_the_grounder_judges_by_the_extractors_relation_table():
     assert _roles(GROUNDER) == _roles(EXTRACTOR)
+
+
+def test_the_annotator_labels_by_the_extractors_relation_table():
+    # 0.29.1: in the end-to-end run of 2026-11-25 the annotators, who had no table, labeled wrong_type two edges
+    # the grounders had grounded by this one (tests/test_fix_annotators_and_plain_words.py)
+    assert _roles(ANNOTATOR) == _roles(EXTRACTOR)
 
 
 def test_the_relation_table_covers_every_pack_relation():

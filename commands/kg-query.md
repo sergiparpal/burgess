@@ -11,6 +11,17 @@ job is to answer the question while **faithfully surfacing the grounding state o
 
 Question: **$ARGUMENTS**
 
+<!-- plain-words:begin (every command holds this block; tests/test_fix_annotators_and_plain_words.py keeps the ten identical) -->
+**Talk to the user in plain words (0.29.1).** This text cites the plan's sections (§1.7) and names the engine's
+fields and tools (`on_unusable_total`, `kg_merge`) so that you can find them; the user knows none of them. Say
+what each one means: «2 grounded claims no longer rest on a usable source», not `on_unusable_total: 2`; «I can
+merge the two nodes», not `kg_merge`. Show no plan section (§), in a table either. Keep as they are the commands
+to type (`/burgess:kg-ground`), the ids of nodes and edges, file names, a section of the user's document by its
+title or its number, the pack's relations and types (`grounds`, `claim`), the states and provenances
+(`grounded`, `span-present`), and any reply this text asks the user to type exactly. A log entry keeps the format
+its step gives.
+<!-- plain-words:end -->
+
 ## What you may NOT do
 - Do **not** present a hypothesized or unverified edge as fact. An edge is only a *fact in the canon* when its
   `epistemic_state` is `grounded`. Everything else is a candidate, a downgrade, or negative information.
@@ -113,8 +124,8 @@ Rules:
 ### 4. Always report the falsification counters
 Close with the negative information, even if the count is zero:
 
-> **Falsification counters:** `failed_or_rejected_edges = <n>` — rejected/failed edges are kept as negative
-> information (§1.7) and are never pruned. A non-zero count means the graph remembers claims it refuted.
+> **Falsification counters:** <n> claims rejected or refuted — kept as negative information and never pruned.
+> A non-zero count means the graph remembers claims it refuted.
 
 If the question touches a node that has incident `failed`/`rejected` edges (check via `get_node` /
 `query_graph(epistemic_state="failed")`), name them — a claim that `collapses_into` a known failure is
@@ -125,7 +136,7 @@ If `advisory.nodes` is non-empty and relevant, present it under an explicit head
 
 > **Advisory (heuristic, NOT a guarantee):** structural-bridge signal flags `betweenness`, `compression`
 > (by degree). Per the engine: "*advisory heuristic, not a guarantee*." Degree is the honest MVP proxy that
-> `approximates` importance; specificity-weighted betweenness is **gated until validated** (§1.6), so do not
+> `approximates` importance; specificity-weighted betweenness is **gated until validated**, so do not
 > treat these as confirmed bridges.
 
 ## Worked shape (from examples/source.md)
@@ -136,8 +147,8 @@ For a question like *"What grounds a compression?"*:
 2. Answer:
    - `specificity --attacked_by--> compression` **[span-present / unverified]** — candidate, not yet a verdict.
    - If a `grounds` edge is present and `grounded`, that is the fact to lead with.
-3. **Falsification counters:** `failed_or_rejected_edges = 0`.
+3. **Falsification counters:** 0 claims rejected or refuted.
 4. **Advisory (heuristic, NOT a guarantee):** structural-bridge nodes by degree, if any.
 
-Keep the answer tight and §-referenced. The deliverable is a **grounded** answer: every claim tagged with its
+Keep the answer tight. The deliverable is a **grounded** answer: every claim tagged with its
 provenance and epistemic state, failures surfaced, and the bridge advisory labelled as a heuristic.
