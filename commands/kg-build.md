@@ -20,6 +20,17 @@ plugin's files, and do not write helper scripts: the tools this command declares
 Claude Code ignores a command's permission to use Bash, so every shell command would wait on its classifier,
 or on the user. If a step seems to need a shell or a file, stop and report it instead of working around it.
 
+<!-- plain-words:begin (every command holds this block; tests/test_fix_annotators_and_plain_words.py keeps the ten identical) -->
+**Talk to the user in plain words (0.29.1).** This text cites the plan's sections (§1.7) and names the engine's
+fields and tools (`on_unusable_total`, `kg_merge`) so that you can find them; the user knows none of them. Say
+what each one means: «2 grounded claims no longer rest on a usable source», not `on_unusable_total: 2`; «I can
+merge the two nodes», not `kg_merge`. Show no plan section (§), in a table either. Keep as they are the commands
+to type (`/burgess:kg-ground`), the ids of nodes and edges, file names, a section of the user's document by its
+title or its number, the pack's relations and types (`grounds`, `claim`), the states and provenances
+(`grounded`, `span-present`), and any reply this text asks the user to type exactly. A log entry keeps the format
+its step gives.
+<!-- plain-words:end -->
+
 ## Inputs
 
 **Arguments, as typed:** `$ARGUMENTS`

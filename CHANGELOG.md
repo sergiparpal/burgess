@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.29.1 — 2026-11-28
+
+Three small things the field and end-to-end runs found, fixed in the text the agents read. The engine's code does
+not change, and no verdict rule does.
+
+### Fixed
+
+- **`/burgess:kg-ground` says not to launch again what a focused progress probe lists again.**
+  - A focus offers again the items a grounder recorded unsupported, as a fresh look, and a withdrawn grounding is
+    recorded the same way. So the probe after a focused wave lists again the pin or claim its grounder has just
+    recorded, or whose support it has just withdrawn on `--reexamine`.
+  - The command said such an item drops out of the plan, which holds only without a focus. Twice on 2026-11-24
+    the session saw a withdrawn pin back in the probe and, on its own judgment, did not launch it again.
+  - Now the command says so: that item has had its look in this pass.
+- **`/burgess:kg-eval`'s annotators label a relation by the table the extractor wrote it by.**
+  - They had no table of what each relation asserts. In the end-to-end run of 2026-11-25 they labeled
+    `wrong_type` two edges the grounders had grounded by that table: a counter-edge built on a limit the source
+    states («One caveat limits the span check…»), and a lead typed `enables` where the author had written
+    *grounds* for a precondition.
+  - The annotator now holds the extractor's table of relations word for word, as the grounder does, with two
+    rules. The table decides, not the word the source uses for a relation, even one of the pack's own names. And
+    an attack does not have to refute: a limit the source sets against a claim is an attack.
+  - So a precision measured before this version may count such edges as errors.
+- **You no longer see the plan's sections or the engine's field and tool names.**
+  - The same run showed you `on_unusable_total` (`/burgess:kg-sources policy`), a suggestion to use `kg_merge`
+    (`/burgess:kg-build`), the plan's §1.6 and §1.7 (`/burgess:kg-query`), and a § column reading §9 in
+    `/burgess:kg-perturb`'s slate.
+  - Every command now holds one short block, the same in all ten, read before its first step: say what a field, a
+    tool or a section of the plan means. The commands to type, ids, file names, the sections of your own
+    documents, the pack's relations and types, and the states and provenances (`grounded`, `span-present`) stay
+    as they are.
+  - The templates you see carry none of them any more: `/burgess:kg-ground`'s summary, `/burgess:kg-query`'s
+    falsification counters and advisory, and the slates of `/burgess:kg-generate` and `/burgess:kg-perturb`,
+    which lose their § column.
+- **Checked live**, on a copy of the end-to-end project of 2026-11-25.
+  - All three annotators labeled the counter-edge and the `enables` lead `correct`, and the `grounds` edge the
+    grounders had rejected `wrong_type`, so every label matched its edge's verdict. In the three earlier
+    measurements of that graph, all nine annotators had labeled the lead `wrong_type`, and four the counter-edge.
+  - `/burgess:kg-query` and `/burgess:kg-sources policy` answered with no § and no field or tool name.
+  - The focused probe was not run live: its tests run the engine's plan.
+
+### Upgrading
+
+- `pyproject.toml` changes only its version line, so the venv is not rebuilt for this version.
+- A session opened before the update keeps the old commands and agents, so open a new one.
+
 ## 0.29.0 — 2026-11-27
 
 The pack gains two relations for an effect, `increases` and `decreases`, so a finding such as «automatic
